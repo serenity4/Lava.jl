@@ -3,6 +3,9 @@ uuid = "8fb73131-e68b-4921-b325-b6dc47707796"
 authors = ["Cédric Belmant"]
 version = "0.1.0"
 
+[deps]
+Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
+
 [compat]
 julia = "1.6"
 
