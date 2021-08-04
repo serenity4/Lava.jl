@@ -7,6 +7,7 @@ version = "0.1.0"
 Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
 
 [compat]
+Vulkan = "0.3"
 julia = "1.6"
 
 [extras]
