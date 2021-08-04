@@ -51,8 +51,16 @@ Vk.cmd_bind_pipeline(cbuffer::VkCommandBuffer, pipeline::VkPipeline) = Vk.cmd_bi
 Vk.cmd_bind_vertex_buffers(cbuffer::VkCommandBuffer, buffers::AbstractVector{<:Buffer}) = Vk.cmd_bind_vertex_buffers(cbuffer, buffers, offset.(buffers))
 Vk.cmd_bind_index_buffer(cbuffer::VkCommandBuffer, buffers::AbstractVector{<:Buffer}, T) = Vk.cmd_bind_index_buffer(cbuffer, buffer, offset(buffer), IndexType(T))
 
+Vk.get_image_memory_requirements(image::Image) = Vk.get_image_memory_requirements(device(image), handle(image))
+Vk.get_buffer_memory_requirements(buffer::Buffer) = Vk.get_buffer_memory_requirements(device(buffer), handle(buffer))
+
+# TODO: wrap get_image/buffer_memory_requirements_2 for supported parameters (in pNext chain of the create info structure)
+get_memory_requirements(image::Image) = Vk.get_image_memory_requirements(image)
+get_memory_requirements(buffer::Buffer) = Vk.get_buffer_memory_requirements(buffer)
+
 Base.bind(buffer::Buffer, memory::Memory) = Vk.bind_buffer_memory(buffer, memory)
 Base.bind(image::Image, memory::Memory) = Vk.bind_image_memory(image, memory)
+
 record(cbuffer::VkCommandBuffer, ::typeof(bind), pipeline::VkPipeline) = Vk.cmd_bind_pipeline(cbuffer, pipeline)
 record(cbuffer::VkCommandBuffer, ::typeof(bind), buffers::AbstractVector{<:Buffer}, ::Type{<:Vertex}) = Vk.cmd_bind_vertex_buffers(cbuffer, pipeline, buffers)
 record(cbuffer::VkCommandBuffer, ::typeof(bind), buffers::Buffer, ::Type{<:Index{T}}) where {T} = Vk.cmd_bind_index_buffer(cbuffer, pipeline, buffer, T)
