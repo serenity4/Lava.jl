@@ -45,8 +45,8 @@ struct VkSemaphore <: SynchronizationPrimitive{GPU,GPU}
     handle::Vk.Semaphore
 end
 
-Vk.bind_buffer_memory(buffer::Buffer, memory) = Vk.bind_buffer_memory(device(buffer), memory, offset(memory))
-Vk.bind_image_memory(image::Image, memory) = Vk.bind_image_memory(device(image), memory, offset(memory))
+Vk.bind_buffer_memory(buffer::Buffer, memory) = Vk.bind_buffer_memory(device(buffer), buffer, memory, offset(memory))
+Vk.bind_image_memory(image::Image, memory) = Vk.bind_image_memory(device(image), image, memory, offset(memory))
 Vk.cmd_bind_pipeline(cbuffer::VkCommandBuffer, pipeline::VkPipeline) = Vk.cmd_bind_pipeline(cbuffer, Vk.PipelineBindPoint(typeof(pipeline)), pipeline)
 Vk.cmd_bind_vertex_buffers(cbuffer::VkCommandBuffer, buffers::AbstractVector{<:Buffer}) = Vk.cmd_bind_vertex_buffers(cbuffer, buffers, offset.(buffers))
 Vk.cmd_bind_index_buffer(cbuffer::VkCommandBuffer, buffers::AbstractVector{<:Buffer}, T) = Vk.cmd_bind_index_buffer(cbuffer, buffer, offset(buffer), IndexType(T))
@@ -58,8 +58,8 @@ Vk.get_buffer_memory_requirements(buffer::Buffer) = Vk.get_buffer_memory_require
 get_memory_requirements(image::Image) = Vk.get_image_memory_requirements(image)
 get_memory_requirements(buffer::Buffer) = Vk.get_buffer_memory_requirements(buffer)
 
-Base.bind(buffer::Buffer, memory::Memory) = Vk.bind_buffer_memory(buffer, memory)
-Base.bind(image::Image, memory::Memory) = Vk.bind_image_memory(image, memory)
+Base.bind(buffer::LavaAbstraction, memory::Memory) = Vk.bind_buffer_memory(Lava.buffer(buffer), memory)
+Base.bind(image::LavaAbstraction, memory::Memory) = Vk.bind_image_memory(Lava.image(image), memory)
 
 record(cbuffer::VkCommandBuffer, ::typeof(bind), pipeline::VkPipeline) = Vk.cmd_bind_pipeline(cbuffer, pipeline)
 record(cbuffer::VkCommandBuffer, ::typeof(bind), buffers::AbstractVector{<:Buffer}, ::Type{<:Vertex}) = Vk.cmd_bind_vertex_buffers(cbuffer, pipeline, buffers)
