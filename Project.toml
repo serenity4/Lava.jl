@@ -4,6 +4,10 @@ authors = ["Cédric Belmant"]
 version = "0.1.0"
 
 [deps]
+Dictionaries = "85a47980-9c8c-11e8-2b9f-f7ca1fa99fb4"
+MLStyle = "d8e11817-5142-5d16-987a-aa16d5891078"
+Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
+ResultTypes = "08a2b407-ddc3-586a-afd6-c784ad1fffe2"
 Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
 
 [compat]

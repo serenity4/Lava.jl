@@ -10,7 +10,7 @@ Opaque handle to a foreign API data structure. Necessary to interact with extern
 """
 function handle end
 
-handle(x) = x.handle
+handle(x) = Vk.handle(x)
 
 include("memory.jl")
 include("buffer.jl")

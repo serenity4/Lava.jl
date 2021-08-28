@@ -1,49 +1,5 @@
-Vk.device(x::LavaAbstraction) = Vk.device(handle(x))
-Vk.instance(x::LavaAbstraction) = Vk.instance(handle(x))
-
-struct VkMemory <: Memory
-    handle::Vk.DeviceMemory
-end
-
-struct VkImage{N} <: Image{N}
-    handle::Vk.Image
-end
-
-struct VkBuffer <: Buffer
-    handle::Vk.Buffer
-end
-
-struct VkCommandBuffer <: CommandRecord
-    handle::Vk.CommandBuffer
-end
-
-struct VkPipeline{T} <: Pipeline{T}
-    handle::Vk.Pipeline
-end
-
-struct VkDescriptorSet <: ResourceReference
-    handle::Vk.DescriptorSet
-end
-
-struct VkCommandPool <: Pool{VkCommandBuffer}
-    handle::Vk.CommandPool
-end
-
-struct VkDescriptorPool <: Pool{VkDescriptorSet}
-    handle::Vk.DescriptorPool
-end
-
-struct VkFence <: SynchronizationPrimitive{CPU,GPU}
-    handle::Vk.Fence
-end
-
-struct VkEvent <: SynchronizationPrimitive{Any,Any}
-    handle::Vk.Event
-end
-
-struct VkSemaphore <: SynchronizationPrimitive{GPU,GPU}
-    handle::Vk.Semaphore
-end
+device(x::LavaAbstraction) = Vk.device(handle(x))
+instance(x::LavaAbstraction) = Vk.instance(handle(x))
 
 Vk.bind_buffer_memory(buffer::Buffer, memory) = Vk.bind_buffer_memory(device(buffer), buffer, memory, offset(memory))
 Vk.bind_image_memory(image::Image, memory) = Vk.bind_image_memory(device(image), image, memory, offset(memory))
@@ -57,9 +13,6 @@ Vk.get_buffer_memory_requirements(buffer::Buffer) = Vk.get_buffer_memory_require
 # TODO: wrap get_image/buffer_memory_requirements_2 for supported parameters (in pNext chain of the create info structure)
 get_memory_requirements(image::Image) = Vk.get_image_memory_requirements(image)
 get_memory_requirements(buffer::Buffer) = Vk.get_buffer_memory_requirements(buffer)
-
-Base.bind(buffer::LavaAbstraction, memory::Memory) = Vk.bind_buffer_memory(Lava.buffer(buffer), memory)
-Base.bind(image::LavaAbstraction, memory::Memory) = Vk.bind_image_memory(Lava.image(image), memory)
 
 record(cbuffer::VkCommandBuffer, ::typeof(bind), pipeline::VkPipeline) = Vk.cmd_bind_pipeline(cbuffer, pipeline)
 record(cbuffer::VkCommandBuffer, ::typeof(bind), buffers::AbstractVector{<:Buffer}, ::Type{<:Vertex}) = Vk.cmd_bind_vertex_buffers(cbuffer, pipeline, buffers)
@@ -80,8 +33,6 @@ Base.reset(pool::Pool{VkDescriptorSet}; flags=0) = Vk.reset_descriptor_pool(devi
 Base.reset(event::SynchronizationPrimitive{Any,Any}) = Vk.reset_event(device(event), fences)
 Base.reset(fences::AbstractVector{<:SynchronizationPrimitive{CPU,GPU}}) = Vk.reset_fences(device(first(fences)), fences)
 
-Base.map(memory::Memory, offset, size) = Vk.map_memory(device(memory), handle(memory), offset, size)
-unmap(memory::Memory) = Vk.unmap_memory(device(memory), memory)
 
 # # Flags
 
