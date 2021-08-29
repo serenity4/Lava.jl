@@ -14,7 +14,8 @@ Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
 julia = "1.6"
 
 [extras]
+SwiftShader_jll = "c404ff5a-e271-5628-8eaa-423d39d64c15"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Test", "SwiftShader_jll"]
