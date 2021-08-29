@@ -97,6 +97,8 @@ dim(T::Type{<:ImageView}) = dim(image_type(T))
 
 memory_type(T::Type{<:ImageView}) = memory_type(image_type(T))
 
+vk_handle_type(T::Type{<:ImageView}) = Vk.ImageView
+
 format(view::ImageView) = view.format
 
 function flag(T::Type{<:Image})
@@ -118,18 +120,23 @@ end
 View(image::Image, args...; kwargs...) = ImageView(image, args...; kwargs...)
 
 function ImageView(image::I;
-              view_type = flag(View{I}),
+              view_type = flag(ImageView{I}),
               format = format(image),
-              component_mapping = Vk.ComponentMapping(COMPONENT_SWIZZLE_IDENTITY, COMPONENT_SWIZZLE_IDENTITY, COMPONENT_SWIZZLE_IDENTITY, COMPONENT_SWIZZLE_IDENTITY),
+              component_mapping = Vk.ComponentMapping(
+                  Vk.COMPONENT_SWIZZLE_IDENTITY,
+                  Vk.COMPONENT_SWIZZLE_IDENTITY,
+                  Vk.COMPONENT_SWIZZLE_IDENTITY,
+                  Vk.COMPONENT_SWIZZLE_IDENTITY
+              ),
               aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
-              mip_range = 0:image.mip_levels - 1,
+              mip_range = 0:image.mip_levels,
               layer_range = 1:image.layers) where {I<:Image}
     info = Vk.ImageViewCreateInfo(
-        image,
+        convert(Vk.Image, image),
         view_type,
         format,
         component_mapping,
-        Vk.ImageSubresourceRange(aspect, mip_range.start, mip_range.stop - mip_range.start, layer_range.start, layer_range.stop - layer_range.start),
+        Vk.ImageSubresourceRange(aspect, mip_range.start, mip_range.stop - mip_range.start, layer_range.start - 1, 1 + layer_range.stop - layer_range.start),
     )
     handle = unwrap(create(ImageView, device(image), info))
     ImageView{I}(handle, image, format, aspect, mip_range, layer_range)

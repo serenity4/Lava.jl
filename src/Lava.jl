@@ -47,7 +47,7 @@ export
         memory,
         MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
         Buffer, DenseBuffer, BufferBlock, SubBuffer,
-        allocate!, isallocated,
+        allocate!, isallocated, bind!,
         Image, ImageBlock, View, ImageView
 
 end
