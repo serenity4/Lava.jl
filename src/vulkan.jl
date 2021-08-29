@@ -41,8 +41,3 @@ flag(::Type{Sparse{SparseBinding,VkImage}}) = Vk.IMAGE_CREATE_SPARSE_BINDING_BIT
 
 flag(::Type{Sparse{SparseResidency,VkBuffer}}) = Vk.BUFFER_CREATE_SPARSE_RESIDENCY_BIT
 flag(::Type{Sparse{SparseResidency,VkImage}}) = Vk.IMAGE_CREATE_SPARSE_RESIDENCY_BIT
-
-for N in 1:3
-    @eval flag(::Type{<:Image{$N}}) = $(getproperty(Vk, Symbol("IMAGE_TYPE_", N, "D")))
-    @eval flag(::Type{<:View{<:Image{$N}}}) = $(getproperty(Vk, Symbol("IMAGE_VIEW_TYPE_", N, "D")))
-end

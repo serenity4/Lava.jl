@@ -1,7 +1,6 @@
 module Lava
 
-import Vulkan: Vulkan
-const Vk = Vulkan
+import Vulkan as Vk
 
 using Reexport
 using Dictionaries
@@ -31,7 +30,7 @@ end
 include("init.jl")
 include("memory.jl")
 include("buffer.jl")
-# include("image.jl")
+include("image.jl")
 # include("command.jl")
 # include("pipeline.jl")
 # include("pool.jl")
@@ -48,6 +47,7 @@ export
         memory,
         MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
         Buffer, DenseBuffer, BufferBlock, SubBuffer,
-        allocate!, isallocated
+        allocate!, isallocated,
+        Image, ImageBlock, View, ImageView
 
 end

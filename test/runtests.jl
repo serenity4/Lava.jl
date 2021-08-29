@@ -17,4 +17,10 @@ using Test
     @test isallocated(buffer)
     @test memory(buffer) isa MemoryBlock
     @test memory(subbuffer) isa SubMemory
+
+    image = ImageBlock(device, (512, 512), Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+    @test !isallocated(image)
+    allocate!(image, MEMORY_DOMAIN_DEVICE)
+    @test isallocated(image)
+    @test memory(image) isa MemoryBlock
 end

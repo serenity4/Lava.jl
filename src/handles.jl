@@ -36,3 +36,6 @@ create(::Type{Vk.Fence}, device, create_info; kwargs...) = Vk.create_fence(devic
 create(::Type{Vk.Event}, device; kwargs...) = Vk.create_event(device; kwargs...)
 create(::Type{Vk.DebugUtilsMessengerEXT}, instance, create_info; kwargs...) = Vk.create_debug_utils_messenger_ext(instance, convert(Vk.DebugUtilsMessengerCreateInfoEXT, create_info); kwargs...)
 create(::Type{Vk.DeviceMemory}, device, create_info; kwargs...) = Vk.allocate_memory(device, convert(Vk.MemoryAllocateInfo, create_info); kwargs...)
+create(::Type{Vk.Buffer}, device, create_info; kwargs...) = Vk.create_buffer(device, convert(Vk.BufferCreateInfo, create_info); kwargs...)
+create(::Type{Vk.Image}, device, create_info; kwargs...) = Vk.create_image(device, convert(Vk.ImageCreateInfo, create_info); kwargs...)
+create(::Type{Vk.ImageView}, device, create_info; kwargs...) = Vk.create_image_view(device, convert(Vk.ImageViewCreateInfo, create_info); kwargs...)

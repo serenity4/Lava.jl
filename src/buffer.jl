@@ -8,7 +8,7 @@ memory_type(t) = memory_type(typeof(t))
 
 vk_handle_type(::Type{<:Buffer}) = Vk.Buffer
 
-Base.bind(buffer::Buffer, memory::Memory) = Vk.bind_buffer_memory(device(buffer), buffer, memory, offset(memory))
+Vk.bind_buffer_memory(buffer::Buffer, memory::Memory) = Vk.bind_buffer_memory(device(buffer), buffer, memory, offset(memory))
 
 # abstract type DataOperation end
 
@@ -40,14 +40,14 @@ struct BufferBlock{M<:DenseMemory} <: DenseBuffer{M}
     queue_family_indices::Vector{Int8}
     sharing_mode::Vk.SharingMode
     memory::Ref{M}
-    is_bound::Ref{Bool}
 end
 
 size(buffer::BufferBlock) = buffer.size
 
 function BufferBlock(device, size, usage; queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE, memory_type = MemoryBlock)
-    handle = Vk.Buffer(device, size, usage, sharing_mode, queue_family_indices)
-    BufferBlock(handle, size, usage, convert(Vector{Int8}, queue_family_indices), sharing_mode, Ref{memory_type}(), Ref(false))
+    info = Vk.BufferCreateInfo(size, usage, sharing_mode, queue_family_indices)
+    handle = unwrap(create(BufferBlock, device, info))
+    BufferBlock(handle, size, usage, convert(Vector{Int8}, queue_family_indices), sharing_mode, Ref{memory_type}())
 end
 
 struct SubBuffer{B<:DenseBuffer} <: Buffer{SubMemory}
@@ -80,16 +80,17 @@ Base.firstindex(buffer::Buffer) = offset(buffer)
 Base.lastindex(buffer::Buffer) = size(buffer)
 
 """
-Allocate a `MemoryBlock` and optionally bind it to the provided buffer.
+Allocate a `MemoryBlock` and bind it to the provided buffer.
 """
-function allocate!(buffer::DB, domain::MemoryDomain; bind = true)::Result{DB,Vk.VulkanError} where {DB<:DenseBuffer}
+function allocate!(buffer::DB, domain::MemoryDomain)::Result{DB,Vk.VulkanError} where {DB<:DenseBuffer}
     _device = device(buffer)
     reqs = Vk.get_buffer_memory_requirements(_device, buffer)
     @propagate_errors memory = MemoryBlock(_device, reqs.size, reqs.memory_type_bits, domain)
+    @propagate_errors bind!(buffer, memory)
+end
+
+function bind!(buffer::BufferBlock, memory::Memory)::Result{BufferBlock,Vk.VulkanError}
     buffer.memory[] = memory
-    if bind
-        Base.bind(buffer, memory)
-        buffer.is_bound[] = true
-    end
+    @propagate_errors Vk.bind_buffer_memory(buffer, memory)
     buffer
 end

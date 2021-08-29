@@ -1,12 +1,14 @@
 macro propagate_errors(ex)
-    @assert Meta.isexpr(ex, :(=), 2)
-    sym, ex = esc.(ex.args)
+    sym, ex = @match ex begin
+        :($sym = $ex) => (sym, ex)
+        _ => (nothing, ex)
+    end
     quote
-        ret = $ex
+        ret = $(esc(ex))
         if iserror(ret)
             return unwrap_error(ret)
         else
-            $sym = unwrap(ret)
+            $(isnothing(sym) ? :(unwrap(ret)) : :($(esc(sym)) = unwrap(ret)))
         end
     end
 end
