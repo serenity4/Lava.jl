@@ -10,7 +10,7 @@ is_ci && Vk.@set_driver :SwiftShader
 using Test
 
 @testset "Lava.jl" begin
-    instance, device = init()
+    instance, device = init(; with_validation = !is_ci)
     buffer = BufferBlock(device, 100, Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
     @test !isallocated(buffer)
     subbuffer = @view buffer[2:4:end]
