@@ -1,4 +1,4 @@
-is_ci = parse(Bool, get(ENV, "JULIA_CI", false))
+is_ci = get(ENV, "JULIA_CI", "false") == "true"
 if is_ci
     import SwiftShader_jll
     ENV["JULIA_VULKAN_LIBNAME"] = basename(SwiftShader_jll.libvulkan)
