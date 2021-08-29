@@ -11,6 +11,7 @@ ResultTypes = "08a2b407-ddc3-586a-afd6-c784ad1fffe2"
 Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
 
 [compat]
+Dictionaries = "0.3"
 julia = "1.6"
 
 [extras]
