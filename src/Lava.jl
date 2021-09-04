@@ -5,6 +5,8 @@ import Vulkan as Vk
 using Reexport
 using Dictionaries
 using MLStyle
+using LightGraphs
+
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
 
@@ -31,6 +33,9 @@ include("init.jl")
 include("memory.jl")
 include("buffer.jl")
 include("image.jl")
+include("attachments.jl")
+include("render_pass.jl")
+include("render_graph.jl")
 # include("command.jl")
 # include("pipeline.jl")
 # include("pool.jl")

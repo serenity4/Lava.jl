@@ -14,6 +14,7 @@ struct ImageBlock{N,M} <: Image{N,M}
     handle::Vk.Image
     dims::NTuple{N,Int}
     format::Vk.Format
+    samples::Vk.SampleCountFlag
     mip_levels::Int
     layers::Int
     usage::Vk.ImageUsageFlag
@@ -28,6 +29,7 @@ dims(image::ImageBlock) = image.dims
 format(image::ImageBlock) = image.format
 memory(image::ImageBlock) = image.memory[]
 isallocated(image::ImageBlock) = isdefined(image.memory, 1)
+samples(image::ImageBlock) = image.samples
 
 vk_handle_type(::Type{ImageBlock}) = Vk.Image
 
@@ -57,7 +59,7 @@ function ImageBlock(device, dims, format, usage;
         initial_layout,
     )
     handle = unwrap(create(ImageBlock, device, info))
-    ImageBlock{N,memory_type}(handle, dims, format, mip_levels, array_layers, usage, queue_family_indices, sharing_mode, is_linear, Ref(initial_layout), Ref{memory_type}())
+    ImageBlock{N,memory_type}(handle, dims, format, samples, mip_levels, array_layers, usage, queue_family_indices, sharing_mode, is_linear, Ref(initial_layout), Ref{memory_type}())
 end
 
 function bind!(image::ImageBlock, memory::Memory)::Result{ImageBlock,Vk.VulkanError}
@@ -100,6 +102,8 @@ memory_type(T::Type{<:ImageView}) = memory_type(image_type(T))
 vk_handle_type(T::Type{<:ImageView}) = Vk.ImageView
 
 format(view::ImageView) = view.format
+
+@forward ImageView.image samples, dims
 
 function flag(T::Type{<:Image})
     @match dim(T) begin
