@@ -87,8 +87,8 @@ end
 
 prog = @program begin
     emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
-    emissive::Color = lighting(emissive::Input, albedo::Input, normal::Input, pbr::Input, depth::Input, depth::Depth, shadow_main::Texture, shadow_near::Texture)
-    average_luminance::StorageBuffer = adapt_luminance(average_luminance::StorageBuffer, bloom_downsample_3::Texture)
+    emissive::Color = lighting(emissive::Input::Color, albedo::Input::Color, normal::Input::Color, pbr::Input::Color, depth::Input::Depth, depth::Depth, shadow_main::Texture, shadow_near::Texture)
+    average_luminance::Buffer::Storage = adapt_luminance(average_luminance::Buffer::Storage, bloom_downsample_3::Texture)
     output::Color = combine(color::Input, average_luminance::Texture)
 end
 
@@ -162,11 +162,95 @@ Information regarding write masks for color and depth/stencil at pipeline creati
 
 Clearly, one has to win over the other: only one of the render pass or the pipeline (program) has to specify this information.
 
+## Shader interface
+
+This is where vertex input assembly is specified.
+
+## (Graphics) Pipeline
+
+A pipeline specifies shaders used for rendering. The whole graphics pipeline can be thought of as a function which executes shader methods.
+
+## Program
+
+A program is a set of computations carried out with pipelines. A program corresponds to the logic of a given pass.
+
+OR
+
+A program is a set of passes that perform computations. A program defines a specific execution order and access order, based on the use of resources between passes.
+
+## Render Pass
+
+A render pass specifies a render target, rendering options (multisampling, area) and a program that executes pipelines.
+Subpasses are abstracted away as simple passes. The render graph may turn passes into subpasses wherever appropriate.
 
 ## Features
 
 I want to make it possible to not have to care about explicit synchronization.
 This requires the knowledge of the GPU work that we intend to do. All of it.
+
+## API
+
+Programs implement passes. Passes can be provided to the render graph without associating them with programs; the same is true for 
+
+### Pipeline
+
+=#
+
+main_pipeline = Pipeline(
+    vertex_shader = Shader("my_shader.vert", GLSL, (pc_offset = PushConstant(0, UInt),)),
+    fragment_shader = Shader("my_shader.frag", GLSL, (image = SampledImage(my_image; sample_parameters...),)),
+    (color = ColorAttachment(), depth = DepthAttachment(), normal = ColorAttachment(), pbr = ColorAttachment(), albedo = ColorAttachment());
+    name = "graphics_pipeline", # optional name
+)
+
+emissive_map = Pipeline(
+    vertex_shader = Shader("my_emissive_map.vert", GLSL),
+    fragment_shader = Shader("my_emissive_map.frag", GLSL),
+    (emissive = ColorAttachment(),),
+)
+
+#=
+
+Pipeline specify shaders and their interfaces.
+The `main_pipeline`, labeled `"graphics_pipeline"`, has its inputs determined by all its shader parameters.
+Here, a sampled image `"image"` has to be provided as well as a push constant `"pc_offset"`.
+
+The emissive map has no parameters, and so has only vertex and, optionally, index data as input.
+
+### Passes
+
+=#
+
+gbuffer = Pass(:gbuffer)
+
+draw!(gbuffer, main_pipeline, vbuffer, ibuffer[1:120], PushConstant(:pc_offset) => 20)
+for obj in objects
+    draw!(gbuffer, main_pipeline, vbuffer(obj), ibuffer(obj), PushConstant(:pc_offset) => 20)
+end
+draw!(gbuffer, emissive_map, vbuffer[51:123], ibuffer[121:2325])
+
+#=
+
+Note that the pipelines can be used directly or used by a reference name. For example, `main_pipeline` could have been referred to as `"graphics_pipeline"`.
+Instead of binding an index buffer and specifying a draw count manually, a slice is specified instead.
+It is then assumed that all of the index sub-buffer will be used for drawing, so we will draw 120 vertices starting at offset 0 here.
+The index buffer will only be bound once, even if a different slice was used before; the offset will simply be passed as vertex offset in the draw commands.
+Of course, this is different if indirect indexing is used, in which case the option of rebinding a sub-buffer or assuming an offset in stored indices is left to the user.
+
+Equivalently, we can use a macro to input the same information:
+TODO: explain why variable assignment can be useful
+
+=#
+
+gbuffer = @pass begin
+    color, depth, normal, pbr, albedo = main_pipeline(vbuffer[1:50], ibuffer[1:120]; pc_offset = 20)
+    for obj in objects
+        color, depth, normal, pbr, albedo = main_pipeline($(vbuffer(obj)), $(ibuffer(obj)); pc_offset = 20)
+    end
+    emissive = emissive_map(vbuffer[51:123], ibuffer[121:2325])
+end
+
+#=
 
 ## Dependency graph (directed, acyclic)
 

@@ -49,5 +49,4 @@ function Vk.AttachmentDescription(att::Attachment)
         stencil_store_op,
         # missing layouts
     )
-    end 
 end

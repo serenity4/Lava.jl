@@ -2,14 +2,29 @@ struct ImageSynchronizationRequirements
     layout::Vk.ImageLayout
 end
 
+abstract type ResourceInfo end
+
+struct ImageResourceInfo <: ResourceInfo
+    dims::Vector{Int}
+    size_unit::SizeUnit
+    format::Vk.Format
+    usage::Vk.ImageUsageFlag
+    aspect::Vk.ImageAspectFlag
+end
+
+struct BufferResourceInfo <: ResourceInfo
+
+end
+
+struct AttachmentResourceInfo <: ResourceInfo
+    image_info::ImageResourceInfo
+    attachment_type
+end
+
 struct SynchronizationRequirements
     stages::Vk.PipelineStageFlag
     access::Vk.AccessFlag
     wait_semaphores::Vector{Semaphore}
-end
-
-struct RenderPassInfo
-
 end
 
 struct RenderGraph
@@ -26,14 +41,13 @@ A fence and/or a semaphore can be provided to synchronize with the application o
 """
 function render!(device, rg::RenderGraph; fence = nothing, semaphore = nothing)
     cb = get_command_buffer(device, rg)
-    # TODO: split and record command buffers in parallel
     @record cb begin
         for pass in sort_passes(rg)
             synchronize_before(rg, pass)
             begin(cb, pass)
             record(cb, pass)
-            synchronize_after(rg, pass)
             Vk.cmd_end_render_pass()
+            synchronize_after(rg, pass)
         end
     end
     submit_info = Vk.SubmitInfo([], [cb], isnothing(semaphore) ? [semaphore] : [])
