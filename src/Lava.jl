@@ -5,7 +5,9 @@ import Vulkan as Vk
 using Reexport
 using Dictionaries
 using MLStyle
-using LightGraphs
+using LightGraphs, MetaGraphs
+using XCB
+using SPIRV
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
@@ -20,6 +22,7 @@ abstract type LavaAbstraction end
 include("utils.jl")
 include("handles.jl")
 include("queue_dispatch.jl")
+include("hashtable.jl")
 
 const debug_callback_c = Ref{Ptr{Cvoid}}(C_NULL)
 
@@ -29,6 +32,9 @@ function __init__()
         @cfunction(Vk.default_debug_callback, UInt32, (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{Vk.core.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid}))
 end
 
+include("pipeline.jl")
+include("device.jl")
+include("command_buffer.jl")
 include("init.jl")
 include("memory.jl")
 include("buffer.jl")
@@ -36,15 +42,25 @@ include("image.jl")
 include("dimensions.jl")
 include("attachments.jl")
 include("render_pass.jl")
-# include("render_graph.jl")
+include("descriptors.jl")
 include("command.jl")
-# include("pipeline.jl")
-# include("pool.jl")
-# include("shader.jl")
+include("program.jl")
+include("render_state.jl")
+include("frame_graph.jl")
+# include("frames.jl")
+include("wsi.jl")
+
+include("shaders/dependencies.jl")
+# include("shaders/resources.jl")
+include("shaders/vertex.jl") # type piracy
+include("shaders/formats.jl")
+include("shaders/specification.jl")
+include("shaders/source.jl")
+include("shaders/compilation.jl")
+
 # include("synchronization.jl")
 
 # include("vulkan.jl")
-# include("api.jl")
 
 export
         LavaAbstraction, Vk,
@@ -54,6 +70,11 @@ export
         MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
         Buffer, DenseBuffer, BufferBlock, SubBuffer,
         allocate!, isallocated, bind!,
-        Image, ImageBlock, View, ImageView
+        Image, ImageBlock, View, ImageView,
+        ImageResourceInfo, BufferResourceInfo, AttachmentResourceInfo,
+        Program, ProgramInvocation, ProgramInvocationState,
+        Shader, ShaderSpecification,
+        RenderState,
+        Pass, FrameGraph
 
 end

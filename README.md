@@ -9,3 +9,6 @@ Main differences with the Vulkan API:
 - Handle hierarchies and parameters are encoded in types. This should greatly simplify the number of call parameters and create info structures that you have to specify.
 - API functions are rewritten with multiple dispatch in mind.
 - Vulkan-related functionality is separate from the main data structures, allowing types and functions to be extendable and support other APIs.
+
+Features include:
+- Definition of abstract types for each Vulkan-related handle concept. For example, `AbstractBuffer`

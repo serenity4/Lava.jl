@@ -40,20 +40,12 @@ end
 
 (draw::DrawIndexedIndirect)(record::CommandRecord, args...) = cmd_draw_indexed_indirect(record, draw.indirect.buffer, args...)
 
-struct DrawCommand{S<:DrawSource}
-    info::DrawInfo
-    call::S
-end
+# struct DrawCommand{S<:DrawSource}
+#     info::DrawInfo
+#     call::S
+# end
 
-function (draw::DrawCommand)(args...)
-    bind(draw.info)
-    draw.call(args...)
-end
-
-struct DrawInfo
-    vbuffer::VertexBuffer
-    ibuffer::Optional{IndexBuffer}
-    descriptors::Optional{DescriptorSetVector}
-    push_ranges::Vector{PushConstantRange}
-    specialization_constants::Optional{SpecializationConstant}
-end
+# function (draw::DrawCommand)(args...)
+#     bind(draw.info)
+#     draw.call(args...)
+# end

@@ -22,9 +22,11 @@ using Test
         mem = unwrap(MemoryBlock(device, 100, 7, MEMORY_DOMAIN_HOST_CACHED))
         submem = @view mem[2:4]
         @test submem isa SubMemory
-        mem_toomuch = MemoryBlock(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
-        @test iserror(mem_toomuch)
-        @test unwrap_error(mem_toomuch).code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
+        redirect_stderr(devnull) do
+            mem_toomuch = MemoryBlock(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
+            @test iserror(mem_toomuch)
+            @test unwrap_error(mem_toomuch).code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
+        end
 
         unwrap(allocate!(buffer, MEMORY_DOMAIN_HOST_CACHED))
         @test isallocated(buffer)
@@ -44,5 +46,13 @@ using Test
         @test memory(image) isa MemoryBlock
         v = View(image)
         @test v isa ImageView
+    end
+
+    @testset "Frame Graph" begin
+        # fg = FrameGraph(device, )
+    end
+
+    @testset "Shaders" begin
+        # include("shaders.jl")
     end
 end

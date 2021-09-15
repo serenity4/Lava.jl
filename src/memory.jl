@@ -100,3 +100,6 @@ end
 
 Base.firstindex(memory::Memory) = offset(memory)
 Base.lastindex(memory::Memory) = size(memory)
+
+"Memory that can't be accessed by the renderer."
+struct OpaqueMemory <: Memory end

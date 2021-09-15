@@ -67,7 +67,7 @@ offset(buffer::SubBuffer) = buffer.offset
 stride(buffer::Buffer) = 0
 stride(buffer::SubBuffer) = buffer.stride
 
-memory(sub::SubBuffer) = @view sub.buffer.memory[][offset(sub):(size(sub) - offset(sub))]
+memory(sub::SubBuffer) = @view memory(sub.buffer)[offset(sub):(size(sub) - offset(sub))]
 
 SubBuffer(buffer::DenseBuffer; offset = 0, stride = 0) = SubBuffer(buffer, offset, stride)
 

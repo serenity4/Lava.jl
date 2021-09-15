@@ -1,27 +1,28 @@
-@enum AttachmentUsage begin
-    READ_ONLY
-    WRITE_ONLY
-    READ_WRITE
+Vk.@bitmask_flag MemoryAccess::UInt32 begin
+    READ = 1
+    WRITE = 2
 end
 
 struct Attachment{IV<:ImageView}
     view::IV
-    usage::AttachmentUsage
+    usage::MemoryAccess
 end
 
 @forward Attachment.view dims, format, samples
 
-function load_op(usage::AttachmentUsage)
+function load_op(usage::MemoryAccess)
     @match usage begin
-        &READ_ONLY => Vk.ATTACHMENT_LOAD_OP_DONT_CARE
-        &WRITE_ONLY || &READ_WRITE => Vk.ATTACHMENT_LOAD_OP_CLEAR
+        &READ => Vk.ATTACHMENT_LOAD_OP_DONT_CARE
+        &READ || &(READ | WRITE) => Vk.ATTACHMENT_LOAD_OP_CLEAR
+        _ => nothing
     end
 end
 
-function store_op(usage::AttachmentUsage)
+function store_op(usage::MemoryAccess)
     @match usage begin
-        &READ_ONLY => Vk.ATTACHMENT_STORE_OP_DONT_CARE
-        &WRITE_ONLY || &READ_WRITE => Vk.ATTACHMENT_STORE_OP_STORE
+        &READ => Vk.ATTACHMENT_STORE_OP_DONT_CARE
+        &READ || &(READ | WRITE) => Vk.ATTACHMENT_STORE_OP_STORE
+        _ => nothing
     end
 end
 

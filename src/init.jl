@@ -10,7 +10,8 @@ vk_handle_type(::Type{Instance}) = Vk.Instance
 Instance(handle::Vk.Instance) = Instance(handle, [], [], nothing)
 
 function Instance(layers, extensions, messenger_info::Optional{Vk.DebugUtilsMessengerCreateInfoEXT} = nothing; application_info = C_NULL)
-    handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info, next = something(messenger_info, C_NULL))))
+    # handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info, next = something(messenger_info, C_NULL))))
+    handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info)))
     if !isnothing(messenger_info)
         messenger = debug_messenger(handle, messenger_info)
     else
@@ -18,30 +19,6 @@ function Instance(layers, extensions, messenger_info::Optional{Vk.DebugUtilsMess
     end
     Instance(handle, layers, extensions, messenger)
 end
-
-struct Device <: LavaAbstraction
-    handle::Vk.Device
-    extensions::Vector{String}
-    features::Vk.PhysicalDeviceFeatures
-    queues::QueueDispatch
-end
-
-vk_handle_type(::Type{Device}) = Vk.Device
-
-function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config; enabled_features = Vk.PhysicalDeviceFeatures(), surface = nothing)
-    info = Vk.DeviceCreateInfo(
-        queue_infos(QueueDispatch, physical_device, queue_config),
-        [],
-        extensions;
-        enabled_features,
-    )
-    
-    handle = unwrap(create(Device, physical_device, info))
-    queues = QueueDispatch(handle, queue_config; surface)
-    Device(handle, extensions, enabled_features, queues)
-end
-
-queue_family_indices(device::Device) = queue_family_indices(device.queues)
 
 function init(;
     instance_layers = String[],

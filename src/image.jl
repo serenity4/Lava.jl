@@ -3,6 +3,15 @@ Image with dimension `N` and memory type `M`.
 """
 abstract type Image{N,M<:Memory} <: LavaAbstraction end
 
+struct ImageMetaData
+    dims::Vector{Int}
+    format::Vk.Format
+    samples::Vk.SampleCountFlag
+    mip_levels::Int
+    layers::Int
+    usage::Vk.ImageUsageFlag
+end
+
 dim(::Type{<:Image{N}}) where {N} = N
 dim(im) = dim(typeof(im))
 
@@ -123,18 +132,21 @@ end
 
 View(image::Image, args...; kwargs...) = ImageView(image, args...; kwargs...)
 
-function ImageView(image::I;
-              view_type = flag(ImageView{I}),
-              format = format(image),
-              component_mapping = Vk.ComponentMapping(
-                  Vk.COMPONENT_SWIZZLE_IDENTITY,
-                  Vk.COMPONENT_SWIZZLE_IDENTITY,
-                  Vk.COMPONENT_SWIZZLE_IDENTITY,
-                  Vk.COMPONENT_SWIZZLE_IDENTITY
-              ),
-              aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
-              mip_range = 0:image.mip_levels,
-              layer_range = 1:image.layers) where {I<:Image}
+function ImageView(
+        image::I;
+        view_type = flag(ImageView{I}),
+        format = format(image),
+        component_mapping = Vk.ComponentMapping(
+            Vk.COMPONENT_SWIZZLE_IDENTITY,
+            Vk.COMPONENT_SWIZZLE_IDENTITY,
+            Vk.COMPONENT_SWIZZLE_IDENTITY,
+            Vk.COMPONENT_SWIZZLE_IDENTITY
+        ),
+        aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
+        mip_range = 0:image.mip_levels,
+        layer_range = 1:image.layers,
+    ) where {I<:Image}
+
     info = Vk.ImageViewCreateInfo(
         convert(Vk.Image, image),
         view_type,
@@ -144,4 +156,11 @@ function ImageView(image::I;
     )
     handle = unwrap(create(ImageView, device(image), info))
     ImageView{I}(handle, image, format, aspect, mip_range, layer_range)
+end
+
+"""
+Opaque image that comes from the Window System Integration (WSI) as returned by `Vk.get_swapchain_images_khr`.
+"""
+struct ImageWSI <: Image{2,OpaqueMemory}
+    handle::Vk.Image
 end
