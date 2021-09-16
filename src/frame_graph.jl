@@ -470,9 +470,14 @@ end
 function resolve_attributes!(fg::FrameGraph)
     g = fg.resource_graph
     for edge in edges(g)
-        access = NO_ACCESS
-        edge.dst in fg.passes && (access |= READ)
-        edge.src in fg.passes && (access |= WRITE)
+        type = get_prop(g, edge, :type)::ResourceType
+        access = get_prop(g, edge, :access)::MemoryAccess
+        stages = if has_prop(g, edge, :stages)
+            get_prop(g, edge, :stages)::Vk.PipelineStageFlag
+        else
+            pass = edge.src in fg.passes ? edge.src : edge.dst
+            get_prop(g, pass, :stages)::Vk.PipelineStageFlag
+        end
     end
 end
 
