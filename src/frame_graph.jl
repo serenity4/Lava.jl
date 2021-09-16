@@ -56,12 +56,9 @@ end
 Pass(stages) = Pass(gensym("Pass"), stages)
 
 struct ResourceUsage
-    pass::Symbol
-    reads::Dictionary{Symbol,ResourceType}
-    writes::Dictionary{Symbol,ResourceType}
+    type::ResourceType
+    access::MemoryAccess
 end
-
-ResourceUsage(pass::Symbol, writes::AbstractVector, reads::AbstractVector) = ResourceUsage(pass, dictionary(reads), dictionary(writes))
 
 struct SynchronizationRequirements
     stages::Vk.PipelineStageFlag
@@ -115,7 +112,7 @@ This graph is generated just-in-time, to convert the resource graph into a linea
 """
 mutable struct FrameGraph
     device::Device
-    resource_graph::MetaDiGraph{Int}
+    resource_graph::MetaGraph{Int}
     resources::Dictionary{Symbol,Int}
     passes::Dictionary{Symbol,Int}
 end
@@ -144,13 +141,14 @@ size(g, idx) = resource_attribute(g, idx, :size)::Int
 name(g, idx) = attribute(g, idx, :name)::Symbol
 
 function FrameGraph(device)
-    FrameGraph(device, MetaDiGraph(), Dictionary{Symbol,Int}(), Dictionary{Symbol,Int}())
+    FrameGraph(device, MetaGraph(), Dictionary{Symbol,Int}(), Dictionary{Symbol,Int}())
 end
 
 function add_pass!(fg::FrameGraph, name::Symbol, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT; clear_values = (0.1, 0.1, 0.1, 1.))
     !haskey(fg.passes, name) || error("Pass '$name' was already added to the frame graph. Passes can only be provided once.")
     g = fg.resource_graph
-    v = add_vertex!(g)
+    add_vertex!(g)
+    v = nv(g)
     set_prop!(g, v, :name, name)
     set_prop!(g, v, :stages, stages)
     set_prop!(g, v, :clear_values, clear_values)
@@ -189,28 +187,24 @@ function add_resource!(fg::FrameGraph, name::Symbol, resource::ResourceInfo, dat
 end
 
 function add_resource_usage!(fg::FrameGraph, iter)
-    for usage in iter
-        add_resource_usage!(fg, usage)
+    for (pass, usage) in pairs(iter)
+        add_resource_usage!(fg, pass, usage)
     end
 end
 
-function add_resource_usage!(fg::FrameGraph, usage::ResourceUsage)
-    haskey(fg.passes, usage.pass) || error("Unknown pass '$(usage.pass)'")
-    v = fg.passes[usage.pass]
+function add_resource_usage!(fg::FrameGraph, pass::Symbol, usage::Dictionary{Symbol,ResourceUsage})
+    haskey(fg.passes, pass) || error("Unknown pass '$(pass)'")
+    v = fg.passes[pass]
     g = fg.resource_graph
-    for (name, type) in pairs(usage.reads)
+    for (name, usage) in pairs(usage)
         haskey(fg.resources, name) || error("Unknown resource '$name'")
         i = fg.resources[name]
-        add_edge!(g, i, v) || error("A resource usage between pass '$(usage.pass)' and resource '$name' was already added to the frame graph. Resource usages can only be provided once.")
-        set_prop!(g, i, v, :type, type)
-    end
-    for (name, type) in pairs(usage.writes)
-        haskey(fg.resources, name) || error("Unknown resource '$name'")
-        i = fg.resources[name]
-        add_edge!(g, v, i) || error("A resource usage between pass '$(usage.pass)' and resource '$name' was already added to the frame graph. Resource usages can only be provided once.")
-        set_prop!(g, v, i, :type, type)
+        add_edge!(g, i, v) || error("A resource usage between pass '$pass' and resource '$name' was already added to the frame graph. Resource usages can only be provided once.")
+        set_prop!(g, i, v, :type, usage.type)
+        set_prop!(g, i, v, :access, usage.access)
     end
 end
+add_resource_usage!(fg::FrameGraph, pass::Pass, usage::Dictionary{Symbol,ResourceUsage}) = add_resource_usage!(fg, pass.name, usage)
 
 function resource_usages(ex::Expr)
     lines = @match ex begin
@@ -220,7 +214,8 @@ function resource_usages(ex::Expr)
 
     filter!(Base.Fix2(!isa, LineNumberNode), lines)
 
-    map(lines) do line
+    usages = Dictionary{Symbol,Dictionary{Symbol,ResourceUsage}}()
+    for line in lines
         (f, reads, writes) = @match line begin
             :($writes = $f($(reads...))) => @match writes begin
                 Expr(:tuple, _...) => (f, reads, writes.args)
@@ -228,12 +223,26 @@ function resource_usages(ex::Expr)
             end
             _ => error("Malformed expression, expected :(a, b = f(c, d)), got $line")
         end
-        ResourceUsage(f, extract_resource_spec.(reads), extract_resource_spec.(writes))
+
+        dict = Dictionary{Symbol,ResourceUsage}()
+        for (name, type) in extract_resource_spec.(reads)
+            insert!(dict, name, ResourceUsage(type, READ))
+        end
+        for (name, type) in extract_resource_spec.(writes)
+            usage = if haskey(dict, name)
+                ResourceUsage(type | dict[name].type, WRITE | READ)
+            else
+                ResourceUsage(type, WRITE)
+            end
+            set!(dict, name, usage)
+        end
+        insert!(usages, f, dict)
     end
+    usages
 end
 
 macro resource_usages(ex)
-    :(Lava.ResourceUsage[$(resource_usages(ex)...)])
+    :($(resource_usages(ex)))
 end
 
 function extract_resource_spec(ex::Expr)
@@ -254,12 +263,22 @@ function extract_resource_spec(ex::Expr)
     end
 end
 
+function extract_resource_name(ex::Expr)
+    @match ex begin
+        :($r::$_::$_) => r
+        :($r::$_) => r
+        _ => error("Cannot extract resource name: $ex")
+    end
+end
+
 function execution_graph(fg::FrameGraph)
+    g = fg.resource_graph
     eg = SimpleDiGraph(length(fg.passes))
     for (i, pass) in enumerate(fg.passes)
         for resource in resources
-            pass_indices = inneighbors(fg.resource_graph, resource)
+            pass_indices = neighbors(g, resource)
             for j in pass_indices
+                WRITE in get_prop(g, i, j, :access)::MemoryAccess || continue
                 j ≠ i || error("Pass self-dependencies are not currently supported.")
                 if j < i
                     # add a dependency from passes that write to this resource earlier

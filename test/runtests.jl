@@ -86,21 +86,18 @@ using Test
         #=
 
         # or, without a macro:
-        passes = [
-            Pass(
-                # pass name
-                :gbuffer,
-                # reads
-                [:vbuffer => RESOURCE_TYPE_VERTEX_BUFFER, :ibuffer => RESOURCE_TYPE_INDEX_BUFFER],
-                # writes
-                [
-                    :emissive => RESOURCE_TYPE_COLOR_ATTACHMENT, :albedo => RESOURCE_TYPE_COLOR_ATTACHMENT,
-                    :normal => RESOURCE_TYPE_COLOR_ATTACHMENT, :pbr => RESOURCE_TYPE_COLOR_ATTACHMENT,
-                    :depth => RESOURCE_TYPE_DEPTH_ATTACHMENT,
-                ]
+        passes = Dict(
+            :buffer => Dict(
+                :vbuffer => ResourceUsage(RESOURCE_TYPE_VERTEX_BUFFER, READ),
+                :ibuffer => ResourceUsage(RESOURCE_TYPE_INDEX_BUFFER, READ),
+                :emissive => ResourceUsage(RESOURCE_TYPE_COLOR_ATTACHMENT, WRITE),
+                :albedo => ResourceUsage(RESOURCE_TYPE_COLOR_ATTACHMENT, WRITE),
+                :normal => ResourceUsage(RESOURCE_TYPE_COLOR_ATTACHMENT, WRITE),
+                :pbr => ResourceUsage(RESOURCE_TYPE_COLOR_ATTACHMENT, WRITE),
+                :depth => ResourceUsage(RESOURCE_TYPE_DEPTH_ATTACHMENT, WRITE),
             ),
             ... # other passes
-        ]
+        )
 
         =#
 
