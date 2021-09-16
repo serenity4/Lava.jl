@@ -65,16 +65,39 @@ include("shaders/compilation.jl")
 export
         LavaAbstraction, Vk,
         Instance, QueueDispatch, Device, init,
+
         Memory, DenseMemory, MemoryBlock, SubMemory,
         memory,
         MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
         Buffer, DenseBuffer, BufferBlock, SubBuffer,
         allocate!, isallocated, bind!,
         Image, ImageBlock, View, ImageView,
-        ImageResourceInfo, BufferResourceInfo, AttachmentResourceInfo,
+
+        SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
+
         Program, ProgramInvocation, ProgramInvocationState,
         Shader, ShaderSpecification,
-        RenderState,
-        Pass, FrameGraph
 
+        RenderState,
+
+        BufferResourceInfo, ImageResourceInfo, AttachmentResourceInfo,
+        ResourceInfo, add_resource!,
+        ResourceType,
+        RESOURCE_TYPE_VERTEX_BUFFER,
+        RESOURCE_TYPE_INDEX_BUFFER,
+        RESOURCE_TYPE_COLOR_ATTACHMENT,
+        RESOURCE_TYPE_DEPTH_ATTACHMENT,
+        RESOURCE_TYPE_STENCIL_ATTACHMENT,
+        RESOURCE_TYPE_INPUT_ATTACHMENT,
+        RESOURCE_TYPE_TEXTURE,
+        RESOURCE_TYPE_BUFFER,
+        RESOURCE_TYPE_IMAGE,
+        RESOURCE_TYPE_DYNAMIC,
+        RESOURCE_TYPE_STORAGE,
+        RESOURCE_TYPE_TEXEL,
+        RESOURCE_TYPE_UNIFORM,
+        RESOURCE_TYPE_SAMPLER,
+        Pass, add_pass!,
+        ResourceUsage, add_resource_usage!, resource_usages, @resource_usages,
+        FrameGraph
 end

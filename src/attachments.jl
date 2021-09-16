@@ -1,4 +1,5 @@
 Vk.@bitmask_flag MemoryAccess::UInt32 begin
+    NO_ACCESS = 0
     READ = 1
     WRITE = 2
 end

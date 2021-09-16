@@ -87,9 +87,9 @@ end
 
 prog = @program begin
     emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
-    emissive::Color = lighting(emissive::Input::Color, albedo::Input::Color, normal::Input::Color, pbr::Input::Color, depth::Input::Depth, depth::Depth, shadow_main::Texture, shadow_near::Texture)
+    color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
     average_luminance::Buffer::Storage = adapt_luminance(average_luminance::Buffer::Storage, bloom_downsample_3::Texture)
-    output::Color = combine(color::Input, average_luminance::Texture)
+    output::Color = combine(color::Color, average_luminance::Texture)
 end
 
 #=

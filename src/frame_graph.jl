@@ -15,9 +15,9 @@ Vk.@bitmask_flag ResourceType::UInt32 begin
     RESOURCE_TYPE_SAMPLER = 8192
 end
 
-struct Resource
+struct Resource{T}
     type::ResourceType
-    descriptor_type::Optional{Vk.DescriptorType}
+    info::T
 end
 
 abstract type ResourceInfo end
@@ -27,6 +27,8 @@ struct BufferResourceInfo <: ResourceInfo
     usage::Vk.BufferUsageFlag
 end
 
+BufferResourceInfo(size) = BufferResourceInfo(size, Vk.BufferUsageFlag(0))
+
 struct ImageResourceInfo <: ResourceInfo
     dims::Vector{Int}
     size_unit::SizeUnit
@@ -35,16 +37,31 @@ struct ImageResourceInfo <: ResourceInfo
     aspect::Vk.ImageAspectFlag
 end
 
+function ImageResourceInfo(format; dims = [1., 1.], size_unit = SIZE_SWAPCHAIN_RELATIVE, usage = Vk.ImageUsageFlag(0), aspect = Vk.ImageAspectFlag(0))
+    ImageResourceInfo(dims, size_unit, format, usage, aspect)
+end
+
 struct AttachmentResourceInfo <: ResourceInfo
     image_info::ImageResourceInfo
+    AttachmentResourceInfo(image_info::ImageResourceInfo) = new(image_info)
 end
 
-AttachmentResourceInfo(args...) = AttachmentResourceInfo(ImageResourceInfo(args...))
+AttachmentResourceInfo(args...; kwargs...) = AttachmentResourceInfo(ImageResourceInfo(args...; kwargs...))
 
 struct Pass
-    writes::Vector{Int}
-    reads::Vector{Int}
+    name::Symbol
+    stages::Vk.PipelineStageFlag
 end
+
+Pass(stages) = Pass(gensym("Pass"), stages)
+
+struct ResourceUsage
+    pass::Symbol
+    reads::Dictionary{Symbol,ResourceType}
+    writes::Dictionary{Symbol,ResourceType}
+end
+
+ResourceUsage(pass::Symbol, writes::AbstractVector, reads::AbstractVector) = ResourceUsage(pass, dictionary(reads), dictionary(writes))
 
 struct SynchronizationRequirements
     stages::Vk.PipelineStageFlag
@@ -52,72 +69,196 @@ struct SynchronizationRequirements
     wait_semaphores::Vector{Vk.Semaphore}
 end
 
+SynchronizationRequirements(stages, access) = SynchronizationRequirements(stages, access, [])
+
 """
 Frame graph implementation.
 
 A frame graph has a list of virtual resources (buffers, images, attachments) that are
 referenced by passes. They are turned into physical resources for the actual execution of those passes.
 
-The frame graph possesses two graph structure: a resource graph and an execution graph.
-
-## Dependency graph (directed, acyclic)
-
-In this graph, vertices represent passes, and edges are resource dependencies between passes.
-A topological sort of this graph represents a possible execution order that respects execution dependencies.
-
-Reusing the example above, the graph has three vertices: `gbuffer`, `lighting` and `adapt_luminance`.
-`gbuffer` has five outgoing edges to `lighting`, each edge being labeled with a resource.
-`lighting` has one outgoing edge to `adapt_luminance`.
+The frame graph uses two graph structures: a resource graph and an execution graph.
 
 ## Resource graph (bipartite, directed)
 
 This bipartite graph has two types of vertices: passes and resources.
 An edge from a resource to a pass describes a read dependency. An edge from a pass to a resource describes a write dependency.
+
+Graph attributes:
+- Resources:
+    - `:name`: name of the resource
+    - `:image_layout` (if the resource describes an image)
+    - `:format` (if the resource describes either an image or an attachment)
+    - `:aspect` (if the resource describes either an image or an attachment)
+    - `:usage`
+    - `:size` (if the resource describes a buffer)
+    - `:vresource`: description as a virtual resource
+    - `:presource`: physical resource
+- Passes:
+    - `:name`: name of the pass
+- Edge between a resource and a pass (all directions)
+    - `:image_layout` (if the resource describes an image)
+    - `:usage`
+    - `:aspect`
+    - `:stage`: stages in which the resource is used
+
+## Execution graph (directed, acyclic)
+
+In this graph, vertices represent passes, and edges are resource dependencies between passes.
+A topological sort of this graph represents a possible sequential execution order that respects execution dependencies.
+
+Reusing the example above, the graph has three vertices: `gbuffer`, `lighting` and `adapt_luminance`.
+`gbuffer` has five outgoing edges to `lighting`, each edge being labeled with a resource.
+`lighting` has one outgoing edge to `adapt_luminance`.
+
+This graph is generated just-in-time, to convert the resource graph into a linear sequence of passes.
 """
-struct FrameGraph
+mutable struct FrameGraph
     device::Device
-    resource_graph::SimpleDiGraph{Int}
-    execution_graph::SimpleDiGraph{Int}
-    passes::Vector{Pass}
-
-    # virtual resources
-    buffers::Vector{BufferResourceInfo}
-    images::Vector{ImageResourceInfo}
-    attachments::Vector{AttachmentResourceInfo}
-
-    # physical resources
-    physical_images::Vector{Image}
-    physical_buffers::Vector{Buffer}
-    physical_attachments::Vector{Attachment}
+    resource_graph::MetaDiGraph{Int}
+    resources::Dictionary{Symbol,Int}
+    passes::Dictionary{Symbol,Int}
 end
 
-is_resource(fg::FrameGraph, i) = i > length(fg.passes)
-is_pass(fg::FrameGraph, i) = !is_resource(fg, i)
+stages(fg::FrameGraph, i::Integer) = get_prop(fg.resource_graph, i, :stages)::Vk.PipelineStageFlag
+attribute(rg::MetaDiGraph, i, key) = get_prop(rg, i, key)
+pass_attribute(rg::MetaDiGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
+pass_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.passes[name], key)
+resource_attribute(rg::MetaDiGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
+resource_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.resources[name], key)
 
-is_buffer(fg::FrameGraph, i) = i ≤ length(fg.buffers)
-is_image(fg::FrameGraph, i) = length(fg.buffers) < i ≤ length(fg.buffers) + length(fg.images)
-is_attachment(fg::FrameGraph, i) = i > length(fg.buffers) + length(fg.images)
+virtual_image(g, idx) = resource_attribute(g, idx, :virtual_resource)::ImageResourceInfo
+virtual_buffer(g, idx) = resource_attribute(g, idx, :virtual_resource)::BufferResourceInfo
+virtual_attachment(g, idx) = resource_attribute(g, idx, :virtual_resource)::AttachmentResourceInfo
 
-get_image(fg::FrameGraph, i) = fg.images[fg] + i
+image(g, idx) = resource_attribute(g, idx, :physical_resource)::Image
+buffer(g, idx) = resource_attribute(g, idx, :physical_resource)::Buffer
+attachment(g, idx) = resource_attribute(g, idx, :physical_resource)::Attachment
 
-function FrameGraph(device::Device, passes, buffers, images, attachments)
-    np = length(passes)
-    nr = length(attachments) + length(images) + length(buffers)
+image_layout(g, idx) = resource_attribute(g, idx, :image_layout)::Vk.ImageLayout
+format(g, idx) = resource_attribute(g, idx, :format)::Vk.Format
+aspect(g, idx) = resource_attribute(g, idx, :image_layout)::Vk.ImageAspectFlag
+buffer_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.BufferUsageFlag
+image_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.ImageUsageFlag
+size(g, idx) = resource_attribute(g, idx, :size)::Int
+name(g, idx) = attribute(g, idx, :name)::Symbol
 
-    rg = SimpleDiGraph(np + nr)
-    for (i, pass) in enumerate(passes)
-        for read in pass.reads
-            add_edge!(g, np + read, i)
+function FrameGraph(device)
+    FrameGraph(device, MetaDiGraph(), Dictionary{Symbol,Int}(), Dictionary{Symbol,Int}())
+end
+
+function add_pass!(fg::FrameGraph, name::Symbol, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT; clear_values = (0.1, 0.1, 0.1, 1.))
+    !haskey(fg.passes, name) || error("Pass '$name' was already added to the frame graph. Passes can only be provided once.")
+    g = fg.resource_graph
+    v = add_vertex!(g)
+    set_prop!(g, v, :name, name)
+    set_prop!(g, v, :stages, stages)
+    set_prop!(g, v, :clear_values, clear_values)
+    insert!(fg.passes, name, v)
+    nothing
+end
+
+add_pass!(fg::FrameGraph, pass::Pass) = add_pass!(fg, pass.name, pass.stages)
+
+function add_resource!(fg::FrameGraph, name::Symbol, resource::ResourceInfo, data = nothing)
+    !haskey(fg.resources, name) || error("Resource '$name' was already added to the frame graph. Resources can only be provided once.")
+    g = fg.resource_graph
+    add_vertex!(g)
+    v = nv(g)
+    set_prop!(g, v, :name, name)
+    insert!(fg.resources, name, v)
+    if resource isa BufferResourceInfo
+        set_prop!(g, v, :size, resource.size)
+        set_prop!(g, v, :usage, resource.usage)
+    else
+        image_info = if resource isa AttachmentResourceInfo
+            resource.image_info
+        else
+            resource
         end
-        for write in pass.writes
-            add_edge!(g, i, np + write)
-        end
+        set_prop!(g, v, :dims, image_info.dims)
+        set_prop!(g, v, :usage, image_info.usage)
+        set_prop!(g, v, :aspect, image_info.aspect)
+        set_prop!(g, v, :format, image_info.format)
+    end
+    if !isnothing(data)
+        set_prop!(g, v, :imported, true)
+        set_prop!(g, v, :data, data)
+    end
+    nothing
+end
+
+function add_resource_usage!(fg::FrameGraph, iter)
+    for usage in iter
+        add_resource_usage!(fg, usage)
+    end
+end
+
+function add_resource_usage!(fg::FrameGraph, usage::ResourceUsage)
+    haskey(fg.passes, usage.pass) || error("Unknown pass '$(usage.pass)'")
+    v = fg.passes[usage.pass]
+    g = fg.resource_graph
+    for (name, type) in pairs(usage.reads)
+        haskey(fg.resources, name) || error("Unknown resource '$name'")
+        i = fg.resources[name]
+        add_edge!(g, i, v) || error("A resource usage between pass '$(usage.pass)' and resource '$name' was already added to the frame graph. Resource usages can only be provided once.")
+        set_prop!(g, i, v, :type, type)
+    end
+    for (name, type) in pairs(usage.writes)
+        haskey(fg.resources, name) || error("Unknown resource '$name'")
+        i = fg.resources[name]
+        add_edge!(g, v, i) || error("A resource usage between pass '$(usage.pass)' and resource '$name' was already added to the frame graph. Resource usages can only be provided once.")
+        set_prop!(g, v, i, :type, type)
+    end
+end
+
+function resource_usages(ex::Expr)
+    lines = @match ex begin
+        Expr(:block, _...) => ex.args
+        _ => [ex]
     end
 
-    eg = SimpleDiGraph(np)
-    for (i, pass) in enumerate(passes)
-        for resource in [pass.reads; pass.writes]
-            pass_indices = inneighbors(resource + np)
+    filter!(Base.Fix2(!isa, LineNumberNode), lines)
+
+    map(lines) do line
+        (f, reads, writes) = @match line begin
+            :($writes = $f($(reads...))) => @match writes begin
+                Expr(:tuple, _...) => (f, reads, writes.args)
+                ::Expr => (f, reads, [writes])
+            end
+            _ => error("Malformed expression, expected :(a, b = f(c, d)), got $line")
+        end
+        ResourceUsage(f, extract_resource_spec.(reads), extract_resource_spec.(writes))
+    end
+end
+
+macro resource_usages(ex)
+    :(Lava.ResourceUsage[$(resource_usages(ex)...)])
+end
+
+function extract_resource_spec(ex::Expr)
+    @match ex begin
+        :($r::Buffer::Vertex) => (r => RESOURCE_TYPE_VERTEX_BUFFER)
+        :($r::Buffer::Index) => (r => RESOURCE_TYPE_INDEX_BUFFER)
+        :($r::Buffer::Storage) => (r => RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_STORAGE)
+        :($r::Buffer::Uniform) => (r => RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_UNIFORM)
+        :($r::Color) => (r => RESOURCE_TYPE_COLOR_ATTACHMENT)
+        :($r::Depth) => (r => RESOURCE_TYPE_DEPTH_ATTACHMENT)
+        :($r::Stencil) => (r => RESOURCE_TYPE_STENCIL_ATTACHMENT)
+        :($r::Depth::Stencil) || :($_::Stencil::Depth) => (r => RESOURCE_TYPE_DEPTH_ATTACHMENT | RESOURCE_TYPE_STENCIL_ATTACHMENT)
+        :($r::Texture) => (r => RESOURCE_TYPE_TEXTURE)
+        :($r::Image::Storage) => (r => RESOURCE_TYPE_IMAGE | RESOURCE_TYPE_STORAGE)
+        :($r::Input) => (r => RESOURCE_TYPE_INPUT_ATTACHMENT)
+        ::Symbol => error("Resource type annotation required: $ex")
+        _ => error("Invalid or unsupported resource type annotation: $ex")
+    end
+end
+
+function execution_graph(fg::FrameGraph)
+    eg = SimpleDiGraph(length(fg.passes))
+    for (i, pass) in enumerate(fg.passes)
+        for resource in resources
+            pass_indices = inneighbors(fg.resource_graph, resource)
             for j in pass_indices
                 j ≠ i || error("Pass self-dependencies are not currently supported.")
                 if j < i
@@ -127,8 +268,7 @@ function FrameGraph(device::Device, passes, buffers, images, attachments)
             end
         end
     end
-
-    FrameGraph(device, rg, eg, passes, buffers, images, attachments, [], [], [])
+    eg
 end
 
 function synchronize_before(cb::Vk.CommandBuffer, fg::FrameGraph, pass::Pass)
@@ -165,7 +305,7 @@ function render(device, fg::FrameGraph; fence = nothing, semaphore = nothing)
 end
 
 function sort_passes(fg::FrameGraph)
-    indices = topological_sort_by_dfs(fg.dependency_graph)
+    indices = topological_sort_by_dfs(execution_graph(fg))
     fg.passes[indices]
 end
 
@@ -199,6 +339,7 @@ function submit_pipeline!(device::Device, pass::RenderPass, program::Program, st
     rasterizer = Vk.PipelineRasterizationStateCreateInfo(false, false, invocation_state.polygon_mode, invocation_state.triangle_orientation, state.enable_depth_bias, 1.0, 0.0, 0.0, 1.0, cull_mode = invocation_state.face_culling)
     multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(pass.samples), false, 1.0, false, false)
     blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(_ -> Vk.BLEND_FACTOR_ONE, 4))
+    pipeline_layout = Vk.PipelineLayout(program)
     info = Vk.GraphicsPipelineCreateInfo(
         shader_stages,
         rasterizer,
@@ -284,6 +425,13 @@ function access_bits(type::ResourceType, access::MemoryAccess, stage::Vk.Pipelin
     bits
 end
 
+function aspect_bits(type::ResourceType)
+    bits = Vk.ImageAspectFlag(0)
+    RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= IMAGE_ASPECT_COLOR_BIT)
+    RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= IMAGE_ASPECT_DEPTH_BIT)
+    RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= IMAGE_ASPECT_STENCIL_BIT)
+end
+
 function descriptor_type(type::ResourceType, access::MemoryAccess)
     @match access, type begin
         &(RESOURCE_TYPE_IMAGE | RESOURCE_TYPE_STORAGE) => Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE
@@ -297,6 +445,15 @@ function descriptor_type(type::ResourceType, access::MemoryAccess)
         &(RESOURCE_TYPE_TEXTURE | ESOURCE_TYPE_SAMPLER) => Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
         &RESOURCE_TYPE_SAMPLER => Vk.DESCRIPTOR_TYPE_SAMPLER
         _ => error("Unsupported combination of type $type and access $access")
+    end
+end
+
+function resolve_attributes!(fg::FrameGraph)
+    g = fg.resource_graph
+    for edge in edges(g)
+        access = NO_ACCESS
+        edge.dst in fg.passes && (access |= READ)
+        edge.src in fg.passes && (access |= WRITE)
     end
 end
 

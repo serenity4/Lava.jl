@@ -11,7 +11,7 @@ HashTable{T}() where {T} = HashTable(Dictionary{UInt,T}())
 """
 function create_new_entry! end
 
-function get!(ht::HashTable{T}, info, device) where {T}
+function Base.get!(ht::HashTable, info, device)
     h = hash(info)
     val = get(ht, h, nothing)
     if !isnothing(val)
