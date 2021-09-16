@@ -15,6 +15,7 @@ Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
 XCB = "16167f82-ea26-5cba-b1de-ed6fd5e30a10"
 
 [compat]
+XCB = "0.4"
 julia = "1.6"
 
 [extras]
