@@ -10,8 +10,7 @@ vk_handle_type(::Type{Instance}) = Vk.Instance
 Instance(handle::Vk.Instance) = Instance(handle, [], [], nothing)
 
 function Instance(layers, extensions, messenger_info::Optional{Vk.DebugUtilsMessengerCreateInfoEXT} = nothing; application_info = C_NULL)
-    # handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info, next = something(messenger_info, C_NULL))))
-    handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info)))
+    handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info, next = something(messenger_info, C_NULL))))
     if !isnothing(messenger_info)
         messenger = debug_messenger(handle, messenger_info)
     else
@@ -31,6 +30,7 @@ function init(;
     ]),
     with_validation = true,
     debug = true,
+    message_types = Vk.DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | Vk.DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
 )
 
     if with_validation && "VK_LAYER_KHRONOS_validation" ∉ instance_layers
@@ -60,11 +60,7 @@ function init(;
                 Vk.DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
                 Vk.DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
             ),
-            |(
-                Vk.DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT,
-                Vk.DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                Vk.DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-            ),
+            message_types,
             debug_callback_c[],
         )
     else
