@@ -21,17 +21,23 @@ struct Shader
     shader_module::Vk.ShaderModule
     entry_point::Symbol
     descriptor_infos::Vector{DescriptorInfo}
+    push_constant_ranges::Vector{Vk.PushConstantRange}
+    specialization_constants::Vector{Vk.SpecializationInfo}
 end
 
+device(shader::Shader) = shader.shader_module.device
+
+Shader(source, shader_module, entry_point, descriptor_infos) = Shader(source, shader_module, entry_point, descriptor_infos, [], [])
+
 struct ShaderCache
-    device::Device
+    device::Vk.Device
     compiled::Dictionary{String,ShaderSource}
     shaders::Dictionary{ShaderSource,Shader}
 end
 
 Base.hash(source::ShaderSource, h::UInt64) = objectid(source.code) + h
 
-ShaderCache(device) = ShaderCache(device, Dictionary{String,ShaderSource}(), Dictionary{ShaderSource,Shader}())
+ShaderCache(device) = ShaderCache(device, Dictionary(), Dictionary())
 
 function find_source!(cache::ShaderCache, spec::ShaderSpecification)
     file = string(spec.source_file)
@@ -67,7 +73,7 @@ function find_shader!(cache::ShaderCache, source::ShaderSource, spec::ShaderSpec
     if haskey(cache.shaders, source)
         cache.shaders[source]
     else
-        shader_module = ShaderModule(cache.device, source)
+        shader_module = Vk.ShaderModule(cache.device, source)
         ir = IR(SPIRV.Module(IOBuffer(source.code)))
         infos = descriptor_infos(ir)
         shader = Shader(source, shader_module, spec.entry_point, infos)

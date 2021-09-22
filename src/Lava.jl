@@ -8,6 +8,9 @@ using MLStyle
 using LightGraphs, MetaGraphs
 using XCB
 using SPIRV
+using glslang_jll: glslang_jll
+
+const glslangValidator = glslang_jll.glslangValidator_path
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
@@ -32,8 +35,6 @@ function __init__()
         @cfunction(Vk.default_debug_callback, UInt32, (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{Vk.core.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid}))
 end
 
-include("pipeline.jl")
-include("device.jl")
 include("command_buffer.jl")
 include("init.jl")
 include("memory.jl")
@@ -43,12 +44,7 @@ include("dimensions.jl")
 include("attachments.jl")
 include("render_pass.jl")
 include("descriptors.jl")
-include("command.jl")
-include("program.jl")
-include("render_state.jl")
-include("frame_graph.jl")
-# include("frames.jl")
-include("wsi.jl")
+include("pipeline.jl")
 
 include("shaders/dependencies.jl")
 # include("shaders/resources.jl")
@@ -57,6 +53,15 @@ include("shaders/formats.jl")
 include("shaders/specification.jl")
 include("shaders/source.jl")
 include("shaders/compilation.jl")
+
+include("device.jl")
+include("program.jl")
+include("render_state.jl")
+include("binding_state.jl")
+include("command.jl")
+include("frame_graph.jl")
+# include("frames.jl")
+include("wsi.jl")
 
 # include("synchronization.jl")
 
@@ -75,8 +80,24 @@ export
 
         SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
 
-        Program, ProgramInvocation, ProgramInvocationState,
-        Shader, ShaderSpecification,
+        Program, ProgramInterface, ProgramInvocationState,
+
+        # shaders
+        ShaderDependencies,
+        ShaderResource,
+        ShaderLanguage, SPIR_V, GLSL, HLSL,
+        ShaderSpecification,
+        ShaderCache, find_shader!, find_source!,
+        Shader,
+        SampledImage,
+        StorageBuffer,
+        collect_bindings,
+        create_descriptor_set_layouts,
+        # vertex_input_attribute_descriptions,
+
+        # descriptors
+        DescriptorSet, DescriptorSetLayout, DescriptorAllocator,
+        allocate_pool, allocate_descriptor_set,
 
         RenderState,
 

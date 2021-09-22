@@ -4,7 +4,7 @@ end
 
 @forward HashTable.table Base.get, Base.getindex, Base.setindex!, Base.isempty, Base.insert!
 
-HashTable{T}() where {T} = HashTable(Dictionary{UInt,T}())
+HashTable{T}() where {T} = HashTable{T}(Dictionary())
 
 """
     create_new_entry!(ht, device, info)

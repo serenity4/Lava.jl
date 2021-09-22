@@ -19,7 +19,7 @@ Vulkan.device(fs::FrameState) = fs.device
 
 function FrameState(device, swapchain::Swapchain)
     max_in_flight = info(swapchain).min_image_count
-    fs = FrameState(device, Ref(swapchain), [], Ref{Frame}(), Ref(0), Dictionary{FrameSynchronization}())
+    fs = FrameState(device, Ref(swapchain), [], Ref{Frame}(), Ref(0), Dictionary())
     update!(fs)
 end
 

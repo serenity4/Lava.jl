@@ -10,7 +10,14 @@
     PIPELINE_TYPE_ASYNC_COMPUTE
 end
 
-struct Pipeline
+struct PipelineLayout <: LavaAbstraction
+    handle::Vk.PipelineLayout
+    descriptor_set_layouts::Vector{DescriptorSetLayout}
+    push_constant_ranges::Vector{Vk.PushConstantRange}
+end
+
+struct Pipeline <: LavaAbstraction
     handle::Vk.Pipeline
     type::PipelineType
+    layout::PipelineLayout
 end

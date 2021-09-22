@@ -152,11 +152,13 @@ function ImageView(
         view_type,
         format,
         component_mapping,
-        Vk.ImageSubresourceRange(aspect, mip_range.start, mip_range.stop - mip_range.start, layer_range.start - 1, 1 + layer_range.stop - layer_range.start),
+        subresource_range(aspect, mip_range, layer_range),
     )
     handle = unwrap(create(ImageView, device(image), info))
     ImageView{I}(handle, image, format, aspect, mip_range, layer_range)
 end
+
+subresource_range(aspect, mip_range::UnitRange, layer_range::UnitRange) = Vk.ImageSubresourceRange(aspect, mip_range.start, mip_range.stop - mip_range.start, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
 
 """
 Opaque image that comes from the Window System Integration (WSI) as returned by `Vk.get_swapchain_images_khr`.

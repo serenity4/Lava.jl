@@ -15,6 +15,12 @@ Vk.@bitmask_flag ResourceType::UInt32 begin
     RESOURCE_TYPE_SAMPLER = 8192
 end
 
+@enum ResourceClass::Int8 begin
+    RESOURCE_CLASS_BUFFER = 1
+    RESOURCE_CLASS_IMAGE = 2
+    RESOURCE_CLASS_ATTACHMENT = 3
+end
+
 struct Resource{T}
     type::ResourceType
     info::T
@@ -84,13 +90,15 @@ An edge from a resource to a pass describes a read dependency. An edge from a pa
 Graph attributes:
 - Resources:
     - `:name`: name of the resource
-    - `:image_layout` (if the resource describes an image)
     - `:format` (if the resource describes either an image or an attachment)
-    - `:aspect` (if the resource describes either an image or an attachment)
     - `:usage`
     - `:size` (if the resource describes a buffer)
     - `:vresource`: description as a virtual resource
     - `:presource`: physical resource
+    - `:current_layout` (if the resource describes an image)
+    - `:last_write`: access bits and pipeline stages associated to the latest pass that wrote to the resource
+    - `:synchronization_state`: access bits and pipeline stages of all passes that required to synchronize with this resource
+        since the last write.
 - Passes:
     - `:name`: name of the pass
 - Edge between a resource and a pass (all directions)
@@ -98,6 +106,8 @@ Graph attributes:
     - `:usage`
     - `:aspect`
     - `:stage`: stages in which the resource is used
+    - `:clear_value`: clear value, if applicable. If this property is absent and a load operation takes place on this resource in this pass,
+        then the contents are preserved.
 
 ## Execution graph (directed, acyclic)
 
@@ -117,11 +127,10 @@ mutable struct FrameGraph
     passes::Dictionary{Symbol,Int}
 end
 
-stages(fg::FrameGraph, i::Integer) = get_prop(fg.resource_graph, i, :stages)::Vk.PipelineStageFlag
-attribute(rg::MetaDiGraph, i, key) = get_prop(rg, i, key)
-pass_attribute(rg::MetaDiGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
+attribute(rg::AbstractMetaGraph, i, key) = get_prop(rg, i, key)
+pass_attribute(rg::AbstractMetaGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
 pass_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.passes[name], key)
-resource_attribute(rg::MetaDiGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
+resource_attribute(rg::AbstractMetaGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
 resource_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.resources[name], key)
 
 virtual_image(g, idx) = resource_attribute(g, idx, :virtual_resource)::ImageResourceInfo
@@ -132,16 +141,26 @@ image(g, idx) = resource_attribute(g, idx, :physical_resource)::Image
 buffer(g, idx) = resource_attribute(g, idx, :physical_resource)::Buffer
 attachment(g, idx) = resource_attribute(g, idx, :physical_resource)::Attachment
 
-image_layout(g, idx) = resource_attribute(g, idx, :image_layout)::Vk.ImageLayout
+type(g, i, j) = attribute(g, Edge(i, j), :type)::ResourceType
+access(g, i, j) = attribute(g, Edge(i, j), :access)::MemoryAccess
+access_bits(g, i, j) = attribute(g, Edge(i, j), :access_bits)::Vk.AccessFlag
+image_layout(g, i, j) = attribute(g, Edge(i, j), :image_layout)::Vk.ImageLayout
+clear_value(g, i, j) = attribute(g, Edge(i, j), :clear_value)::Vk.ClearValue
+aspect(g, i, j) = attribute(g, Edge(i, j), :aspect)::Vk.ImageAspectFlag
+stages(g, i, j) = attribute(g, Edge(i, j), :stages)::Vk.PipelineStageFlag
+
+current_layout(g, idx) = resource_attribute(g, idx, :current_layout)::Vk.ImageLayout
 format(g, idx) = resource_attribute(g, idx, :format)::Vk.Format
-aspect(g, idx) = resource_attribute(g, idx, :image_layout)::Vk.ImageAspectFlag
 buffer_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.BufferUsageFlag
 image_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.ImageUsageFlag
 size(g, idx) = resource_attribute(g, idx, :size)::Int
 name(g, idx) = attribute(g, idx, :name)::Symbol
+last_write(g, idx) = resource_attribute(g, idx, :last_write)::Pair{Vk.AccessFlag, Vk.PipelineStageFlag}
+synchronization_state(g, idx) = resource_attribute(g, idx, :synchronization_state)::Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}
+stages(g, idx) = pass_attribute(g, idx, :stages)::Vk.PipelineStageFlag
 
 function FrameGraph(device)
-    FrameGraph(device, MetaGraph(), Dictionary{Symbol,Int}(), Dictionary{Symbol,Int}())
+    FrameGraph(device, MetaGraph(), Dictionary(), Dictionary())
 end
 
 function add_pass!(fg::FrameGraph, name::Symbol, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT; clear_values = (0.1, 0.1, 0.1, 1.))
@@ -274,31 +293,18 @@ end
 function execution_graph(fg::FrameGraph)
     g = fg.resource_graph
     eg = SimpleDiGraph(length(fg.passes))
-    for (i, pass) in enumerate(fg.passes)
-        for resource in resources
-            pass_indices = neighbors(g, resource)
-            for j in pass_indices
-                WRITE in get_prop(g, i, j, :access)::MemoryAccess || continue
-                j ≠ i || error("Pass self-dependencies are not currently supported.")
-                if j < i
-                    # add a dependency from passes that write to this resource earlier
-                    add_edge!(eg, j, i)
-                end
+    for pass in fg.passes
+        pass_indices = neighbors(g, pass)
+        for j in pass_indices
+            WRITE in get_prop(g, i, j, :access)::MemoryAccess || continue
+            j ≠ i || error("Pass self-dependencies are not currently supported.")
+            if j < i
+                # add a dependency from passes that write to this resource earlier
+                add_edge!(eg, j, i)
             end
         end
     end
     eg
-end
-
-function synchronize_before(cb::Vk.CommandBuffer, fg::FrameGraph, pass::Pass)
-    image_memory_barriers = Vk.ImageMemoryBarriers[]
-    buffer_memory_barriers = Vk.BufferMemoryBarriers[]
-    memory_barriers = Vk.MemoryBarriers[]
-    for read in pass.reads
-        if is_image(fg, read)
-            image = fg.images[read]
-        end
-    end
 end
 
 """
@@ -309,71 +315,164 @@ and is then submitted them to the provided device.
 A fence and/or a semaphore can be provided to synchronize with the application or other commands.
 """
 function render(device, fg::FrameGraph; fence = nothing, semaphore = nothing)
-    cb = get_command_buffer(device, fg)
+    records = CompactRecord[]
+    pipeline_hashes = Dictionary{Tuple{Program,DrawState},UInt64}()
+    passes = sort_passes(fg)
+
+    # record commands and submit pipelines for creation
+    for pass in passes
+        record = CompactRecord(device)
+        record_render_pass(record, fg, pass)
+        push!(records, record)
+        merge!(pipeline_hashes, submit_pipelines!(device, fg, pass))
+    end
+
+    batch_create!(device.pipeline_ht, device.pending_pipelines) do infos
+        handles = unwrap(Vk.create_graphics_pipelines(device, infos))
+        map(zip(handles, infos)) do (handle, info)
+            Pipeline(handle, Vk.PIPELINE_BIND_POINT_GRAPHICS, info.pipeline_layout)
+        end
+    end
+
+    # fill command buffer with synchronization commands & recorded commands
+    cb = get_command_buffer(device)
     @record cb begin
-        for pass in sort_passes(fg)
+        for (pass, record) in zip(passes, records)
+            begin_render_pass(cb, fg, passes, pass)
             synchronize_before(cb, fg, pass)
-            begin_render_pass(cb, pass)
-            record(cb, pass)
+            flush(cb, record, device, BindState(), pipeline_hashes)
             Vk.cmd_end_render_pass()
             synchronize_after(cb, fg, pass)
         end
     end
-    submit_info = Vk.SubmitInfo([], [cb], isnothing(semaphore) ? [semaphore] : [])
-    Vk.queue_submit(device, submit_info)
+
+    # submit rendering work
+    submit_info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(cb, 0)], isnothing(semaphore) ? [Vk.SemaphoreSignalInfo(semaphore, 0)] : [])
+    unwrap(Vk.queue_submit_2_khr(device, submit_info))
+    nothing
 end
 
 function sort_passes(fg::FrameGraph)
     indices = topological_sort_by_dfs(execution_graph(fg))
-    fg.passes[indices]
+    collect(values(fg.passes))[indices]
 end
 
 """
-Submit a pipeline create info for creation in the next batch.
+Build barriers for all resources that require it.
 
-A hash is returned to serve as the key to get the corresponding pipeline from the hash table.
+Requires the extension `VK_KHR_synchronization2`.
 """
-function submit_pipeline!(device::Device, pass::RenderPass, program::Program, state::RenderState, invocation_state::ProgramInvocationState)
-    shader_stages = PipelineShaderStageCreateInfo.(program.shaders, program.specialization_constants)
-    T = program.input_type
-    vertex_input_state = PipelineVertexInputStateCreateInfo([VertexInputBindingDescription(T, 0)], vertex_input_attribute_descriptions(T, 0))
-    attachments = map(program.attachments) do attachment
-        if isnothing(state.blending_mode)
-            Vk.PipelineColorBlendAttachmentState(
-                false,
-                BLEND_FACTOR_SRC_ALPHA,
-                BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                BLEND_OP_ADD,
-                BLEND_FACTOR_SRC_ALPHA,
-                BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                BLEND_OP_ADD;
-                color_write_mask = state.color_write_mask,
-            )
-        else
-            error("Color blending not supported")
+function synchronize_before(cb::Vk.CommandBuffer, fg::FrameGraph, pass::Integer)
+    g = fg.resource_graph
+    deps = Vk.DependencyInfoKHR([], [], [])
+    for resource in neighbors(fg, pass)
+        (req_access, req_stages) = access(g, pass, resource) => stages(g, pass)
+        # if the resource was not written to recently, no synchronization is required
+        if has_prop(g, resource, :last_write)
+            (r_access, p_stages) = last_write(g, resource)
+            resource_type = type(g, pass, resource)
+            req_access_bits = access_bits(resource_type, req_access, req_stages)
+            sync_state = synchronization_state(g, resource)
+            synced_stages = PipelineStageFlag(0)
+            barrier_needed = true
+            for (access, stages) in pairs(sync_state)
+                if covers(access, req_access_bits)
+                    synced_stages |= (stages & req_stages)
+                end
+                if synced_stages == req_stages
+                    barrier_needed = false
+                    break
+                else
+                    # keep only stages that haven't been synced
+                    req_stages &= ~synced_stages
+                end
+            end
+            if barrier_needed
+                @switch class = ResourceClass(resource_type) begin
+                    @case &RESOURCE_CLASS_BUFFER
+                        buff = buffer(g, resource)
+                        barrier = Vk.BufferMemoryBarrier2KHR(p_stages, req_stages, r_access, req_access_bits, 0, 0, buff, offset(buff), size(buff))
+                        push!(deps.buffer_memory_barriers, barrier)
+                    @case &RESOURCE_CLASS_IMAGE || &RESOURCE_CLASS_ATTACHMENT
+                        view = if class == RESOURCE_CLASS_IMAGE
+                            ImageView(image(g, resource))
+                        else
+                            attachment(g, resource).view
+                        end
+                        new_layout = image_layout(g, pass, resource)
+                        range = subresource_range(view.aspect, view.mip_range, view.layer_range)
+                        barrier = Vk.ImageMemoryBarrier(r_access, req_access_bits, current_layout(g, resource), new_layout, 0, 0, range)
+                        push!(deps.image_memory_barriers, barrier)
+                        set_prop!(g, resource, :current_layout, new_layout)
+                end
+                set!(sync_state, req_access_bits, req_stages)
+            end
+        end
+        if WRITE in req_access
+            set_prop!(g, resource, :last_write, req_access_bits => req_stages)
         end
     end
-    input_assembly_state = Vk.PipelineInputAssemblyStateCreateInfo(PrimitiveTopology(I), false)
-    viewport_state = Vk.PipelineViewportStateCreateInfo(viewports = [Viewport(pass.area.offset..., pass.area.extent..., 0, 1)], scissors = [pass.area])
-    rasterizer = Vk.PipelineRasterizationStateCreateInfo(false, false, invocation_state.polygon_mode, invocation_state.triangle_orientation, state.enable_depth_bias, 1.0, 0.0, 0.0, 1.0, cull_mode = invocation_state.face_culling)
-    multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(pass.samples), false, 1.0, false, false)
-    blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(_ -> Vk.BLEND_FACTOR_ONE, 4))
-    pipeline_layout = Vk.PipelineLayout(program)
-    info = Vk.GraphicsPipelineCreateInfo(
-        shader_stages,
-        rasterizer,
-        pipeline_layout,
-        render_pass,
-        0,
-        0;
-        vertex_input_state,
-        multisample_state,
-        color_blend_state,
-        input_assembly_state,
-        viewport_state,
-    )
-    push!(device.pending_pipelines, info)
-    hash(info)
+    Vk.cmd_pipeline_barrier_2_khr(cb, deps)
+end
+
+function begin_render_pass(cb, fg::FrameGraph, pass::Integer)
+    g = fg.resource_graph
+    attachment_nodes = (resource for resource in neighbors(g, pass) if ResourceClass(type(g, pass, resource)) == RESOURCE_CLASS_ATTACHMENT)
+    attachms = Attachment[]
+    attach_descs = Vk.AttachmentDescription2[]
+    clear_values = Vk.ClearValue[]
+
+    subpass_descriptions = Vk.SubpassDescription2[]
+    subpass_dependencies = Vk.SubpassDependency2[]
+
+    for (i, node) in enumerate(attachment_nodes)
+        # render pass (global) attachment info
+        attachm = attachment(g, pass, i)
+        push!(attachms, attach)
+        clear = has_prop(g, pass, node, :clear_value)
+        push!(attach_descs, Vk.AttachmentDescription2(attachm, clear, image_layout(g, pass, node), image_layout(g, pass, node)))
+        clear_val = if clear
+            clear_value(g, pass, node)
+        else
+            Vk.ClearValue(Vk.ClearColorValue(ntuple(Returns(0f0), 4)))
+        end
+        push!(clear_values, clear_value)
+
+        # subpass (local) attachment info
+        # only one subpass per pass is currently supported
+        # we could later look up an internal subpass graph to support more
+        for subpass in 1:1
+            stage_flags = stages(g, pass)
+            pipeline_bind_point = Vk.PIPELINE_STAGE_COMPUTE_SHADER_BIT in stage_flags ? Vk.PIPELINE_BIND_POINT_COMPUTE : Vk.PIPELINE_BIND_POINT_GRAPHICS
+            color_attachments = Vk.AttachmentReference2[]
+            depth_stencil_attachment = C_NULL
+            input_attachments = Vk.AttachmentReference2[]
+            resource_type = type(g, pass, resource)
+            ref = Vk.AttachmentReference2(i, image_layout(f, pass, node), aspect(g, i, j))
+            if RESOURCE_TYPE_COLOR_ATTACHMENT in resource_type
+                push!(color_attachments, ref)
+            end
+            if RESOURCE_TYPE_DEPTH_ATTACHMENT in resource_type || RESOURCE_TYPE_STENCIL_ATTACHMENT in resource_type
+                depth_stencil_attachment = ref
+            end
+            if RESOURCE_TYPE_INPUT_ATTACHMENT in resource_type
+                push!(input_attachments, ref)
+            end
+            push!(subpass_descriptions, Vk.SubpassDescription2(pipeline_bind_point, 0, input_attachments, color_attachments, []; depth_stencil_attachment))
+
+            acc_bits = access_bits(g, i, j)
+            push!(subpass_dependencies, Vk.SubpassDependency2(Vk.SUBPASS_EXTERNAL, subpass - 1, 0; dst_stage_mask = stage_flags, dst_access_mask = acc_bits))
+        end
+    end
+    render_pass = RenderPass(fg, pass)
+    render_pass_handle = Vk.RenderPass(fg.device, attachment_descriptions, subpass_descriptions, subpass_dependencies)
+    (; width, height) = render_pass.area.extent
+    fb = Vk.Framebuffer(fg.device, render_pass_handle, attachms, width, height, 1)
+    Vk.cmd_begin_render_pass(cb, Vk.RenderPassBeginInfo(render_pass_handle, fb, render_pass.area, clear_values))
+end
+
+function synchronize_after(cb, fg, pass)
+    nothing
 end
 
 """
@@ -381,7 +480,7 @@ Deduce the Vulkan usage, layout and access flags form a resource given its type,
 
 The idea is to reconstruct information like `Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT` and `Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` from a more decoupled description.
 """
-function image_layout(type::ResourceType, stage::Vk.PipelineStageFlag, access::MemoryAccess)
+function image_layout(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag)
     @match (type, access) begin
         (&RESOURCE_TYPE_COLOR_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         (&RESOURCE_TYPE_COLOR_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
@@ -397,21 +496,27 @@ function image_layout(type::ResourceType, stage::Vk.PipelineStageFlag, access::M
     end
 end
 
-function usage_bits(type::ResourceType, access::MemoryAccess)
-    @match type begin
-        &RESOURCE_TYPE_COLOR_ATTACHMENT => Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-        &RESOURCE_TYPE_DEPTH_ATTACHMENT || &RESOURCE_TYPE_STENCIL_ATTACHMENT => Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-        &RESOURCE_TYPE_INPUT_ATTACHMENT => Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT
-        &RESOURCE_TYPE_VERTEX_BUFFER => Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT
-        &RESOURCE_TYPE_INDEX_BUFFER => Vk.BUFFER_USAGE_INDEX_BUFFER_BIT
-        _ => @match (type, access) begin
-            (&RESOURCE_TYPE_BUFFER, &READ) => Vk.BUFFER_USAGE_UNIFORM_BUFFER_BIT
-            (&RESOURCE_TYPE_BUFFER, &WRITE) => Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT
-            (&RESOURCE_TYPE_BUFFER, &(READ | WRITE)) => Vk.BUFFER_USAGE_UNIFORM_BUFFER_BIT | Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT
-            (&RESOURCE_TYPE_IMAGE, &WRITE) => Vk.IMAGE_USAGE_STORAGE_BIT
-            _ => error("Unsupported combination of type $type and access $access")
-        end
-    end
+function buffer_usage_bits(type::ResourceType, access::MemoryAccess)
+    bits = Vk.BufferUsageFlag(0)
+
+    RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_STORAGE in type && (bits |= Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
+    RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT)
+    RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
+    RESOURCE_TYPE_BUFFER in type && access == READ && (bits |= Vk.BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+
+    bits
+end
+
+function image_usage_bits(type::ResourceType, access::MemoryAccess)
+    bits = Vk.ImageUsageFlag(0)
+
+    RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+    (RESOURCE_TYPE_DEPTH_ATTACHMENT in type || RESOURCE_TYPE_STENCIL_ATTACHMENT in type) && (bits |= Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+    RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+    RESOURCE_TYPE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
+    RESOURCE_TYPE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
+
+    bits
 end
 
 const SHADER_STAGES = |(
@@ -441,14 +546,16 @@ function access_bits(type::ResourceType, access::MemoryAccess, stage::Vk.Pipelin
         access == READ && (bits |= Vk.ACCESS_UNIFORM_READ_BIT)
         WRITE in access && (bits |= Vk.ACCESS_SHADER_WRITE_BIT)
     end
+    RESOURCE_TYPE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_SHADER_READ_BIT)
+    RESOURCE_TYPE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_SHADER_WRITE_BIT)
     bits
 end
 
 function aspect_bits(type::ResourceType)
     bits = Vk.ImageAspectFlag(0)
-    RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= IMAGE_ASPECT_COLOR_BIT)
-    RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= IMAGE_ASPECT_DEPTH_BIT)
-    RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= IMAGE_ASPECT_STENCIL_BIT)
+    RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_COLOR_BIT)
+    RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_DEPTH_BIT)
+    RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_STENCIL_BIT)
 end
 
 function descriptor_type(type::ResourceType, access::MemoryAccess)
@@ -469,14 +576,34 @@ end
 
 function resolve_attributes!(fg::FrameGraph)
     g = fg.resource_graph
-    for edge in edges(g)
-        type = get_prop(g, edge, :type)::ResourceType
-        access = get_prop(g, edge, :access)::MemoryAccess
-        stages = if has_prop(g, edge, :stages)
-            get_prop(g, edge, :stages)::Vk.PipelineStageFlag
-        else
-            pass = edge.src in fg.passes ? edge.src : edge.dst
-            get_prop(g, pass, :stages)::Vk.PipelineStageFlag
+    for pass in fg.passes
+        for resource in neighbors(g, pass)
+            resource_type = type(g, pass, resource)
+            resource_access = access(g, pass, resource)
+            pipeline_stages = if has_prop(g, pass, resource, :stages)
+                stages(g, pass, resource)
+            else
+                stages(g, pass)
+            end
+            # class-independent attributes
+            acc_bits = access_bits(resource_type, resource_access, pipeline_stages)
+            set_prop!(g, pass, resource, :access_bits, acc_bits)
+
+            # class-dependent attributes
+            resource_class = ResourceClass(resource_type)
+            if resource_class == RESOURCE_CLASS_IMAGE || resource_class == RESOURCE_CLASS_ATTACHMENT
+                usage = image_usage_bits(resource_type, resource_access)
+                set_prop!(g, pass, resource, :usage, usage)
+                layout = image_layout(resource_type, resource_access, pipeline_stages)
+                set_prop!(g, pass, resource, :image_layout, layout)
+                aspect = aspect_bits(resource_type)
+                set_prop!(g, pass, resource, :aspect, aspect)
+                set_prop!(g, resource, :usage, usage | image_usage(g, resource))
+            else
+                usage = buffer_usage_bits(resource_type, resource_access)
+                set_prop!(g, pass, resource, :usage, usage)
+                set_prop!(g, resource, :usage, usage | buffer_usage(g, resource))
+            end
         end
     end
 end
@@ -491,4 +618,86 @@ function create_physical_resources!(fg::FrameGraph)
     for attachment in fg.attachments
         push!(fg.physical_attachments, Attachment(ImageView(physical_image(fg, attachment))))
     end
+end
+
+"""
+Return whether `x` covers accesses of type `y`; that is, whether guarantees about memory access operations in `x` induce guarantees about memory access operations in `y`.
+
+```jldoctest
+julia> covers(Vk.ACCESS_MEMORY_WRITE_BIT, Vk.ACCESS_SHADER_WRITE_BIT)
+true
+
+julia> covers(Vk.ACCESS_SHADER_READ_BIT, Vk.ACCESS_UNIFORM_READ_BIT)
+true
+
+julia> covers(Vk.ACCESS_SHADER_WRITE_BIT, Vk.ACCESS_MEMORY_WRITE_BIT)
+false
+```
+
+"""
+function covers(x::Vk.AccessFlag, y::Vk.AccessFlag)
+    y in x && return true
+    if Vk.ACCESS_MEMORY_READ_BIT in x
+        if Vk.ACCESS_MEMORY_READ_BIT ∉ y
+            x &= ~Vk.ACCESS_MEMORY_READ_BIT
+        end
+        x |= |(
+            Vk.ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+            Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT,
+            Vk.ACCESS_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT,
+            Vk.ACCESS_COMMAND_PREPROCESS_READ_BIT_NV,
+            Vk.ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT,
+            Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+            Vk.ACCESS_FRAGMENT_DENSITY_MAP_READ_BIT_EXT,
+            Vk.ACCESS_HOST_READ_BIT,
+            Vk.ACCESS_INDEX_READ_BIT,
+            Vk.ACCESS_INDIRECT_COMMAND_READ_BIT,
+            Vk.ACCESS_INPUT_ATTACHMENT_READ_BIT,
+            Vk.ACCESS_SHADER_READ_BIT,
+            Vk.ACCESS_SHADING_RATE_IMAGE_READ_BIT_NV,
+            Vk.ACCESS_TRANSFER_READ_BIT,
+            Vk.ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT,
+            Vk.ACCESS_UNIFORM_READ_BIT,
+            Vk.ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
+        )
+        y in x && return true
+    end
+    if Vk.ACCESS_MEMORY_WRITE_BIT in x
+        if Vk.ACCESS_MEMORY_WRITE_BIT ∉ y
+            x &= ~Vk.ACCESS_MEMORY_WRITE_BIT
+        end
+        x |= |(
+            Vk.ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            Vk.ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            Vk.ACCESS_COMMAND_PREPROCESS_WRITE_BIT_NV,
+            Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            Vk.ACCESS_HOST_WRITE_BIT,
+            Vk.ACCESS_SHADER_WRITE_BIT,
+            Vk.ACCESS_TRANSFER_WRITE_BIT,
+            Vk.ACCESS_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT,
+            Vk.ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT,
+        )
+        y in x && return true
+    end
+    if Vk.ACCESS_SHADER_READ_BIT in x
+        if Vk.ACCESS_SHADER_READ_BIT ∉ y
+            x &= ~Vk.ACCESS_SHADER_READ_BIT
+        end
+        x |= Vk.ACCESS_UNIFORM_READ_BIT
+        y in x && return true
+    end
+    false
+end
+
+function ResourceClass(type::ResourceType)
+    RESOURCE_TYPE_TEXTURE in type && return RESOURCE_CLASS_IMAGE
+    RESOURCE_TYPE_IMAGE in type && return RESOURCE_CLASS_IMAGE
+    RESOURCE_TYPE_INPUT_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
+    RESOURCE_TYPE_COLOR_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
+    RESOURCE_TYPE_DEPTH_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
+    RESOURCE_TYPE_STENCIL_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
+    RESOURCE_TYPE_BUFFER in type && return RESOURCE_CLASS_BUFFER
+    RESOURCE_TYPE_VERTEX_BUFFER in type && return RESOURCE_CLASS_BUFFER
+    RESOURCE_TYPE_INDEX_BUFFER in type && return RESOURCE_CLASS_BUFFER
+    error("Resource type '$type' does not belong to any resource class.")
 end

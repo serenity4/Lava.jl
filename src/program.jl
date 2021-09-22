@@ -5,11 +5,14 @@ It exposes a program interface through its shader interfaces and its shader reso
 """
 struct Program
     input_type::Type
-    shaders
-    descriptor_sets
-    push_constants
-    specialization_constants
-    attachments
+    shaders::Dictionary{Vk.ShaderStageFlag, Shader}
+end
+
+function Program(@nospecialize(T::Type), cache, shaders::ShaderSpecification...)
+    shaders = map(shaders) do shader_spec
+        shader_spec.stage => find_shader!(cache, shader_spec)
+    end
+    Program(T, dictionary(shaders))
 end
 
 """
@@ -20,9 +23,4 @@ struct ProgramInterface
     ibuffer::Optional{Buffer}
     descriptors::Vector{DescriptorSet}
     push_constants::Dictionary{Vk.PushConstantRange,Any}
-end
-
-struct ProgramInvocation
-    interface::ProgramInterface
-    draw_source::DrawSource
 end

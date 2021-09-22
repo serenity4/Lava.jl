@@ -14,3 +14,8 @@ Base.@kwdef struct ProgramInvocationState
     vertex_input_rate::Vk.VertexInputRate = Vk.VERTEX_INPUT_RATE_VERTEX
     polygon_mode::Vk.PolygonMode = Vk.POLYGON_MODE_FILL
 end
+
+struct DrawState
+    render_state::RenderState
+    program_state::ProgramInvocationState
+end

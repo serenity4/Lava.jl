@@ -5,6 +5,7 @@ struct Device <: LavaAbstraction
     queues::QueueDispatch
     pipeline_ht::HashTable{Pipeline}
     pending_pipelines::Vector{Vk.GraphicsPipelineCreateInfo}
+    shader_cache::ShaderCache
 end
 
 vk_handle_type(::Type{Device}) = Vk.Device
@@ -19,7 +20,7 @@ function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config; en
     
     handle = unwrap(create(Device, physical_device, info))
     queues = QueueDispatch(handle, queue_config; surface)
-    Device(handle, extensions, enabled_features, queues, HashTable{Pipeline}(), [])
+    Device(handle, extensions, enabled_features, queues, HashTable{Pipeline}(), [], ShaderCache(handle))
 end
 
 queue_family_indices(device::Device) = queue_family_indices(device.queues)

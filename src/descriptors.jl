@@ -6,7 +6,7 @@ end
 vk_handle_type(::Type{DescriptorSetLayout}) = Vk.DescriptorSetLayout
 
 mutable struct DescriptorPool <: LavaAbstraction
-    handle::Vk.CommandPool
+    handle::Vk.DescriptorPool
     allocated::Int
     size::Int
 end
@@ -23,7 +23,7 @@ struct DescriptorSet <: LavaAbstraction
 end
 
 struct DescriptorAllocator <: LavaAbstraction
-    set_layout::Vk.DescriptorSetLayout
+    set_layout::DescriptorSetLayout
     pools::Vector{DescriptorPool}
     unused::Dictionary{DescriptorSet,Int}
     recycled::Vector{DescriptorSet}
@@ -33,11 +33,12 @@ end
 Base.broadcastable(da::DescriptorAllocator) = Ref(da)
 
 function DescriptorAllocator(set_layout, size::Integer = 1000)
-    DescriptorAllocator(pool, set_layout, size)
+    DescriptorAllocator(set_layout, [], Dictionary(), [], size)
 end
 
 function allocate_pool(da::DescriptorAllocator)
-    handle = Vk.DescriptorPool(device(da.set_layout), da.set_layout, da.pool_size, map(Base.splat(Vk.DescriptorPoolSize), pairs(set_layout.layout) .* da.pool_size))
+    set_layout = da.set_layout
+    handle = Vk.DescriptorPool(device(set_layout), da.pool_size, map(Base.splat(Vk.DescriptorPoolSize), collect(pairs(set_layout.layout .* da.pool_size))))
     pool = DescriptorPool(handle, 0, da.pool_size)
     push!(da.pools, pool)
     pool
@@ -55,7 +56,7 @@ end
 
 function allocate_descriptor_set(da::DescriptorAllocator)
     pool = find_pool!(da)
-    allocate_info = Vk.DescriptorSetAllocateInfo(pool, [da.set_layout])
+    allocate_info = Vk.DescriptorSetAllocateInfo(handle(pool), [da.set_layout])
     set = first(unwrap(Vk.allocate_descriptor_sets(device(pool), allocate_info)))
     pool.allocated += 1
     DescriptorSet(set, da.set_layout)

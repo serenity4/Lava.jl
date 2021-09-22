@@ -1,7 +1,7 @@
 Vk.@bitmask_flag MemoryAccess::UInt32 begin
-    NO_ACCESS = 0
     READ = 1
     WRITE = 2
+    NO_ACCESS = 4
 end
 
 struct Attachment{IV<:ImageView}
@@ -11,23 +11,23 @@ end
 
 @forward Attachment.view dims, format, samples
 
-function load_op(usage::MemoryAccess)
+function load_op(usage::MemoryAccess, clear::Bool)
     @match usage begin
-        &READ => Vk.ATTACHMENT_LOAD_OP_DONT_CARE
-        &READ || &(READ | WRITE) => Vk.ATTACHMENT_LOAD_OP_CLEAR
-        _ => nothing
+        &READ => Vk.ATTACHMENT_LOAD_OP_LOAD
+        &WRITE || &(READ | WRITE) => clear ? Vk.ATTACHMENT_LOAD_OP_CLEAR : Vk.ATTACHMENT_LOAD_OP_DONT_CARE
+        _ => Vk.ATTACHMENT_LOAD_OP_DONT_CARE
     end
 end
 
 function store_op(usage::MemoryAccess)
     @match usage begin
+        &WRITE || &(READ | WRITE)  => Vk.ATTACHMENT_STORE_OP_STORE
         &READ => Vk.ATTACHMENT_STORE_OP_DONT_CARE
-        &READ || &(READ | WRITE) => Vk.ATTACHMENT_STORE_OP_STORE
         _ => nothing
     end
 end
 
-function Vk.AttachmentDescription(att::Attachment)
+function Vk.AttachmentDescription2(att::Attachment, clear::Bool, initial_layout::Vk.ImageLayout, final_layout::Vk.ImageLayout)
     asp = aspect(att)
 
     _load_op, _store_op = if Vk.IMAGE_ASPECT_COLOR_BIT in asp
@@ -42,13 +42,14 @@ function Vk.AttachmentDescription(att::Attachment)
         (Vk.ATTACHMENT_LOAD_OP_DONT_CARE, Vk.ATTACHMENT_STORE_OP_DONT_CARE)
     end
 
-    Vk.AttachmentDescription(
+    Vk.AttachmentDescription2(
         format(att),
         samples(att),
         _load_op,
         _store_op,
         stencil_load_op,
         stencil_store_op,
-        # missing layouts
+        initial_layout,
+        final_layout,
     )
 end

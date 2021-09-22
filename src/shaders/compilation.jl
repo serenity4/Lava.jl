@@ -57,9 +57,9 @@ end
 
 function Vk.ShaderModule(device, source::ShaderSource)
     length(source.code) % 4 == 0 || pad_shader_code!(source.code)
-    ShaderModule(device, length(source.code), reinterpret(UInt32, source.code))
+    Vk.ShaderModule(device, length(source.code), reinterpret(UInt32, source.code))
 end
 
 function Vk.PipelineShaderStageCreateInfo(shader::Shader; specialization_info = C_NULL)
-    PipelineShaderStageCreateInfo(shader.source.stage, shader.shader_module, string(shader.entry_point); specialization_info)
+    Vk.PipelineShaderStageCreateInfo(shader.source.stage, shader.shader_module, string(shader.entry_point); specialization_info)
 end
