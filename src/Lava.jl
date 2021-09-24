@@ -4,6 +4,7 @@ import Vulkan as Vk
 
 using Reexport
 using Dictionaries
+using Accessors
 using MLStyle
 using LightGraphs, MetaGraphs
 using XCB
@@ -93,14 +94,21 @@ export
         StorageBuffer,
         collect_bindings,
         create_descriptor_set_layouts,
-        # vertex_input_attribute_descriptions,
+        vertex_input_attribute_descriptions,
 
         # descriptors
         DescriptorSet, DescriptorSetLayout, DescriptorAllocator,
         allocate_pool, allocate_descriptor_set,
 
+        # render state
         RenderState,
 
+        # commands
+        CompactRecord, draw,
+        DrawCommand, Draw, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
+        set_program, set_state,
+
+        # frame graph
         BufferResourceInfo, ImageResourceInfo, AttachmentResourceInfo,
         ResourceInfo, add_resource!,
         ResourceType,
@@ -120,5 +128,5 @@ export
         RESOURCE_TYPE_SAMPLER,
         Pass, add_pass!,
         ResourceUsage, add_resource_usage!, resource_usages, @resource_usages,
-        FrameGraph
+        FrameGraph, render
 end

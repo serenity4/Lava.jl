@@ -45,10 +45,28 @@ function set_program(record::CompactRecord, program::Program)
     record.program[] = program
 end
 
+function set_state(record::CompactRecord, state::DrawState)
+    record.state[] = state
+end
+
+function set_state(record::CompactRecord, properties::NamedTuple)
+    record.state[] = setproperties(record.state[], properties)
+end
+
 function draw(record::CompactRecord, command::DrawCommand)
     program = get!(Dictionary{Program,Dictionary{DrawState,DrawCommand}}, record.programs, record.program)
     commands = get!(Vector{DrawCommand}, program, record.state)
     push!(commands, command)
+end
+
+struct Draw <: DrawCommand
+    vertices::UnitRange{Int}
+    instances::UnitRange{Int}
+end
+
+function apply(cb::Vk.CommandBuffer, draw::Draw)
+    buffer = draw.parameters
+    Vk.cmd_draw(cb, draw.vertices.stop - draw.vertices.start, draw.instances.stop - draw.instances.start, draw.vertices.start - 1, draw.instances.start - 1)
 end
 
 struct DrawIndirect{B<:Buffer} <: DrawCommand
@@ -56,7 +74,7 @@ struct DrawIndirect{B<:Buffer} <: DrawCommand
     count::Int
 end
 
-function apply(cb::Vk.CommandBuffer, draw::DrawIndirect,)
+function apply(cb::Vk.CommandBuffer, draw::DrawIndirect)
     buffer = draw.parameters
     Vk.cmd_draw_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end

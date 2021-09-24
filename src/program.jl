@@ -4,15 +4,18 @@ Computation unit that uses shaders as part of a graphics or compute pipeline.
 It exposes a program interface through its shader interfaces and its shader resources.
 """
 struct Program
-    input_type::Type
     shaders::Dictionary{Vk.ShaderStageFlag, Shader}
 end
 
-function Program(@nospecialize(T::Type), cache, shaders::ShaderSpecification...)
+function Program(cache::ShaderCache, shaders::ShaderSpecification...)
     shaders = map(shaders) do shader_spec
         shader_spec.stage => find_shader!(cache, shader_spec)
     end
-    Program(T, dictionary(shaders))
+    Program(dictionary(shaders))
+end
+
+function Program(device, shaders::ShaderSpecification...)
+    Program(device.shader_cache, shaders...)
 end
 
 """

@@ -158,12 +158,13 @@ name(g, idx) = attribute(g, idx, :name)::Symbol
 last_write(g, idx) = resource_attribute(g, idx, :last_write)::Pair{Vk.AccessFlag, Vk.PipelineStageFlag}
 synchronization_state(g, idx) = resource_attribute(g, idx, :synchronization_state)::Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}
 stages(g, idx) = pass_attribute(g, idx, :stages)::Vk.PipelineStageFlag
+render_function(g, idx) = pass_attribute(g, idx, :render_function)
 
 function FrameGraph(device)
     FrameGraph(device, MetaGraph(), Dictionary(), Dictionary())
 end
 
-function add_pass!(fg::FrameGraph, name::Symbol, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT; clear_values = (0.1, 0.1, 0.1, 1.))
+function add_pass!(render_function, fg::FrameGraph, name::Symbol, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT; clear_values = (0.1, 0.1, 0.1, 1.))
     !haskey(fg.passes, name) || error("Pass '$name' was already added to the frame graph. Passes can only be provided once.")
     g = fg.resource_graph
     add_vertex!(g)
@@ -171,6 +172,7 @@ function add_pass!(fg::FrameGraph, name::Symbol, stages::Vk.PipelineStageFlag = 
     set_prop!(g, v, :name, name)
     set_prop!(g, v, :stages, stages)
     set_prop!(g, v, :clear_values, clear_values)
+    set_prop!(g, v, :render_function, render_function)
     insert!(fg.passes, name, v)
     nothing
 end
