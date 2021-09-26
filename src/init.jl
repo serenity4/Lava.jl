@@ -28,7 +28,7 @@ function init(;
     instance_extensions = String[],
     application_info = Vk.ApplicationInfo(v"1", v"1", v"1.2"),
     device_extensions = String[],
-    enabled_features = Vk.PhysicalDeviceFeatures(),
+    enabled_features = Vk.PhysicalDeviceFeatures2(Vk.PhysicalDeviceFeatures()),
     queue_config = dictionary([
         Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT => 1
     ]),
@@ -73,9 +73,12 @@ function init(;
 
     instance = Instance(instance_layers, instance_extensions, dbg_info; application_info)
 
-    physical_device = first(unwrap(Vk.enumerate_physical_devices(instance)))
+    descriptor_indexing = physical_device_features(Vk.PhysicalDeviceDescriptorIndexingFeatures)
+    device_address = physical_device_features(Vk.PhysicalDeviceBufferDeviceAddressFeaturesEXT, :buffer_device_address; next = descriptor_indexing)
+    enabled_features = @set enabled_features.next = device_address
 
-    # TODO: check for supported device features
+    physical_device = pick_supported_device(unwrap(Vk.enumerate_physical_devices(instance)), enabled_features)
+
     available_extensions = unwrap(Vk.enumerate_device_extension_properties(physical_device))
     union!(device_extensions, REQUIRED_DEVICE_EXTENSIONS)
     unsupported_extensions = filter(!in(getproperty.(available_extensions, :extension_name)), device_extensions)
@@ -83,17 +86,34 @@ function init(;
         error("Requesting unsupported device extensions: $unsupported_extensions")
     end
 
-    descriptor_indexing = descriptor_indexing_features()
-
-    device = Device(physical_device, device_extensions, queue_config; enabled_features, next = descriptor_indexing)
+    device = Device(physical_device, device_extensions, queue_config, enabled_features; next = enabled_features)
 
     instance, device
 end
 
-function descriptor_indexing_features(features::Symbol...)
-    T = Vk.PhysicalDeviceDescriptorIndexingFeatures
+function physical_device_features(@nospecialize(T), features::Symbol...; next = C_NULL)
     fields = map(in(features), filter(≠(:next), fieldnames(T)))
-    T(fields...)
+    T(fields...; next)
+end
+
+function pick_supported_device(physical_devices, features)
+    unsupported = nothing
+    for pdevice in physical_devices
+        # TODO: fix Vk.get_physical_device_features_2 in Vulkan.jl
+        # it requires an empty VkPhysicalDeviceFeatures2 with the sType set and (supposedly)
+        # all members set to false
+        return pdevice
+        unsupported = unsupported_features(features, unwrap(Vk.get_physical_device_features_2(pdevice)))
+        isempty(unsupported) && return pdevice
+    end
+    throw("Physical device features $unsupported are required but not available on any device.")
+end
+
+function unsupported_features(requested::Vk.PhysicalDeviceFeatures2, available::Vk.PhysicalDeviceFeatures2)
+    filter(fieldnames(Vk.PhysicalDeviceFeatures)) do name
+        name == :next && return false
+        !getproperty(requested.features, name) || getproperty(available.features, name)
+    end
 end
 
 function debug_messenger(instance, info::Vk.DebugUtilsMessengerCreateInfoEXT)
