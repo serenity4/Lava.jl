@@ -32,6 +32,8 @@ resource(filename) = joinpath(@__DIR__, "resources", filename)
 
         unwrap(allocate!(buffer, MEMORY_DOMAIN_HOST_CACHED))
         @test isallocated(buffer)
+        @test device_address(buffer) ≠ C_NULL
+        @test device_address(subbuffer) == device_address(buffer) + subbuffer.offset
         @test memory(buffer) isa MemoryBlock
         @test memory(subbuffer) isa SubMemory
         mem2 = unwrap(MemoryBlock(device, 1000, 7, MEMORY_DOMAIN_HOST_CACHED))

@@ -45,10 +45,13 @@ end
 size(buffer::BufferBlock) = buffer.size
 
 function BufferBlock(device, size, usage; queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE, memory_type = MemoryBlock)
+    usage |= Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
     info = Vk.BufferCreateInfo(size, usage, sharing_mode, queue_family_indices)
     handle = unwrap(create(BufferBlock, device, info))
     BufferBlock(handle, size, usage, convert(Vector{Int8}, queue_family_indices), sharing_mode, Ref{memory_type}())
 end
+
+device_address(buffer::BufferBlock) = Vk.get_buffer_device_address(device(buffer), Vk.BufferDeviceAddressInfo(handle(buffer)))
 
 struct SubBuffer{B<:DenseBuffer} <: Buffer{SubMemory}
     buffer::B
@@ -70,6 +73,8 @@ stride(buffer::SubBuffer) = buffer.stride
 memory(sub::SubBuffer) = @view memory(sub.buffer)[offset(sub):(size(sub) - offset(sub))]
 
 SubBuffer(buffer::DenseBuffer; offset = 0, stride = 0) = SubBuffer(buffer, offset, stride)
+
+device_address(sub::SubBuffer) = device_address(sub.buffer) + UInt64(sub.offset)
 
 function Base.view(buffer::DenseBuffer, range::StepRange)
     range.stop ≤ size(buffer) || throw(BoundsError(buffer, range))

@@ -75,7 +75,7 @@ export
         memory,
         MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
         Buffer, DenseBuffer, BufferBlock, SubBuffer,
-        allocate!, isallocated, bind!,
+        device_address, allocate!, isallocated, bind!,
         Image, ImageBlock, View, ImageView,
 
         SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,

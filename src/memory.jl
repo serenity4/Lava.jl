@@ -32,7 +32,8 @@ end
 
 function MemoryBlock(device, size::Integer, type, domain::MemoryDomain)::Result{MemoryBlock,Vk.VulkanError}
     prop, i = find_memory_type(physical_device(device), type, domain)
-    @propagate_errors memory = create(MemoryBlock, device, Vk.MemoryAllocateInfo(size, i))
+    next = Vk.MemoryAllocateFlagsInfo(0; flags = Vk.MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT)
+    @propagate_errors memory = create(MemoryBlock, device, Vk.MemoryAllocateInfo(size, i; next))
     MemoryBlock(memory, size, prop.property_flags)
 end
 
