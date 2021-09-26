@@ -1,5 +1,5 @@
 instance, device = init(; device_extensions = ["VK_KHR_synchronization2"])
-frag_shader = resource("decorations.frag")
+frag_shader = resource("headless.frag")
 
 @testset "Shader cache" begin
     spec = ShaderSpecification(frag_shader, GLSL)

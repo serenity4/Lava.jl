@@ -1,4 +1,4 @@
-instance, device = init(; with_validation = !is_ci, device_extensions = ["VK_KHR_synchronization2"])
+instance, device = init(; with_validation = !is_ci)
 
 @testset "Building a frame graph" begin
     fg = FrameGraph(device)
