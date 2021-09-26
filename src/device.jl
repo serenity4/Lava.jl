@@ -10,14 +10,15 @@ end
 
 vk_handle_type(::Type{Device}) = Vk.Device
 
-function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config; enabled_features = Vk.PhysicalDeviceFeatures(), surface = nothing)
+function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config; enabled_features = Vk.PhysicalDeviceFeatures(), surface = nothing, next = C_NULL)
     info = Vk.DeviceCreateInfo(
         queue_infos(QueueDispatch, physical_device, queue_config),
         [],
         extensions;
         enabled_features,
+        next,
     )
-    
+
     handle = unwrap(create(Device, physical_device, info))
     queues = QueueDispatch(handle, queue_config; surface)
     Device(handle, extensions, enabled_features, queues, HashTable{Pipeline}(), [], ShaderCache(handle))

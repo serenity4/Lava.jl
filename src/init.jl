@@ -19,6 +19,10 @@ function Instance(layers, extensions, messenger_info::Optional{Vk.DebugUtilsMess
     Instance(handle, layers, extensions, messenger)
 end
 
+const REQUIRED_DEVICE_EXTENSIONS = [
+    "VK_KHR_synchronization2",
+]
+
 function init(;
     instance_layers = String[],
     instance_extensions = String[],
@@ -73,14 +77,23 @@ function init(;
 
     # TODO: check for supported device features
     available_extensions = unwrap(Vk.enumerate_device_extension_properties(physical_device))
+    union!(device_extensions, REQUIRED_DEVICE_EXTENSIONS)
     unsupported_extensions = filter(!in(getproperty.(available_extensions, :extension_name)), device_extensions)
     if !isempty(unsupported_extensions)
         error("Requesting unsupported device extensions: $unsupported_extensions")
     end
 
-    device = Device(physical_device, device_extensions, queue_config; enabled_features)
+    descriptor_indexing = descriptor_indexing_features()
+
+    device = Device(physical_device, device_extensions, queue_config; enabled_features, next = descriptor_indexing)
 
     instance, device
+end
+
+function descriptor_indexing_features(features::Symbol...)
+    T = Vk.PhysicalDeviceDescriptorIndexingFeatures
+    fields = map(in(features), filter(≠(:next), fieldnames(T)))
+    T(fields...)
 end
 
 function debug_messenger(instance, info::Vk.DebugUtilsMessengerCreateInfoEXT)
