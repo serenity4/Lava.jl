@@ -20,14 +20,13 @@ struct Shader
     source::ShaderSource
     shader_module::Vk.ShaderModule
     entry_point::Symbol
-    descriptor_infos::Vector{DescriptorInfo}
     push_constant_ranges::Vector{Vk.PushConstantRange}
     specialization_constants::Vector{Vk.SpecializationInfo}
 end
 
 device(shader::Shader) = shader.shader_module.device
 
-Shader(source, shader_module, entry_point, descriptor_infos) = Shader(source, shader_module, entry_point, descriptor_infos, [], [])
+Shader(source, shader_module, entry_point) = Shader(source, shader_module, entry_point, [], [])
 
 struct ShaderCache
     device::Vk.Device
@@ -74,39 +73,15 @@ function find_shader!(cache::ShaderCache, source::ShaderSource, spec::ShaderSpec
         cache.shaders[source]
     else
         shader_module = Vk.ShaderModule(cache.device, source)
-        ir = IR(SPIRV.Module(IOBuffer(source.code)))
-        infos = descriptor_infos(ir)
-        shader = Shader(source, shader_module, spec.entry_point, infos)
+        shader = Shader(source, shader_module, spec.entry_point)
         insert!(cache.shaders, source, shader)
         shader
     end
 end
 
-function descriptor_infos(ir::IR)
-    filter!(!isnothing, map(pairs(ir.global_vars)) do (id, var)
-        decs = var.decorations
-        # only select variables with a descriptor set and binding assigned
-        haskey(decs, SPIRV.DecorationDescriptorSet) && haskey(decs, SPIRV.DecorationBinding) || return nothing
+"""
+Retrieve a shader from the provided cache.
 
-        type = @match s = var.storage_class begin
-            &SPIRV.StorageClassStorageBuffer => Vk.DESCRIPTOR_TYPE_STORAGE_BUFFER
-            &SPIRV.StorageClassImage => @match var.type begin
-                ::ImageType => Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE
-            end
-            &SPIRV.StorageClassUniformConstant => @match var.type begin
-                ::SamplerType => Vk.DESCRIPTOR_TYPE_SAMPLER
-                ::SampledImageType => Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE
-                ::ImageType => Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE
-                if haskey(decs, SPIRV.DecorationBlock) end => Vk.DESCRIPTOR_TYPE_UNIFORM_BUFFER
-                _ => error(var)
-            end
-            &SPIRV.StorageClassUniform => @match var.type begin
-                if haskey(decs, SPIRV.DecorationBufferBlock) end => Vk.DESCRIPTOR_TYPE_STORAGE_BUFFER
-                _ => Vk.DESCRIPTOR_TYPE_UNIFORM_BUFFER
-            end
-            _ => error("Could not map variable $var to a Vulkan descriptor type.")
-        end
-
-        DescriptorInfo(type, decs[SPIRV.DecorationDescriptorSet][], decs[SPIRV.DecorationBinding][])
-    end)
-end
+Note that the cache will be modified if it does not contain the requested shader.
+"""
+Shader(cache::ShaderCache, spec::ShaderSpecification) = find_shader!(cache, spec)

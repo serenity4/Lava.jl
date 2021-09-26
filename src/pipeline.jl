@@ -12,7 +12,7 @@ end
 
 struct PipelineLayout <: LavaAbstraction
     handle::Vk.PipelineLayout
-    descriptor_set_layouts::Vector{DescriptorSetLayout}
+    descriptor_set_layouts::Vector{Vk.DescriptorSetLayout}
     push_constant_ranges::Vector{Vk.PushConstantRange}
 end
 

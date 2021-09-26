@@ -60,6 +60,7 @@ function Vk.ShaderModule(device, source::ShaderSource)
     Vk.ShaderModule(device, length(source.code), reinterpret(UInt32, source.code))
 end
 
-function Vk.PipelineShaderStageCreateInfo(shader::Shader; specialization_info = C_NULL)
+function Vk.PipelineShaderStageCreateInfo(shader::Shader)
+    specialization_info = isempty(shader.specialization_constants) ? C_NULL : shader.specialization_constants
     Vk.PipelineShaderStageCreateInfo(shader.source.stage, shader.shader_module, string(shader.entry_point); specialization_info)
 end

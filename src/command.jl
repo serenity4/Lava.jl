@@ -121,8 +121,8 @@ A hash is returned to serve as the key to get the corresponding pipeline from th
 """
 function submit_pipeline!(device::Device, pass::RenderPass, program::Program, state::RenderState, invocation_state::ProgramInvocationState)
     shader_stages = PipelineShaderStageCreateInfo.(program.shaders, program.specialization_constants)
-    T = program.input_type
-    vertex_input_state = PipelineVertexInputStateCreateInfo([VertexInputBindingDescription(T, 0)], vertex_input_attribute_descriptions(T, 0))
+    # bindless: no vertex data
+    vertex_input_state = PipelineVertexInputStateCreateInfo([], [])
     attachments = map(program.attachments) do attachment
         if isnothing(state.blending_mode)
             Vk.PipelineColorBlendAttachmentState(

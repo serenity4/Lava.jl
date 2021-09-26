@@ -49,7 +49,6 @@ include("pipeline.jl")
 
 include("shaders/dependencies.jl")
 # include("shaders/resources.jl")
-include("shaders/vertex.jl") # type piracy
 include("shaders/formats.jl")
 include("shaders/specification.jl")
 include("shaders/source.jl")
@@ -88,17 +87,11 @@ export
         ShaderResource,
         ShaderLanguage, SPIR_V, GLSL, HLSL,
         ShaderSpecification,
-        ShaderCache, find_shader!, find_source!,
+        ShaderCache,
         Shader,
-        SampledImage,
-        StorageBuffer,
-        collect_bindings,
-        create_descriptor_set_layouts,
-        vertex_input_attribute_descriptions,
 
         # descriptors
-        DescriptorSet, DescriptorSetLayout, DescriptorAllocator,
-        allocate_pool, allocate_descriptor_set,
+        ResourceDescriptors, ResourceMetaConfig,
 
         # render state
         RenderState,
