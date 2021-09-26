@@ -28,7 +28,8 @@ function init(;
     instance_extensions = String[],
     application_info = Vk.ApplicationInfo(v"1", v"1", v"1.2"),
     device_extensions = String[],
-    enabled_features = Vk.PhysicalDeviceFeatures2(Vk.PhysicalDeviceFeatures()),
+    device_specific_features::AbstractVector{Symbol} = Symbol[],
+    device_vulkan_features::AbstractVector{Symbol} = Symbol[],
     queue_config = dictionary([
         Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT => 1
     ]),
@@ -73,9 +74,10 @@ function init(;
 
     instance = Instance(instance_layers, instance_extensions, dbg_info; application_info)
 
-    descriptor_indexing = physical_device_features(Vk.PhysicalDeviceDescriptorIndexingFeatures)
-    device_address = physical_device_features(Vk.PhysicalDeviceBufferDeviceAddressFeaturesEXT, :buffer_device_address; next = descriptor_indexing)
-    enabled_features = @set enabled_features.next = device_address
+    union!(device_vulkan_features, [:buffer_device_address])
+    vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features)
+    device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)
+    enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = vulkan_features)
 
     physical_device = pick_supported_device(unwrap(Vk.enumerate_physical_devices(instance)), enabled_features)
 
@@ -91,28 +93,67 @@ function init(;
     instance, device
 end
 
-function physical_device_features(@nospecialize(T), features::Symbol...; next = C_NULL)
-    fields = map(in(features), filter(≠(:next), fieldnames(T)))
-    T(fields...; next)
+function physical_device_features(@nospecialize(T), features; next = C_NULL)
+    names = fieldnames(T)
+    unknown = filter(!in(names), features)
+    if !isempty(unknown)
+        error("Trying to set unknown features: $unknown")
+    end
+    fields = map(in(features), filter(≠(:next), names))
+    if :next in names
+        T(fields...; next)
+    else
+        T(fields...)
+    end
 end
 
 function pick_supported_device(physical_devices, features)
     unsupported = nothing
     for pdevice in physical_devices
         # TODO: fix Vk.get_physical_device_features_2 in Vulkan.jl
-        # it requires an empty VkPhysicalDeviceFeatures2 with the sType set and (supposedly)
-        # all members set to false
-        return pdevice
-        unsupported = unsupported_features(features, unwrap(Vk.get_physical_device_features_2(pdevice)))
+
+        # initialize structure
+        original = Vk._PhysicalDeviceFeatures2(
+            Vk._PhysicalDeviceFeatures(ntuple(Returns(false), fieldcount(Vk.PhysicalDeviceFeatures))...);
+            next = Vk._PhysicalDeviceVulkan12Features(ntuple(Returns(false), fieldcount(Vk.PhysicalDeviceVulkan12Features) - 1)...)
+        )
+
+        # build reference
+        original_vk = Base.unsafe_convert(Vk.core.VkPhysicalDeviceFeatures2, original)
+        ref = Ref(original_vk)
+
+        # fill it with data
+        GC.@preserve original Vk.core.vkGetPhysicalDeviceFeatures2(pdevice, ref)
+        filled = ref[]
+
+        # load next chain
+        filled_next = unsafe_load(convert(Ptr{Vk.core.VkPhysicalDeviceVulkan12Features}, filled.pNext))
+
+        # reconstruct wrapper structs (equivalent to `Vk.from_vk` that is defined for other structs, but by hand)
+        vulkan_features = Vk.PhysicalDeviceVulkan12Features((getproperty(filled_next, name) for name in fieldnames(Vk.core.VkPhysicalDeviceVulkan12Features)[2:end])...)
+        device_specific_features = Vk.PhysicalDeviceFeatures((getproperty(filled.features, name) for name in fieldnames(Vk.core.VkPhysicalDeviceFeatures))...)
+
+        pdevice_features = Vk.PhysicalDeviceFeatures2(device_specific_features; next = vulkan_features)
+
+        unsupported = unsupported_features(features, pdevice_features)
         isempty(unsupported) && return pdevice
     end
     throw("Physical device features $unsupported are required but not available on any device.")
 end
 
 function unsupported_features(requested::Vk.PhysicalDeviceFeatures2, available::Vk.PhysicalDeviceFeatures2)
-    filter(fieldnames(Vk.PhysicalDeviceFeatures)) do name
+    d = Dictionary{Symbol,Vector{Symbol}}()
+    unsupported_vulkan = unsupported_features(requested.next, available.next)
+    isempty(unsupported_vulkan) || insert!(d, :vulkan, unsupported_vulkan)
+    unsupported_device = unsupported_features(requested.features, available.features)
+    isempty(unsupported_device) || insert!(d, :device, unsupported_device)
+    d
+end
+
+function unsupported_features(requested::T, available::T) where {T}
+    filter(collect(fieldnames(T))) do name
         name == :next && return false
-        !getproperty(requested.features, name) || getproperty(available.features, name)
+        getproperty(requested, name) && !getproperty(available, name)
     end
 end
 
