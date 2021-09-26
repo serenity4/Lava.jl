@@ -332,7 +332,7 @@ function render(device, fg::FrameGraph; fence = nothing, semaphore = nothing)
     batch_create!(device.pipeline_ht, device.pending_pipelines) do infos
         handles = unwrap(Vk.create_graphics_pipelines(device, infos))
         map(zip(handles, infos)) do (handle, info)
-            Pipeline(handle, Vk.PIPELINE_BIND_POINT_GRAPHICS, info.pipeline_layout)
+            Pipeline(handle, Vk.PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout(info.pipeline_layout, info.descriptor_set_layouts, info.push_constant_ranges))
         end
     end
 

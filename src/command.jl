@@ -115,12 +115,21 @@ function submit_pipelines!(device::Device, pass::RenderPass, record::CompactReco
 end
 
 """
+Set of buffer handles for loading per-material and per-vertex data, along with global camera data.
+"""
+struct PushConstantData
+    camera_data::UInt64
+    material_data::UInt64
+    vertex_data::UInt64
+end
+
+"""
 Submit a pipeline create info for creation in the next batch.
 
 A hash is returned to serve as the key to get the corresponding pipeline from the hash table.
 """
-function submit_pipeline!(device::Device, pass::RenderPass, program::Program, state::RenderState, invocation_state::ProgramInvocationState)
-    shader_stages = PipelineShaderStageCreateInfo.(program.shaders, program.specialization_constants)
+function submit_pipeline!(device::Device, pass::RenderPass, program::Program, state::RenderState, invocation_state::ProgramInvocationState, resources::ResourceDescriptors)
+    shader_stages = PipelineShaderStageCreateInfo.(program.shader, program.shader.specialization_constants)
     # bindless: no vertex data
     vertex_input_state = PipelineVertexInputStateCreateInfo([], [])
     attachments = map(program.attachments) do attachment
@@ -144,7 +153,11 @@ function submit_pipeline!(device::Device, pass::RenderPass, program::Program, st
     rasterizer = Vk.PipelineRasterizationStateCreateInfo(false, false, invocation_state.polygon_mode, invocation_state.triangle_orientation, state.enable_depth_bias, 1.0, 0.0, 0.0, 1.0, cull_mode = invocation_state.face_culling)
     multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(pass.samples), false, 1.0, false, false)
     blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(_ -> Vk.BLEND_FACTOR_ONE, 4))
-    pipeline_layout = Vk.PipelineLayout(program)
+    pipeline_layout = Vk.PipelineLayout(
+        device,
+        [resources.set.layout],
+        [Vk.PushConstantRange(SHADER_STAGE_VERTEX, 0, sizeof(PushConstantData))],
+    )
     info = Vk.GraphicsPipelineCreateInfo(
         shader_stages,
         rasterizer,
@@ -176,4 +189,16 @@ function Base.flush(cb::Vk.CommandBuffer, record::CompactRecord, device::Device,
             apply(cb, call)
         end
     end
+end
+
+struct GlobalData
+    vbuffer::BufferBlock{MemoryBlock}
+    ibuffer::BufferBlock{MemoryBlock}
+    resources::ResourceDescriptors
+end
+
+function initialize_render(cb::Vk.CommandBuffer, gd::GlobalData, first_pipeline::Pipeline)
+    Vk.cmd_bind_vertex_buffers(cb, [gd.vbuffer], [0])
+    Vk.cmd_bind_index_buffer(cb, gd.ibuffer, 0, Vk.INDEX_TYPE_UINT32)
+    Vk.cmd_bind_descriptor_sets(cb, Vk.PipelineBindPoint(first_pipeline.type), first_pipeline.layout, 0, [gd.resources.set], [])
 end
