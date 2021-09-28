@@ -41,8 +41,10 @@ include("init.jl")
 include("memory.jl")
 include("buffer.jl")
 include("image.jl")
+include("allocators.jl")
 include("dimensions.jl")
 include("attachments.jl")
+include("textures.jl")
 include("render_pass.jl")
 include("descriptors.jl")
 include("pipeline.jl")
@@ -58,8 +60,9 @@ include("device.jl")
 include("program.jl")
 include("render_state.jl")
 include("binding_state.jl")
-include("command.jl")
 include("frame_graph.jl")
+include("resources.jl")
+include("command.jl")
 # include("frames.jl")
 include("wsi.jl")
 
@@ -68,18 +71,28 @@ include("wsi.jl")
 # include("vulkan.jl")
 
 export
-        LavaAbstraction, Vk,
+        Vk,
         Instance, QueueDispatch, Device, init,
 
+        # memory
         Memory, DenseMemory, MemoryBlock, SubMemory,
         memory,
         MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
+
+        # buffers
         Buffer, DenseBuffer, BufferBlock, SubBuffer,
         device_address, allocate!, isallocated, bind!,
+
+        # images
         Image, ImageBlock, View, ImageView,
 
+        # textures
+        Texture, DEFAULT_SAMPLING,
+
+        # attachment dimensions
         SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
 
+        # program
         Program, ProgramInterface, ProgramInvocationState,
 
         # shaders

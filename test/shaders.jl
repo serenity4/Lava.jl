@@ -12,6 +12,6 @@ frag_shader = resource("headless.frag")
 end
 
 @testset "Descriptors" begin
-    meta = ResourceDescriptors(device)
-    @test meta.set ≠ C_NULL
+    resources = ResourceDescriptors(device)
+    @test !isnothing(resources)
 end

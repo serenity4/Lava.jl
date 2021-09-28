@@ -12,11 +12,23 @@ end
 
 vk_handle_type(::Type{MemoryBlock}) = Vk.DeviceMemory
 
-size(block::MemoryBlock) = block.size
+Base.size(block::MemoryBlock) = block.size
 
-Base.map(memory::Memory, size = size(memory), offset = offset(memory)) = Vk.map_memory(Vk.device(memory), memory, offset, size)
+properties(block::MemoryBlock) = block.properties
 
-unmap(memory::Memory) = Vk.unmap_memory(Vk.device(memory), memory)
+function Base.map(memory::DenseMemory, size::Integer = size(memory), offset::Integer = offset(memory))
+    if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
+        unwrap(Vk.invalidate_mapped_memory_ranges(device(memory), [MappedMemoryRange(memory, offset, size)]))
+    end
+    Vk.map_memory(device(memory), memory, offset, size)
+end
+
+function unmap(memory::DenseMemory)
+    if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
+        unwrap(Vk.flush_mapped_memory_ranges(device(memory), [MappedMemoryRange(memory, offset(memory), size(memory))]))
+    end
+    Vk.unmap_memory(device(memory), memory)
+end
 
 """
 Memory domains:
@@ -30,24 +42,26 @@ Memory domains:
     MEMORY_DOMAIN_DEVICE
 end
 
-function MemoryBlock(device, size::Integer, type, domain::MemoryDomain)::Result{MemoryBlock,Vk.VulkanError}
+function memory_block(device, size::Integer, type, domain::MemoryDomain)::Result{MemoryBlock,Vk.VulkanError}
     prop, i = find_memory_type(physical_device(device), type, domain)
     next = Vk.MemoryAllocateFlagsInfo(0; flags = Vk.MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT)
     @propagate_errors memory = create(MemoryBlock, device, Vk.MemoryAllocateInfo(size, i; next))
     MemoryBlock(memory, size, prop.property_flags)
 end
 
+MemoryBlock(device, size::Integer, type, domain::MemoryDomain) = unwrap(memory_block(device, size, type, domain))
+
 find_memory_type(physical_device, type_flag, domain::MemoryDomain) = find_memory_type(Base.Fix1(score, domain), physical_device, type_flag)
 
 function score(domain::MemoryDomain, properties)
     @match domain begin
         &MEMORY_DOMAIN_HOST =>
-            (10 * (Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties)) \
-            + (Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT in properties) \
-            - (Vk.MEMORY_PROPERTY_HOST_CACHED_BIT in propetries)
+            (10 * (Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties)) +
+            (Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT in properties) -
+            (Vk.MEMORY_PROPERTY_HOST_CACHED_BIT in properties)
         &MEMORY_DOMAIN_HOST_CACHED =>
-            (10 * (Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT | Vk.MEMORY_PROPERTY_HOST_CACHED_BIT in properties)) \
-            + (Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT in properties)
+            (10 * (Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT | Vk.MEMORY_PROPERTY_HOST_CACHED_BIT in properties)) +
+            (Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT in properties)
         &MEMORY_DOMAIN_DEVICE =>
             (Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in properties)
     end
@@ -92,12 +106,14 @@ handle(sub::SubMemory) = handle(sub.memory)
 
 offset(sub::SubMemory) = sub.offset
 
-size(sub::SubMemory) = sub.size
+Base.size(sub::SubMemory) = sub.size
 
 function Base.view(memory::DenseMemory, range::UnitRange)
-    range.stop ≤ size(memory) || throw(BoundsError(memory, range))
+    range_check(memory, range)
     SubMemory(memory, range.start, range.stop - range.start)
 end
+
+range_check(domain, range) = range.stop ≤ size(domain) || throw(BoundsError(domain, range))
 
 Base.firstindex(memory::Memory) = offset(memory)
 Base.lastindex(memory::Memory) = size(memory)

@@ -125,20 +125,6 @@ function wait_hasrendered(fs::FrameState)
     wait_for_fences(device(fs), getproperty.(fs.syncs, :has_rendered), true, typemax(UInt64))
 end
 
-"""
-Encode a lifetime context that allows the deletion of staged resources once expired.
-"""
-abstract type LifeTimeContext end
-
-"""
-Work between frames is assumed to be independent,
-and so is any resource attached to a particular piece of work.
-"""
-struct FrameContext <: LifeTimeContext
-    state::FrameState
-    pending::Vector{Any}
-end
-
 function next_frame!(ctx::FrameContext)
     next_frame!(ctx.state)
     foreach(ctx.pending) do resource

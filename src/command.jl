@@ -37,12 +37,31 @@ struct CompactRecord <: CommandRecord
     other_ops::Vector{LazyOperation}
     state::Ref{DrawState}
     program::Ref{Program}
+    fg::FrameGraph
+    gd::GlobalData
 end
 
-CompactRecord() = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}())
+CompactRecord(fg::FrameGraph, gd::GlobalData) = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}(), fg, gd)
 
 function set_program(record::CompactRecord, program::Program)
     record.program[] = program
+end
+
+function set_material(record::CompactRecord, @nospecialize(args...); alignment = 16)
+    (; gd) = record
+
+    # replace resource specifications with indices
+    for (i, arg) in enumerate(args)
+        if arg isa Texture
+            @reset args[i] = texture_id!(gd.resources, record.fg, arg)
+        elseif arg isa Sampling
+            @reset args[i] = sampler_id!(gd.resources, record.fg, arg)
+        end
+    end
+
+    sub = copyto!(gd.allocator, args, alignment)
+    state = record.state[]
+    record.state[] = @set state.push_data.material_data = device_address(sub)
 end
 
 function set_state(record::CompactRecord, state::DrawState)
@@ -53,10 +72,22 @@ function set_state(record::CompactRecord, properties::NamedTuple)
     record.state[] = setproperties(record.state[], properties)
 end
 
-function draw(record::CompactRecord, command::DrawCommand)
+function draw(record::CompactRecord, vdata, idata)
+    (; gd) = record
     program = get!(Dictionary{Program,Dictionary{DrawState,DrawCommand}}, record.programs, record.program)
     commands = get!(Vector{DrawCommand}, program, record.state)
-    push!(commands, command)
+
+    # vertex data
+    sub = copyto!(record.gd.allocator, vdata)
+    state = record.state[]
+    record.state[] = @set state.push_data.vertex_data = device_address(sub)
+
+    # index data
+    first_index = length(gd.index_list) + 1
+    append!(gd.index_list, idata)
+
+    # draw call
+    push!(commands, DrawIndexed(0, first_index:first_index + length(idata), 1:1))
 end
 
 struct Draw <: DrawCommand
@@ -99,10 +130,6 @@ function apply(cb::Vk.CommandBuffer, draw::DrawIndexedIndirect)
     Vk.cmd_draw_indexed_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end
 
-struct FlushingState
-    state::ProgramInterface
-end
-
 function submit_pipelines!(device::Device, pass::RenderPass, record::CompactRecord)
     pipeline_hashes = Dictionary{Tuple{Program,DrawState},UInt64}()
     for (program, calls) in pairs(record.programs)
@@ -112,15 +139,6 @@ function submit_pipelines!(device::Device, pass::RenderPass, record::CompactReco
         end
     end
     pipeline_hashes
-end
-
-"""
-Set of buffer handles for loading per-material and per-vertex data, along with global camera data.
-"""
-struct PushConstantData
-    camera_data::UInt64
-    material_data::UInt64
-    vertex_data::UInt64
 end
 
 """
@@ -183,7 +201,7 @@ function Base.flush(cb::Vk.CommandBuffer, record::CompactRecord, device::Device,
         for (state, call) in pairs(calls)
             hash = pipeline_hashes[(program, state)]
             pipeline = device.pipeline_ht[hash]
-            reqs = BindRequirements(program, state.program_state)
+            reqs = BindRequirements(pipeline, state.push_data)
             bind(cb, reqs, binding_state)
             binding_state = reqs
             apply(cb, call)
@@ -191,14 +209,9 @@ function Base.flush(cb::Vk.CommandBuffer, record::CompactRecord, device::Device,
     end
 end
 
-struct GlobalData
-    vbuffer::BufferBlock{MemoryBlock}
-    ibuffer::BufferBlock{MemoryBlock}
-    resources::ResourceDescriptors
-end
-
-function initialize_render(cb::Vk.CommandBuffer, gd::GlobalData, first_pipeline::Pipeline)
-    Vk.cmd_bind_vertex_buffers(cb, [gd.vbuffer], [0])
+function initialize(cb::Vk.CommandBuffer, gd::GlobalData, first_pipeline::Pipeline)
+    gd.index_buffer[] = buffer(device(gd), gd.index_list)
     Vk.cmd_bind_index_buffer(cb, gd.ibuffer, 0, Vk.INDEX_TYPE_UINT32)
+    populate_descriptor_sets!(gd)
     Vk.cmd_bind_descriptor_sets(cb, Vk.PipelineBindPoint(first_pipeline.type), first_pipeline.layout, 0, [gd.resources.set], [])
 end

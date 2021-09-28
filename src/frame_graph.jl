@@ -138,7 +138,7 @@ virtual_buffer(g, idx) = resource_attribute(g, idx, :virtual_resource)::BufferRe
 virtual_attachment(g, idx) = resource_attribute(g, idx, :virtual_resource)::AttachmentResourceInfo
 
 image(g, idx) = resource_attribute(g, idx, :physical_resource)::Image
-buffer(g, idx) = resource_attribute(g, idx, :physical_resource)::Buffer
+buffer(g::Union{FrameGraph, MetaGraph}, idx) = resource_attribute(g, idx, :physical_resource)::Buffer
 attachment(g, idx) = resource_attribute(g, idx, :physical_resource)::Attachment
 
 type(g, i, j) = attribute(g, Edge(i, j), :type)::ResourceType
@@ -153,7 +153,7 @@ current_layout(g, idx) = resource_attribute(g, idx, :current_layout)::Vk.ImageLa
 format(g, idx) = resource_attribute(g, idx, :format)::Vk.Format
 buffer_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.BufferUsageFlag
 image_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.ImageUsageFlag
-size(g, idx) = resource_attribute(g, idx, :size)::Int
+_size(g, idx) = resource_attribute(g, idx, :size)::Int
 name(g, idx) = attribute(g, idx, :name)::Symbol
 last_write(g, idx) = resource_attribute(g, idx, :last_write)::Pair{Vk.AccessFlag, Vk.PipelineStageFlag}
 synchronization_state(g, idx) = resource_attribute(g, idx, :synchronization_state)::Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}
@@ -323,7 +323,7 @@ function render(device, fg::FrameGraph; fence = nothing, semaphore = nothing)
 
     # record commands and submit pipelines for creation
     for pass in passes
-        record = CompactRecord(device)
+        record = CompactRecord(device, fg, resources)
         record_render_pass(record, fg, pass)
         push!(records, record)
         merge!(pipeline_hashes, submit_pipelines!(device, fg, pass))

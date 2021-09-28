@@ -1,11 +1,3 @@
-struct PipelineBindingState
-    pipeline::Pipeline
-    layout::PipelineLayout
-    push_ranges::Vector{Vk.PushConstantRange}
-end
-
-PipelineBindingState(pipeline) = PipelineBindingState(pipeline, [])
-
 """
 Binding state that must be set in order for
 drawing commands to render correctly.
@@ -30,7 +22,7 @@ function Base.bind(cbuffer::Vk.CommandBuffer, reqs::BindRequirements, state::Bin
     current_push_data = state.push_data
 
     if pipeline ≠ state.pipeline
-        cmd_bind_pipeline(cbuffer, PIPELINE_BIND_POINT_GRAPHICS, pipeline)
+        Vk.cmd_bind_pipeline(cbuffer, PIPELINE_BIND_POINT_GRAPHICS, pipeline)
         if pipeline.layout.push_constant_ranges ≠ state.pipeline.layout.push_constant_ranges
             # push data gets invalidated
             current_push_data = nothing
@@ -38,6 +30,7 @@ function Base.bind(cbuffer::Vk.CommandBuffer, reqs::BindRequirements, state::Bin
     end
 
     if !isnothing(push_data) && push_data ≠ current_push_data
-        cmd_push_constants(cbuffer, pipeline.layout, SHADER_STAGE_VERTEX_BIT, 1, Ref(push_data), sizeof(push_data))
+        ref = Ref(push_data)
+        GC.@preserve ref Vk.cmd_push_constants(cbuffer, pipeline.layout, SHADER_STAGE_ALL, 0, sizeof(push_data), Base.unsafe_convert(Ptr{Cvoid}, ref))
     end
 end

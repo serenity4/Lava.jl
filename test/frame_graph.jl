@@ -50,7 +50,12 @@ end
 @testset "Rendering" begin
     fg = FrameGraph(device)
     prog = Program(device, ShaderSpecification(resource("headless.vert"), GLSL), ShaderSpecification(resource("headless.frag"), GLSL))
-    add_pass!(fg, :main; clear_values = (0.1, 0.1, 0.1, 1.)) do (rec, fg)
+    add_pass!(fg, :main; clear_values = (0.1, 0.1, 0.1, 1.)) do frame
         set_program(rec, prog)
+        set_material(rec,
+            Texture(:normal_map, DEFAULT_SAMPLING),
+            (0.1, 0.5, 0.9), # texture scaling coefficients
+        )
+        draw(frame, vdata, idata)
     end
 end
