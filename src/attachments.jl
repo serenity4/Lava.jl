@@ -27,17 +27,15 @@ function store_op(usage::MemoryAccess)
     end
 end
 
-function Vk.AttachmentDescription2(att::Attachment, clear::Bool, initial_layout::Vk.ImageLayout, final_layout::Vk.ImageLayout)
-    asp = aspect(att)
-
-    _load_op, _store_op = if Vk.IMAGE_ASPECT_COLOR_BIT in asp
-        (load_op(att.usage), load_op(att.usage))
+function Vk.AttachmentDescription2(att::Attachment, clear::Bool, initial_layout::Vk.ImageLayout, final_layout::Vk.ImageLayout, aspect::Vk.ImageAspectFlag)
+    _load_op, _store_op = if Vk.IMAGE_ASPECT_COLOR_BIT in aspect
+        (load_op(att.usage, clear), store_op(att.usage))
     else
         (Vk.ATTACHMENT_LOAD_OP_DONT_CARE, Vk.ATTACHMENT_STORE_OP_DONT_CARE)
     end
 
-    stencil_load_op, stencil_store_op = if Vk.IMAGE_ASPECT_STENCIL_BIT in asp
-        (load_op(att.usage), load_op(att.usage))
+    stencil_load_op, stencil_store_op = if Vk.IMAGE_ASPECT_STENCIL_BIT in aspect
+        (load_op(att.usage, clear), store_op(att.usage))
     else
         (Vk.ATTACHMENT_LOAD_OP_DONT_CARE, Vk.ATTACHMENT_STORE_OP_DONT_CARE)
     end

@@ -1,14 +1,14 @@
 struct Queue <: LavaAbstraction
     handle::Vk.Queue
     capabilities::Vk.QueueFlag
-    index::UInt8
-    family::UInt8
+    index::Int
+    family::Int
 end
 
 vk_handle_type(::Type{Queue}) = Vk.Queue
 
 struct QueueDispatch
-    queues::Dictionary{Vk.QueueFlag,Vector{Queue}}
+    queues::Dictionary{Int,Vector{Queue}}
     present_queue::Optional{Queue}
     """
     Build a `QueueDispatch` structure from a given device and configuration.
@@ -18,13 +18,16 @@ struct QueueDispatch
         `device` must have been created with a consistent number of queues as requested in the provided queue configuration.
         It is highly recommended to have created the device with the result of `queue_infos(QueueDispatch, physical_device, config)`.
     """
-    function QueueDispatch(device, config; surface = nothing)
+    function QueueDispatch(device, infos; surface = nothing)
         pdevice = physical_device(device)
-        families = Vk.find_queue_family.(pdevice, collect(keys(config)))
-        queues = dictionary(map(zip(keys(config), families)) do (capabilities, family)
-            capabilities => map(0:config[capabilities] - 1) do index
-                info = Vk.DeviceQueueInfo2(family, index)
-                Queue(Vk.get_device_queue_2(device, info), capabilities, index + 1, family + 1)
+        families = dictionary(map(infos) do info
+            info.queue_family_index => length(info.queue_priorities)
+        end)
+        props = Vk.get_physical_device_queue_family_properties(pdevice)
+        queues = dictionary(map(pairs(families)) do (family, count)
+            family => map(1:count) do index
+                info = Vk.DeviceQueueInfo2(family, index - 1)
+                Queue(Vk.get_device_queue_2(device, info), props[family + 1].queue_flags, index, family + 1)
             end
         end)
         present_queue = if !isnothing(surface)
@@ -44,28 +47,72 @@ struct QueueDispatch
 end
 
 function queue_infos(::Type{QueueDispatch}, physical_device::Vk.PhysicalDevice, config)
-    all(==(1), config) || error("Only one queue per property is currently supported")
-    families = Vk.find_queue_family.(physical_device, collect(keys(config)))
-    Vk.DeviceQueueCreateInfo.(families, ones.(collect(config)))
-end
+    # queue family index => count
+    families = Dictionary{Int,Int}()
+    props::Vector{Union{Nothing,Vk.QueueFamilyProperties}} = Vk.get_physical_device_queue_family_properties(physical_device)
+    config = deepcopy(config)
 
-function submit(dispatch::QueueDispatch, properties::Vk.QueueFlag, submit_infos; fence = C_NULL)
-    q = queue(dispatch, properties)
-    unwrap(Vk.queue_submit_2_khr(q, submit_infos; fence))
-    q
-end
-
-function queue(dispatch::QueueDispatch, properties::Vk.QueueFlag)
-    if properties in keys(dispatch.queues)
-        first(dispatch.queues[properties])
-    else
-        for props in keys(dispatch.queues)
-            if properties in props
-                return first(dispatch.queues[props])
+    # resolve exact matches first
+    for (i, prop) in enumerate(props); isnothing(prop) && continue
+        for (flags, count) in pairs(config)
+            # exact match
+            if flags == prop.queue_flags
+                remaining = prop.queue_count - get(families, i-1, 0)
+                if remaining ≥ count
+                    delete!(config, flags)
+                    set!(families, i-1, get(families, i-1, 0) + count)
+                else
+                    config[flags] -= remaining
+                    set!(families, i-1, get(families, i-1, 0) + remaining)
+                    props[i-1] = nothing
+                    break
+                end
             end
         end
-        error("Could not find a queue matching with the required properties $properties.")
     end
+
+    for (i, prop) in enumerate(props); isnothing(prop) && continue
+        for (flags, count) in pairs(config)
+            # match
+            if flags in prop.queue_flags
+                remaining = prop.queue_count - get(families, i-1, 0)
+                if remaining ≥ count
+                    delete!(config, flags)
+                    set!(families, i-1, get(families, i-1, 0) + count)
+                else
+                    config[flags] -= remaining
+                    set!(families, i-1, get(families, i-1, 0) + remaining)
+                    props[i-1] = nothing
+                    break
+                end
+            end
+        end
+    end
+
+    map(pairs(families)) do (index, count)
+        Vk.DeviceQueueCreateInfo(index, ones(count))
+    end |> collect
+end
+
+function get_queue_family(dispatch::QueueDispatch, properties::Vk.QueueFlag)
+    # try exact match
+    for (family, queues) in pairs(dispatch.queues)
+        properties == first(queues).capabilities && return family
+    end
+
+    # try queues that contain the required properties
+    for (family, queues) in pairs(dispatch.queues)
+        properties in first(queues).capabilities && return family
+    end
+
+    # panic
+    error("Could not find a queue matching with the required properties $properties")
+end
+
+function queue(dispatch::QueueDispatch, family_index)
+    haskey(dispatch.queues, family_index) && return first(dispatch.queues[family_index])
+    !isnothing(dispatch.present_queue) && dispatch.present_queue.family == family_index && return dispatch.present_queue
+    error("Could not find queue with family index $family_index")
 end
 
 function present(dispatch::QueueDispatch, present_info::Vk.PresentInfoKHR)
@@ -78,12 +125,7 @@ function present(dispatch::QueueDispatch, present_info::Vk.PresentInfoKHR)
 end
 
 function queue_family_indices(dispatch::QueueDispatch; include_present = true)
-    indices = map(dispatch.queues) do queues
-        map(Base.Fix2(getproperty, :family), queues)
-    end
-    indices = reduce(vcat, indices)
-    if include_present && !isnothing(dispatch.present_queue)
-        push!(indices, dispatch.present_queue.family)
-    end
-    sort!(unique!(indices))
+    indices = collect(keys(dispatch.queues))
+    !isnothing(dispatch.present_queue) && include_present && union!(indices, dispatch.present_queue.family)
+    indices
 end

@@ -38,24 +38,24 @@ struct CompactRecord <: CommandRecord
     state::Ref{DrawState}
     program::Ref{Program}
     fg::FrameGraph
-    gd::GlobalData
+    pass::Int
 end
 
-CompactRecord(fg::FrameGraph, gd::GlobalData) = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}(), fg, gd)
+CompactRecord(fg::FrameGraph, pass::Int) = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}(), fg, pass)
 
 function set_program(record::CompactRecord, program::Program)
     record.program[] = program
 end
 
 function set_material(record::CompactRecord, @nospecialize(args...); alignment = 16)
-    (; gd) = record
+    (; gd) = record.fg.frame
 
     # replace resource specifications with indices
     for (i, arg) in enumerate(args)
         if arg isa Texture
-            @reset args[i] = texture_id!(gd.resources, record.fg, arg)
+            @reset args[i] = texture_id!(record.fg, arg, record.pass)
         elseif arg isa Sampling
-            @reset args[i] = sampler_id!(gd.resources, record.fg, arg)
+            @reset args[i] = sampler_id!(record.fg, arg, record.pass)
         end
     end
 
@@ -64,22 +64,21 @@ function set_material(record::CompactRecord, @nospecialize(args...); alignment =
     record.state[] = @set state.push_data.material_data = device_address(sub)
 end
 
-function set_state(record::CompactRecord, state::DrawState)
+function set_draw_state(record::CompactRecord, state::DrawState)
     record.state[] = state
 end
 
-function set_state(record::CompactRecord, properties::NamedTuple)
-    record.state[] = setproperties(record.state[], properties)
-end
+draw_state(record::CompactRecord) = record.state[]
 
 function draw(record::CompactRecord, vdata, idata)
-    (; gd) = record
-    program = get!(Dictionary{Program,Dictionary{DrawState,DrawCommand}}, record.programs, record.program)
-    commands = get!(Vector{DrawCommand}, program, record.state)
+    (; gd) = record.fg.frame
+    state = record.state[]
+
+    program = deepcopy(get!(Dictionary{Program,Dictionary{DrawState,DrawCommand}}, record.programs, record.program[]))
+    commands = get!(Vector{DrawCommand}, program, state)
 
     # vertex data
-    sub = copyto!(record.gd.allocator, vdata)
-    state = record.state[]
+    sub = copyto!(gd.allocator, vdata)
     record.state[] = @set state.push_data.vertex_data = device_address(sub)
 
     # index data
@@ -193,7 +192,7 @@ function submit_pipeline!(device::Device, pass::RenderPass, program::Program, st
     hash(info)
 end
 
-function Base.flush(cb::Vk.CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes)
+function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes)
     for op in record.other_ops
         apply(cb, op)
     end
@@ -207,6 +206,7 @@ function Base.flush(cb::Vk.CommandBuffer, record::CompactRecord, device::Device,
             apply(cb, call)
         end
     end
+    binding_state
 end
 
 function initialize(cb::Vk.CommandBuffer, gd::GlobalData, first_pipeline::Pipeline)

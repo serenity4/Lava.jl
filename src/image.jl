@@ -15,7 +15,7 @@ end
 dim(::Type{<:Image{N}}) where {N} = N
 dim(im) = dim(typeof(im))
 
-memory_type(::Type{Image{N,M}}) where {N,M} = M
+memory_type(::Type{<:Image{N,M}}) where {N,M} = M
 
 Vk.bind_image_memory(image::Image, memory::Memory) = Vk.bind_image_memory(device(image), image, memory, offset(memory))
 
@@ -71,6 +71,15 @@ function ImageBlock(device, dims, format, usage;
     ImageBlock{N,memory_type}(handle, dims, format, samples, mip_levels, array_layers, usage, queue_family_indices, sharing_mode, is_linear, Ref(initial_layout), Ref{memory_type}())
 end
 
+function Base.similar(image::ImageBlock; memory_domain = nothing)
+    similar = ImageBlock(device(image), dims(image), format(image), image.usage; queue_family_indices = image.queue_family_indices, sharing_mode = image.sharing_mode, memory_type = memory_type(image), is_linear = image.is_linear, mip_levels = image.mip_levels, array_layers = image.layers, samples = image.samples)
+    if isallocated(image)
+        memory_domain = something(memory_domain, memory(image).domain)
+        unwrap(allocate!(similar, memory_domain))
+    end
+    similar
+end
+
 function bind!(image::ImageBlock, memory::Memory)::Result{ImageBlock,Vk.VulkanError}
     image.memory[] = memory
     @propagate_errors Vk.bind_image_memory(image, memory)
@@ -90,7 +99,7 @@ end
 """
 View of a resource, such as an image or buffer.
 """
-abstract type View{O<:LavaAbstraction} end
+abstract type View{O<:LavaAbstraction} <: LavaAbstraction end
 
 struct ImageView{I<:Image} <: View{I}
     handle::Vk.ImageView

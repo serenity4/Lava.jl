@@ -42,3 +42,28 @@ create(::Type{Vk.ImageView}, device, create_info; kwargs...) = Vk.create_image_v
 create(::Tuple{Type{Vk.SurfaceKHR},Type{XCBWindow}}, instance, create_info; kwargs...) = Vk.create_xcb_surface_khr(instance, convert(Vk.XcbSurfaceCreateInfo, create_info); kwargs...)
 create(::Type{Vk.DescriptorSetLayout}, device, bindings; kwargs...) = Vk.create_descriptor_set_layout(device, convert(Vk.DescriptorSetLayoutCreateInfo, bindings); kwargs...)
 create(::Type{Vk.DescriptorPool}, device, create_info; kwargs...) = Vk.create_descriptor_pool(device, convert(Vk.DescriptorPoolCreateInfo, create_info); kwargs...)
+
+
+has_parent(::Type{Vk.Device}) = true
+parent_handle_type(::Type{Vk.Device}) = Vk.PhysicalDevice
+
+has_parent(::Type{Vk.PhysicalDevice}) = true
+parent_handle_type(::Type{Vk.PhysicalDevice}) = Vk.Instance
+
+has_parent(::Type{Vk.Instance}) = false
+
+has_parent(::Type{Vk.ImageView}) = true
+parent_handle_type(::Type{Vk.ImageView}) = Vk.Device
+
+has_parent(::Type{Vk.Sampler}) = true
+parent_handle_type(::Type{Vk.Sampler}) = Vk.Device
+
+@generated function empty_handle(::Type{T}) where {T<:Vk.Handle}
+    if has_parent(T)
+        Expr(:new, T, C_NULL, empty_handle(parent_handle_type(T)), Vk.RefCounter(0), 0)
+    else
+        Expr(:new, T, C_NULL, Vk.RefCounter(0), 0)
+    end
+end
+
+@generated empty_handle(::Type{T}) where {T<:LavaAbstraction} = empty_handle(vk_handle_type(T))

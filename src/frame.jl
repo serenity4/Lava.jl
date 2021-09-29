@@ -1,3 +1,64 @@
+struct Resource
+    data::Any
+    name::Symbol
+    persistent::Bool
+end
+
+"""
+Frame-global structure that holds all data needed in the frame.
+
+Its linear allocator is used for allocating lots of small objects, like material parameters and vertex data.
+
+Other resources that require a global descriptor set (bind-once strategy) are put into a `ResourceDescriptors`.
+This includes general image data & samplers, with the corresponding descriptors.
+
+The index list is used to append index data and is turned into an index buffer before initiating the render sequence.
+"""
+struct GlobalData
+    allocator::LinearAllocator
+    resources::ResourceDescriptors
+    index_list::Vector{UInt32}
+    index_buffer::Ref{BufferBlock{MemoryBlock}}
+end
+
+GlobalData(device) = GlobalData(
+    LinearAllocator(device, 1_000_000), # 1 MB
+    ResourceDescriptors(device),
+    [],
+    Ref{BufferBlock{MemoryBlock}}(),
+)
+
+function populate_descriptor_sets!(gd::GlobalData)
+    state = gd.resources.gset.state
+    types = [Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, Vk.DESCRIPTOR_TYPE_SAMPLER, Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
+    writes = map(enumerate(types)) do (i, type)
+        infos = state[type]
+        Vk.WriteDescriptorSet(0, 0, i - 1, length(infos), type, infos)
+    end
+    Vk.update_descriptor_sets(
+        device(gd.resources.gset.set),
+        writes,
+        [],
+    )
+end
+
+struct Frame
+    resources::Dictionary{Symbol,Resource}
+    gd::GlobalData
+end
+
+Frame(device) = Frame(Dictionary(), GlobalData(device))
+
+function register(frame::Frame, resource_name::Symbol, resource_data; persistent = true)
+    insert!(frame.resources, resource_name, Resource(resource_data, resource_name, persistent))
+end
+
+function Base.get(frame::Frame, ::Type{T}, symbol::Symbol) where {T}
+    frame.resources[symbol].data::T
+end
+
+#=
+
 struct FrameSynchronization
     image_acquired::Vk.Semaphore
     image_rendered::Vk.Semaphore
@@ -15,7 +76,7 @@ struct FrameState
     syncs::Dictionary{Frame,FrameSynchronization}
 end
 
-Vulkan.device(fs::FrameState) = fs.device
+device(fs::FrameState) = fs.device
 
 function FrameState(device, swapchain::Swapchain)
     max_in_flight = info(swapchain).min_image_count
@@ -23,13 +84,13 @@ function FrameState(device, swapchain::Swapchain)
     update!(fs)
 end
 
-function Vulkan.SurfaceCapabilitiesKHR(fs::FrameState)
+function Vk.SurfaceCapabilitiesKHR(fs::FrameState)
     unwrap(get_physical_device_surface_capabilities_khr(device(fs).physical_device, info(fs.swapchain[]).surface))
 end
 
-function recreate_swapchain!(fs::FrameState, new_extent::Extent2D)
+function recreate_swapchain!(fs::FrameState, new_extent::NTuple{2,Int})
     swapchain = fs.swapchain[]
-    swapchain_info = setproperties(info(swapchain), old_swapchain = handle(swapchain), image_extent = new_extent)
+    swapchain_info = setproperties(info(swapchain), old_swapchain = handle(swapchain), image_extent = Vk.Extent2D(new_extent...))
     swapchain_handle = unwrap(create_swapchain_khr(device(fs), swapchain_info))
     fs.swapchain[] = Created(swapchain_handle, swapchain_info)
     fs
@@ -136,3 +197,5 @@ end
 function stage!(ctx::FrameContext, resource)
     push!(ctx.pending, resource)
 end
+
+=#

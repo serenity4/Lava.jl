@@ -31,7 +31,8 @@ function init(;
     device_specific_features::AbstractVector{Symbol} = Symbol[],
     device_vulkan_features::AbstractVector{Symbol} = Symbol[],
     queue_config = dictionary([
-        Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT => 1
+        Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT => 1,
+        Vk.QUEUE_TRANSFER_BIT => 1,
     ]),
     with_validation = true,
     debug = true,
@@ -75,7 +76,8 @@ function init(;
     instance = Instance(instance_layers, instance_extensions, dbg_info; application_info)
 
     union!(device_vulkan_features, [:buffer_device_address])
-    vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features)
+    synchronization_features = physical_device_features(Vk.PhysicalDeviceSynchronization2FeaturesKHR, [:synchronization2])
+    vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features; next = synchronization_features)
     device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)
     enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = vulkan_features)
 

@@ -4,32 +4,6 @@ offset(memory::Memory) = 0
 
 abstract type DenseMemory <: Memory end
 
-struct MemoryBlock <: DenseMemory
-    handle::Vk.DeviceMemory
-    size::Int
-    properties::Vk.MemoryPropertyFlag
-end
-
-vk_handle_type(::Type{MemoryBlock}) = Vk.DeviceMemory
-
-Base.size(block::MemoryBlock) = block.size
-
-properties(block::MemoryBlock) = block.properties
-
-function Base.map(memory::DenseMemory, size::Integer = size(memory), offset::Integer = offset(memory))
-    if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
-        unwrap(Vk.invalidate_mapped_memory_ranges(device(memory), [MappedMemoryRange(memory, offset, size)]))
-    end
-    Vk.map_memory(device(memory), memory, offset, size)
-end
-
-function unmap(memory::DenseMemory)
-    if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
-        unwrap(Vk.flush_mapped_memory_ranges(device(memory), [MappedMemoryRange(memory, offset(memory), size(memory))]))
-    end
-    Vk.unmap_memory(device(memory), memory)
-end
-
 """
 Memory domains:
 - `MEMORY_DOMAIN_HOST` is host-visible memory, ideal for uploads to the GPU. It is preferably coherent and non-cached.
@@ -42,14 +16,58 @@ Memory domains:
     MEMORY_DOMAIN_DEVICE
 end
 
-function memory_block(device, size::Integer, type, domain::MemoryDomain)::Result{MemoryBlock,Vk.VulkanError}
+struct MemoryBlock <: DenseMemory
+    handle::Vk.DeviceMemory
+    size::Int
+    properties::Vk.MemoryPropertyFlag
+    domain::MemoryDomain
+    ptr::Ref{Ptr{Cvoid}}
+end
+
+vk_handle_type(::Type{MemoryBlock}) = Vk.DeviceMemory
+
+Base.size(block::MemoryBlock) = block.size
+
+properties(block::MemoryBlock) = block.properties
+
+ismapped(block::MemoryBlock) = block.ptr[] ≠ C_NULL
+
+function Base.map(memory::DenseMemory, size::Integer = size(memory), offset::Integer = offset(memory))
+    if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
+        unwrap(Vk.invalidate_mapped_memory_ranges(device(memory), [MappedMemoryRange(memory, offset, size)]))
+    end
+    ptr = unwrap(Vk.map_memory(device(memory), memory, offset, size))
+    memory.ptr[] = ptr
+    ptr
+end
+
+function unmap(memory::DenseMemory)
+    if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
+        unwrap(Vk.flush_mapped_memory_ranges(device(memory), [MappedMemoryRange(memory, offset(memory), size(memory))]))
+    end
+    memory.ptr[] = C_NULL
+    Vk.unmap_memory(device(memory), memory)
+end
+
+function Base.map(f, memory::DenseMemory)
+    if ismapped(memory)
+        f()
+    else
+        map(memory)
+        ret = f()
+        unmap(memory)
+        ret
+    end
+end
+
+MemoryBlock(device, size::Integer, type::Integer, domain::MemoryDomain) = unwrap(memory_block(device, size, type, domain))
+
+function memory_block(device, size, type, domain)::Result{MemoryBlock,Vk.VulkanError}
     prop, i = find_memory_type(physical_device(device), type, domain)
     next = Vk.MemoryAllocateFlagsInfo(0; flags = Vk.MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT)
     @propagate_errors memory = create(MemoryBlock, device, Vk.MemoryAllocateInfo(size, i; next))
-    MemoryBlock(memory, size, prop.property_flags)
+    MemoryBlock(memory, size, prop.property_flags, domain, Ref(C_NULL))
 end
-
-MemoryBlock(device, size::Integer, type, domain::MemoryDomain) = unwrap(memory_block(device, size, type, domain))
 
 find_memory_type(physical_device, type_flag, domain::MemoryDomain) = find_memory_type(Base.Fix1(score, domain), physical_device, type_flag)
 
@@ -120,3 +138,26 @@ Base.lastindex(memory::Memory) = size(memory)
 
 "Memory that can't be accessed by the renderer."
 struct OpaqueMemory <: Memory end
+
+function Base.collect(memory::MemoryBlock; device = nothing, buffer = nothing, size = size(memory))
+    if Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in memory.properties
+        map(memory) do
+            ptr = Libc.malloc(size)
+            mapped = memory.ptr[]
+            @ccall memmove(ptr::Ptr{Cvoid}, mapped::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
+            Base.unsafe_wrap(Array, Base.unsafe_convert(Ptr{UInt8}, ptr), (size,); own = true)
+        end
+    else
+        device = device::Device
+        if !isnothing(buffer) && Vk.BUFFER_USAGE_TRANSFER_DST_BIT in buffer.usage
+            src = buffer
+        else
+            src = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+            unwrap(allocate!(src, MEMORY_DOMAIN_DEVICE))
+        end
+        dst = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
+        unwrap(allocate!(dst, MEMORY_DOMAIN_HOST))
+        wait(transfer(device, src, dst; signal_fence = true))
+        collect(dst)
+    end
+end

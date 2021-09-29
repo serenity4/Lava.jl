@@ -5,7 +5,7 @@
 
 struct VertexData {
     vec2 pos;
-    vec3 color;
+    vec2 uv;
 };
 
 layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer VertexBuffer {
@@ -18,10 +18,10 @@ layout(push_constant) uniform DrawData {
     uint64_t material; // unused
 } dd;
 
-layout(location = 0) out vec4 frag_color;
+layout(location = 0) out vec2 uv;
 
 void main() {
     VertexData vd = VertexBuffer(dd.vbuffer).data[gl_VertexIndex];
     gl_Position = vec4(vd.pos, 0.0, 1.0);
-    frag_color = vec4(vd.color, 1.0);
+    uv = vd.uv;
 }

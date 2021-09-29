@@ -20,30 +20,33 @@ macro record(cbuff, info, cmds)
         end
     end
     quote
-        $(esc(:(begin_command_buffer($(esc(cbuff)), $(esc(info))))))
+        $(esc(:(Vk.begin_command_buffer($(esc(cbuff)), $(esc(info))))))
         $(esc(api_calls))
-        $(esc(:(end_command_buffer($(esc(cbuff))))))
+        $(esc(:(Vk.end_command_buffer($(esc(cbuff))))))
     end
 end
 
 macro record(cbuff, cmds)
-    :(@record $cbuff CommandBufferBeginInfo() $(esc(cmds)))
+    :(@record $cbuff Vk.CommandBufferBeginInfo() $(esc(cmds)))
 end
 
-"""
-Manages one command pool per thread.
-"""
-struct ThreadedCommandPool
-    pools::Dictionary{Int,Vk.CommandPool}
+struct CommandBuffer <: LavaAbstraction
+    handle::Vk.CommandBuffer
+    queue_family_index::Int
 end
 
-function ThreadedCommandPool(device, disp::QueueDispatch, usage = dictionary(1:Base.Threads.nthreads() .=> QUEUE_COMPUTE_BIT | QUEUE_GRAPHICS_BIT | QUEUE_TRANSFER_BIT))
-    pools = dictionary(thread => Vk.CommandPool(device, info(queue(disp, usage[thread])).queue_family_index) for thread in keys(usage))
-    ThreadedCommandPool(pools)
+vk_handle_type(::Type{CommandBuffer}) = Vk.CommandBuffer
+
+struct CommandPools
+    device::Vk.Device
+    available::Dictionary{Int,Vk.CommandPool}
 end
 
-function Vk.CommandPool(pool::ThreadedCommandPool)
-    pool.pools[Base.Threads.threadid()]
-end
+CommandPools(device) = CommandPools(device, Dictionary())
 
-Base.convert(T::Type{Vk.CommandPool}, pool::ThreadedCommandPool) = T(pool)
+function request_pool!(pools::CommandPools, queue_family_index)
+    haskey(pools.available, queue_family_index) && return pools.available[queue_family_index]
+    pool = Vk.CommandPool(pools.device, queue_family_index)
+    insert!(pools.available, queue_family_index, pool)
+    pool
+end

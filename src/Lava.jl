@@ -8,10 +8,14 @@ using Accessors
 using MLStyle
 using LightGraphs, MetaGraphs
 using XCB
+using Transducers
 using SPIRV
-using glslang_jll: glslang_jll
 
+using glslang_jll: glslang_jll
 const glslangValidator = glslang_jll.glslangValidator_path
+
+using TimerOutputs
+const to = TimerOutput()
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
@@ -26,6 +30,7 @@ abstract type LavaAbstraction end
 include("utils.jl")
 include("handles.jl")
 include("queue_dispatch.jl")
+include("synchronization.jl")
 include("hashtable.jl")
 
 const debug_callback_c = Ref{Ptr{Cvoid}}(C_NULL)
@@ -38,6 +43,7 @@ end
 
 include("command_buffer.jl")
 include("init.jl")
+include("wsi.jl")
 include("memory.jl")
 include("buffer.jl")
 include("image.jl")
@@ -50,7 +56,6 @@ include("descriptors.jl")
 include("pipeline.jl")
 
 include("shaders/dependencies.jl")
-# include("shaders/resources.jl")
 include("shaders/formats.jl")
 include("shaders/specification.jl")
 include("shaders/source.jl")
@@ -60,13 +65,10 @@ include("device.jl")
 include("program.jl")
 include("render_state.jl")
 include("binding_state.jl")
+include("frame.jl")
 include("frame_graph.jl")
-include("resources.jl")
+include("resource_resolution.jl")
 include("command.jl")
-# include("frames.jl")
-include("wsi.jl")
-
-# include("synchronization.jl")
 
 # include("vulkan.jl")
 
@@ -74,20 +76,28 @@ export
         Vk,
         Instance, QueueDispatch, Device, init,
 
+        # synchronization
+        ExecutionState,
+
         # memory
         Memory, DenseMemory, MemoryBlock, SubMemory,
         memory,
         MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
+        offset, ismapped,
 
         # buffers
         Buffer, DenseBuffer, BufferBlock, SubBuffer,
         device_address, allocate!, isallocated, bind!,
+        buffer, transfer,
 
         # images
         Image, ImageBlock, View, ImageView,
 
         # textures
         Texture, DEFAULT_SAMPLING,
+
+        # attachments
+        Attachment, READ, WRITE,
 
         # attachment dimensions
         SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
@@ -106,13 +116,19 @@ export
         # descriptors
         ResourceDescriptors, ResourceMetaConfig,
 
+        # render pass
+        RenderPass,
+
         # render state
         RenderState,
 
         # commands
         CompactRecord, draw,
         DrawCommand, Draw, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
-        set_program, set_state,
+        set_program, draw_state, set_draw_state, set_material,
+
+        # frame
+        Frame, Resource, register,
 
         # frame graph
         BufferResourceInfo, ImageResourceInfo, AttachmentResourceInfo,

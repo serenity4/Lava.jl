@@ -10,8 +10,3 @@ frag_shader = resource("headless.frag")
     t = @elapsed Shader(cache, spec)
     @test t < 1e-5
 end
-
-@testset "Descriptors" begin
-    resources = ResourceDescriptors(device)
-    @test !isnothing(resources)
-end

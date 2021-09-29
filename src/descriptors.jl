@@ -3,24 +3,10 @@ struct DescriptorSet <: LavaAbstraction
     layout::Vk.DescriptorSetLayout
 end
 
-Base.@kwdef struct ResourceMetaConfig
+Base.@kwdef struct GlobalDescriptorsConfig
     textures::Int = 2048
     storage_images::Int = 512
     samplers::Int = 2048
-end
-
-struct GlobalResources{T}
-    resources::Vector{T}
-    names::Dictionary{Symbol,Int}
-end
-
-GlobalResources{T}() where {T} = GlobalResources{T}([], Dictionary())
-GlobalResources() = GlobalResources{Any}()
-
-Base.getindex(gd::GlobalResources, key::Symbol) = gd.resources[gd.names[key]]
-
-function Base.convert(::Type{GlobalResources{T}}, gdesc::GlobalResources) where {T}
-    GlobalResources{T}(gdesc.resources, gdesc.names)
 end
 
 struct DescriptorSetBindingState{T}
@@ -34,15 +20,11 @@ struct GlobalDescriptorSet
 end
 
 struct ResourceDescriptors
-    images::GlobalResources{ImageBlock{2,MemoryBlock}}
-    samplers::GlobalResources{Vk.Sampler}
     pool::Vk.DescriptorPool
     gset::GlobalDescriptorSet
 end
 
-ResourceDescriptors(pool, gset) = ResourceDescriptors(GlobalResources(), GlobalResources(), pool, gset)
-
-function ResourceDescriptors(device, config::ResourceMetaConfig = ResourceMetaConfig())
+function ResourceDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescriptorsConfig())
     pool = Vk.DescriptorPool(device, 1, [
         Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1),
         Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, 1),

@@ -1,14 +1,15 @@
 instance, device = init(; with_validation = !is_ci)
 
 @testset "Building a frame graph" begin
-    fg = FrameGraph(device)
+    frame = Frame(device)
+    fg = FrameGraph(device, frame)
 
-    add_pass!(identity, fg, :gbuffer; clear_values = (0.1, 0.01, 0.08, 1.))
-    add_pass!(identity, fg, :lighting; clear_values = (0.1, 0.01, 0.08, 1.))
-    add_pass!(identity, fg, :adapt_luminance; clear_values = (0.1, 0.01, 0.08, 1.))
-    add_pass!(identity, fg, :combine; clear_values = (0.1, 0.01, 0.08, 1.))
+    add_pass!(identity, fg, :gbuffer, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
+    add_pass!(identity, fg, :lighting, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
+    add_pass!(identity, fg, :adapt_luminance, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
+    add_pass!(identity, fg, :combine, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
     # can't add a pass more than once
-    @test_throws ErrorException add_pass!(identity, fg, :combine; clear_values = (0.1, 0.01, 0.08, 1.))
+    @test_throws ErrorException add_pass!(identity, fg, :combine, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
 
     add_resource!(fg, :vbuffer, BufferResourceInfo(1024))
     add_resource!(fg, :ibuffer, BufferResourceInfo(1024))
@@ -48,14 +49,58 @@ instance, device = init(; with_validation = !is_ci)
 end
 
 @testset "Rendering" begin
-    fg = FrameGraph(device)
-    prog = Program(device, ShaderSpecification(resource("headless.vert"), GLSL), ShaderSpecification(resource("headless.frag"), GLSL))
-    add_pass!(fg, :main; clear_values = (0.1, 0.1, 0.1, 1.)) do frame
+    prog = Program(device, ShaderSpecification(resource("dummy.vert"), GLSL), ShaderSpecification(resource("dummy.frag"), GLSL))
+
+    frame = Frame(device)
+
+    color_image = ImageBlock(device, (1920,1080), Vk.FORMAT_B8G8R8A8_SRGB, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+    unwrap(allocate!(color_image, MEMORY_DOMAIN_DEVICE))
+    color_attachment = Attachment(ImageView(color_image), READ)
+    register(frame, :color, color_attachment)
+
+    fg = FrameGraph(device, frame)
+
+    add_resource!(fg, :color, AttachmentResourceInfo(Vk.FORMAT_B8G8R8A8_SRGB))
+
+    add_pass!(fg, :main, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.1, 0.1, 1.)) do rec
         set_program(rec, prog)
+        ds = draw_state(rec)
+        set_draw_state(rec, @set ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
         set_material(rec,
-            Texture(:normal_map, DEFAULT_SAMPLING),
-            (0.1, 0.5, 0.9), # texture scaling coefficients
+            UInt64(0),
         )
-        draw(frame, vdata, idata)
+        draw(rec, [
+            (-1f0, -1f0),
+            (1f0, -1f0),
+            (1f0, 1f0),
+            (-1f0, 1f0),
+        ], collect(1:4))
     end
+
+    usage = @resource_usages begin
+        color::Color = main()
+    end
+    add_resource_usage!(fg, usage)
+
+    # render(device, fg)
+
+    # prog = Program(device, ShaderSpecification(resource("headless.vert"), GLSL), ShaderSpecification(resource("headless.frag"), GLSL))
+
+    # add_resource!(fg, :normal_map, ImageResourceInfo(Vk.FORMAT_R32G32B32A32_SFLOAT))
+
+    # add_pass!(fg, :main, RenderPass((0,0,1920, 1080)); clear_values = (0.1, 0.1, 0.1, 1.)) do rec
+    #     set_program(rec, prog)
+    #     set_material(rec,
+    #         Texture(:normal_map, DEFAULT_SAMPLING),
+    #         (0.1, 0.5) # uv scaling coefficients
+    #     )
+    #     draw(rec, vdata, idata)
+    # end
+
+    # usage = @resource_usages begin
+    #     color::Color = main(normal_map::Texture)
+    # end
+    # add_resource_usage!(fg, usage)
+
+    # render(device, fg)
 end

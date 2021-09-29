@@ -21,11 +21,6 @@ end
     RESOURCE_CLASS_ATTACHMENT = 3
 end
 
-struct Resource{T}
-    type::ResourceType
-    info::T
-end
-
 abstract type ResourceInfo end
 
 struct BufferResourceInfo <: ResourceInfo
@@ -125,7 +120,10 @@ mutable struct FrameGraph
     resource_graph::MetaGraph{Int}
     resources::Dictionary{Symbol,Int}
     passes::Dictionary{Symbol,Int}
+    frame::Frame
 end
+
+device(fg::FrameGraph) = fg.device
 
 attribute(rg::AbstractMetaGraph, i, key) = get_prop(rg, i, key)
 pass_attribute(rg::AbstractMetaGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
@@ -149,22 +147,26 @@ clear_value(g, i, j) = attribute(g, Edge(i, j), :clear_value)::Vk.ClearValue
 aspect(g, i, j) = attribute(g, Edge(i, j), :aspect)::Vk.ImageAspectFlag
 stages(g, i, j) = attribute(g, Edge(i, j), :stages)::Vk.PipelineStageFlag
 
+class(g, idx) = resource_attribute(g, idx, :class)::ResourceClass
 current_layout(g, idx) = resource_attribute(g, idx, :current_layout)::Vk.ImageLayout
 format(g, idx) = resource_attribute(g, idx, :format)::Vk.Format
 buffer_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.BufferUsageFlag
 image_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.ImageUsageFlag
 _size(g, idx) = resource_attribute(g, idx, :size)::Int
+_dims(g, idx) = resource_attribute(g, idx, :dims)::Vector{Int}
 name(g, idx) = attribute(g, idx, :name)::Symbol
 last_write(g, idx) = resource_attribute(g, idx, :last_write)::Pair{Vk.AccessFlag, Vk.PipelineStageFlag}
 synchronization_state(g, idx) = resource_attribute(g, idx, :synchronization_state)::Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}
+access(g, idx) = resource_attribute(g, idx, :access)::MemoryAccess
 stages(g, idx) = pass_attribute(g, idx, :stages)::Vk.PipelineStageFlag
 render_function(g, idx) = pass_attribute(g, idx, :render_function)
+render_pass(g, idx) = pass_attribute(g, idx, :pass)::RenderPass
 
-function FrameGraph(device)
-    FrameGraph(device, MetaGraph(), Dictionary(), Dictionary())
+function FrameGraph(device, frame)
+    FrameGraph(device, MetaGraph(), Dictionary(), Dictionary(), frame)
 end
 
-function add_pass!(render_function, fg::FrameGraph, name::Symbol, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT; clear_values = (0.1, 0.1, 0.1, 1.))
+function add_pass!(render_function, fg::FrameGraph, name::Symbol, pass::RenderPass, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT; clear_values = (0.1, 0.1, 0.1, 1.))
     !haskey(fg.passes, name) || error("Pass '$name' was already added to the frame graph. Passes can only be provided once.")
     g = fg.resource_graph
     add_vertex!(g)
@@ -173,36 +175,40 @@ function add_pass!(render_function, fg::FrameGraph, name::Symbol, stages::Vk.Pip
     set_prop!(g, v, :stages, stages)
     set_prop!(g, v, :clear_values, clear_values)
     set_prop!(g, v, :render_function, render_function)
+    set_prop!(g, v, :pass, pass)
     insert!(fg.passes, name, v)
     nothing
 end
 
 add_pass!(fg::FrameGraph, pass::Pass) = add_pass!(fg, pass.name, pass.stages)
 
-function add_resource!(fg::FrameGraph, name::Symbol, resource::ResourceInfo, data = nothing)
+function add_resource!(fg::FrameGraph, name::Symbol, info::ResourceInfo)
     !haskey(fg.resources, name) || error("Resource '$name' was already added to the frame graph. Resources can only be provided once.")
     g = fg.resource_graph
     add_vertex!(g)
     v = nv(g)
     set_prop!(g, v, :name, name)
+    set_prop!(g, v, :access, MemoryAccess(0))
     insert!(fg.resources, name, v)
-    if resource isa BufferResourceInfo
-        set_prop!(g, v, :size, resource.size)
-        set_prop!(g, v, :usage, resource.usage)
+    if info isa BufferResourceInfo
+        set_prop!(g, v, :size, info.size)
+        set_prop!(g, v, :usage, info.usage)
+        set_prop!(g, v, :class, RESOURCE_CLASS_BUFFER)
     else
-        image_info = if resource isa AttachmentResourceInfo
-            resource.image_info
+        image_info = if info isa AttachmentResourceInfo
+            set_prop!(g, v, :class, RESOURCE_CLASS_ATTACHMENT)
+            info.image_info
         else
-            resource
+            set_prop!(g, v, :class, RESOURCE_CLASS_IMAGE)
+            info
         end
         set_prop!(g, v, :dims, image_info.dims)
         set_prop!(g, v, :usage, image_info.usage)
         set_prop!(g, v, :aspect, image_info.aspect)
         set_prop!(g, v, :format, image_info.format)
     end
-    if !isnothing(data)
-        set_prop!(g, v, :imported, true)
-        set_prop!(g, v, :data, data)
+    if haskey(fg.frame.resources, name)
+        set_prop!(g, v, :physical_resource, fg.frame.resources[name].data)
     end
     nothing
 end
@@ -272,6 +278,7 @@ function extract_resource_spec(ex::Expr)
         :($r::Buffer::Index) => (r => RESOURCE_TYPE_INDEX_BUFFER)
         :($r::Buffer::Storage) => (r => RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_STORAGE)
         :($r::Buffer::Uniform) => (r => RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_UNIFORM)
+        :($r::Buffer) => (r => RESOURCE_TYPE_BUFFER)
         :($r::Color) => (r => RESOURCE_TYPE_COLOR_ATTACHMENT)
         :($r::Depth) => (r => RESOURCE_TYPE_DEPTH_ATTACHMENT)
         :($r::Stencil) => (r => RESOURCE_TYPE_STENCIL_ATTACHMENT)
@@ -296,13 +303,11 @@ function execution_graph(fg::FrameGraph)
     g = fg.resource_graph
     eg = SimpleDiGraph(length(fg.passes))
     for pass in fg.passes
-        pass_indices = neighbors(g, pass)
-        for j in pass_indices
-            WRITE in get_prop(g, i, j, :access)::MemoryAccess || continue
-            j ≠ i || error("Pass self-dependencies are not currently supported.")
-            if j < i
-                # add a dependency from passes that write to this resource earlier
-                add_edge!(eg, j, i)
+        resources = neighbors(g, pass)
+        for resource in resources
+            WRITE in access(g, pass, resource) || continue
+            for dependent_pass in neighbors(g, resource); dependent_pass == pass && continue
+                add_edge!(eg, dependent_pass, pass)
             end
         end
     end
@@ -320,13 +325,17 @@ function render(device, fg::FrameGraph; fence = nothing, semaphore = nothing)
     records = CompactRecord[]
     pipeline_hashes = Dictionary{Tuple{Program,DrawState},UInt64}()
     passes = sort_passes(fg)
+    g = fg.resource_graph
+
+    resolve_attributes!(fg)
 
     # record commands and submit pipelines for creation
     for pass in passes
-        record = CompactRecord(device, fg, resources)
-        record_render_pass(record, fg, pass)
+        record = CompactRecord(fg, pass)
+        f = render_function(g, pass)
+        f(record)
         push!(records, record)
-        merge!(pipeline_hashes, submit_pipelines!(device, fg, pass))
+        merge!(pipeline_hashes, submit_pipelines!(device, render_pass(g, pass), record))
     end
 
     batch_create!(device.pipeline_ht, device.pending_pipelines) do infos
@@ -336,22 +345,26 @@ function render(device, fg::FrameGraph; fence = nothing, semaphore = nothing)
         end
     end
 
+    create_physical_resources!(fg)
+
     # fill command buffer with synchronization commands & recorded commands
-    cb = get_command_buffer(device)
+    cb = request_command_buffer(device, Vk.QUEUE_GRAPHICS_BIT)
     @record cb begin
+        binding_state = BindState()
         for (pass, record) in zip(passes, records)
-            begin_render_pass(cb, fg, passes, pass)
             synchronize_before(cb, fg, pass)
-            flush(cb, record, device, BindState(), pipeline_hashes)
-            Vk.cmd_end_render_pass()
+            begin_render_pass(cb, fg, pass)
+            binding_state = flush(cb, record, device, binding_state, pipeline_hashes)
+            Vk.cmd_end_render_pass(cb)
             synchronize_after(cb, fg, pass)
         end
     end
 
     # submit rendering work
-    submit_info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(cb, 0)], isnothing(semaphore) ? [Vk.SemaphoreSignalInfo(semaphore, 0)] : [])
-    unwrap(Vk.queue_submit_2_khr(device, submit_info))
-    nothing
+    wait_semaphores = device.transfer_ops
+    !isnothing(semaphore) && push!(wait_semaphores, semaphore)
+    submit_info = Vk.SubmitInfo2KHR(wait_semaphores, [Vk.CommandBufferSubmitInfoKHR(C_NULL, cb, 0)], [])
+    submit(device, cb.queue_family_index, [submit_info]; signal_fence = true)
 end
 
 function sort_passes(fg::FrameGraph)
@@ -364,10 +377,10 @@ Build barriers for all resources that require it.
 
 Requires the extension `VK_KHR_synchronization2`.
 """
-function synchronize_before(cb::Vk.CommandBuffer, fg::FrameGraph, pass::Integer)
+function synchronize_before(cb, fg::FrameGraph, pass::Integer)
     g = fg.resource_graph
     deps = Vk.DependencyInfoKHR([], [], [])
-    for resource in neighbors(fg, pass)
+    for resource in neighbors(g, pass)
         (req_access, req_stages) = access(g, pass, resource) => stages(g, pass)
         # if the resource was not written to recently, no synchronization is required
         if has_prop(g, resource, :last_write)
@@ -411,7 +424,8 @@ function synchronize_before(cb::Vk.CommandBuffer, fg::FrameGraph, pass::Integer)
             end
         end
         if WRITE in req_access
-            set_prop!(g, resource, :last_write, req_access_bits => req_stages)
+            set_prop!(g, resource, :last_write, access_bits(type(g, pass, resource), req_access, req_stages) => req_stages)
+            set_prop!(g, resource, :synchronization_state, Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}())
         end
     end
     Vk.cmd_pipeline_barrier_2_khr(cb, deps)
@@ -421,24 +435,24 @@ function begin_render_pass(cb, fg::FrameGraph, pass::Integer)
     g = fg.resource_graph
     attachment_nodes = (resource for resource in neighbors(g, pass) if ResourceClass(type(g, pass, resource)) == RESOURCE_CLASS_ATTACHMENT)
     attachms = Attachment[]
-    attach_descs = Vk.AttachmentDescription2[]
+    attach_descs = Vk._AttachmentDescription2[]
     clear_values = Vk.ClearValue[]
 
-    subpass_descriptions = Vk.SubpassDescription2[]
-    subpass_dependencies = Vk.SubpassDependency2[]
+    subpass_descriptions = Vk._SubpassDescription2[]
+    subpass_dependencies = Vk._SubpassDependency2[]
 
     for (i, node) in enumerate(attachment_nodes)
         # render pass (global) attachment info
-        attachm = attachment(g, pass, i)
-        push!(attachms, attach)
+        attachm = attachment(g, i)
+        push!(attachms, attachm)
         clear = has_prop(g, pass, node, :clear_value)
-        push!(attach_descs, Vk.AttachmentDescription2(attachm, clear, image_layout(g, pass, node), image_layout(g, pass, node)))
+        push!(attach_descs, Vk.AttachmentDescription2(attachm, clear, image_layout(g, pass, node), image_layout(g, pass, node), aspect(g, pass, node)))
         clear_val = if clear
             clear_value(g, pass, node)
         else
             Vk.ClearValue(Vk.ClearColorValue(ntuple(Returns(0f0), 4)))
         end
-        push!(clear_values, clear_value)
+        push!(clear_values, clear_val)
 
         # subpass (local) attachment info
         # only one subpass per pass is currently supported
@@ -446,11 +460,11 @@ function begin_render_pass(cb, fg::FrameGraph, pass::Integer)
         for subpass in 1:1
             stage_flags = stages(g, pass)
             pipeline_bind_point = Vk.PIPELINE_STAGE_COMPUTE_SHADER_BIT in stage_flags ? Vk.PIPELINE_BIND_POINT_COMPUTE : Vk.PIPELINE_BIND_POINT_GRAPHICS
-            color_attachments = Vk.AttachmentReference2[]
+            color_attachments = Vk._AttachmentReference2[]
             depth_stencil_attachment = C_NULL
-            input_attachments = Vk.AttachmentReference2[]
-            resource_type = type(g, pass, resource)
-            ref = Vk.AttachmentReference2(i, image_layout(f, pass, node), aspect(g, i, j))
+            input_attachments = Vk._AttachmentReference2[]
+            resource_type = type(g, pass, node)
+            ref = Vk._AttachmentReference2(i - 1, image_layout(g, pass, node), aspect(g, pass, node))
             if RESOURCE_TYPE_COLOR_ATTACHMENT in resource_type
                 push!(color_attachments, ref)
             end
@@ -460,17 +474,19 @@ function begin_render_pass(cb, fg::FrameGraph, pass::Integer)
             if RESOURCE_TYPE_INPUT_ATTACHMENT in resource_type
                 push!(input_attachments, ref)
             end
-            push!(subpass_descriptions, Vk.SubpassDescription2(pipeline_bind_point, 0, input_attachments, color_attachments, []; depth_stencil_attachment))
+            push!(subpass_descriptions, Vk._SubpassDescription2(pipeline_bind_point, 0, input_attachments, color_attachments, []; depth_stencil_attachment))
 
-            acc_bits = access_bits(g, i, j)
-            push!(subpass_dependencies, Vk.SubpassDependency2(Vk.SUBPASS_EXTERNAL, subpass - 1, 0; dst_stage_mask = stage_flags, dst_access_mask = acc_bits))
+            acc_bits = access_bits(g, pass, node)
+            push!(subpass_dependencies, Vk._SubpassDependency2(Vk.SUBPASS_EXTERNAL, subpass - 1, 0; dst_stage_mask = stage_flags, dst_access_mask = acc_bits))
         end
     end
-    render_pass = RenderPass(fg, pass)
-    render_pass_handle = Vk.RenderPass(fg.device, attachment_descriptions, subpass_descriptions, subpass_dependencies)
-    (; width, height) = render_pass.area.extent
-    fb = Vk.Framebuffer(fg.device, render_pass_handle, attachms, width, height, 1)
-    Vk.cmd_begin_render_pass(cb, Vk.RenderPassBeginInfo(render_pass_handle, fb, render_pass.area, clear_values))
+    rp = render_pass(g, pass)
+    rp_handle = Vk.RenderPass(fg.device, attach_descs, subpass_descriptions, subpass_dependencies, [])
+    (; width, height) = rp.area.extent
+    fb = Vk.Framebuffer(fg.device, rp_handle, [att.view for att in attachms], width, height, 1)
+    set_prop!(g, pass, :render_pass_handle, rp_handle)
+    set_prop!(g, pass, :framebuffer, fb)
+    Vk.cmd_begin_render_pass_2(cb, Vk.RenderPassBeginInfo(rp_handle, fb, rp.area, clear_values), Vk.SubpassBeginInfo(Vk.SUBPASS_CONTENTS_INLINE))
 end
 
 function synchronize_after(cb, fg, pass)
@@ -558,6 +574,7 @@ function aspect_bits(type::ResourceType)
     RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_COLOR_BIT)
     RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_DEPTH_BIT)
     RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_STENCIL_BIT)
+    bits
 end
 
 function descriptor_type(type::ResourceType, access::MemoryAccess)
@@ -582,6 +599,7 @@ function resolve_attributes!(fg::FrameGraph)
         for resource in neighbors(g, pass)
             resource_type = type(g, pass, resource)
             resource_access = access(g, pass, resource)
+            set_prop!(g, resource, :access, access(g, resource) | resource_access)
             pipeline_stages = if has_prop(g, pass, resource, :stages)
                 stages(g, pass, resource)
             else
@@ -611,14 +629,22 @@ function resolve_attributes!(fg::FrameGraph)
 end
 
 function create_physical_resources!(fg::FrameGraph)
-    for buffer in fg.buffers
-        push!(fg.physical_buffers, BufferBlock(fg.device, buffer.size, buffer.usage))
-    end
-    for image in fg.images
-        push!(fg.physical_images, ImageBlock(fg.device, image.dims, image.format, image.usage))
-    end
-    for attachment in fg.attachments
-        push!(fg.physical_attachments, Attachment(ImageView(physical_image(fg, attachment))))
+    g = fg.resource_graph
+    for resource in fg.resources |> Filter(x -> !has_prop(g, x, :physical_resource))
+        c = class(g, resource)
+        if c == RESOURCE_CLASS_IMAGE || c == RESOURCE_CLASS_ATTACHMENT
+            image = ImageBlock(device(fg), Tuple(_dims(g, resource)), format(g, resource), image_usage(g, resource))
+            unwrap(allocate!(image, MEMORY_DOMAIN_DEVICE))
+            if c == RESOURCE_CLASS_ATTACHMENT
+                set_prop!(g, resource, :physical_resource, Attachment(ImageView(image), access(g, resource)))
+            else
+                set_prop!(g, resource, :physical_resource, image)
+            end
+        else
+            buffer = BufferBlock(device(fg), _size(g, resource); usage = buffer_usage(g, resource))
+            unwrap(allocate!(buffer, MEMORY_DOMAIN_DEVICE))
+            set_prop!(g, resource, :physical_resource, buffer)
+        end
     end
 end
 

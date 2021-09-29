@@ -5,6 +5,10 @@ struct ShaderSource
     entry_points::Vector{Symbol}
 end
 
+function Base.show(io::IO, source::ShaderSource)
+    println("ShaderSource(", source.language, ", ", source.stage, ", ", length(source.code), " bytes)")
+end
+
 function pad_shader_code!(code::Vector{UInt8})
     size = cld(length(code), 4)
     rem = size * 4 - length(code)

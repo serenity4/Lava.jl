@@ -48,29 +48,29 @@ Base.size(buffer::BufferBlock) = buffer.size
 
 device_address(buffer::BufferBlock) = Vk.get_buffer_device_address(device(buffer), Vk.BufferDeviceAddressInfo(handle(buffer)))
 
-function BufferBlock(device, size; usage = Vk.BufferUsageFlag(0), queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE, memory_type = MemoryBlock)
+function BufferBlock(device, size; usage = Vk.BufferUsageFlag(0), queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE, memory_type = MemoryBlock, allocate = false)
     usage |= Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
     info = Vk.BufferCreateInfo(size, usage, sharing_mode, queue_family_indices)
     handle = unwrap(create(BufferBlock, device, info))
     buffer = BufferBlock(handle, size, usage, convert(Vector{Int8}, queue_family_indices), sharing_mode, Ref{memory_type}())
 end
 
-function buffer(device, data; kwargs...)
+function buffer(device, data; device_local = false, kwargs...)
     buffer = BufferBlock(device, sizeof(data); kwargs...)
-    unwrap(allocate!(buffer, MEMORY_DOMAIN_HOST))
+    unwrap(allocate!(buffer, device_local ? MEMORY_DOMAIN_DEVICE : MEMORY_DOMAIN_HOST))
     ret = copyto!(buffer, data)
-    if !isnothing(ret)
-        # there was a staging operation required
-        semaphore = ret
-        push!(device.staging_ops, semaphore)
+    if ret isa ExecutionState
+        # a staging operation was required
+        push!(device.transfer_ops, ret.semaphore)
     end
     buffer
 end
 
-function Base.similar(buffer::BufferBlock{T}, domain::MemoryDomain) where {T}
-    similar = BufferBlock(device(buffer), size(buffer); usage = buffer.usage, queue_family_indices = buffer.queue_family_indices, sharing_mode = buffer.sharing_mode, memory_type = T)
+function Base.similar(buffer::BufferBlock{T}; memory_domain = nothing, extra_usage = Vk.BufferUsageFlag(0)) where {T}
+    similar = BufferBlock(device(buffer), size(buffer); usage = buffer.usage | extra_usage, buffer.queue_family_indices, buffer.sharing_mode, memory_type = T)
     if isallocated(buffer)
-        unwrap(allocate!(similar, domain))
+        memory_domain = something(memory_domain, memory(buffer).domain)
+        unwrap(allocate!(similar, memory_domain))
     end
     similar
 end
@@ -78,14 +78,13 @@ end
 function Base.copyto!(buffer::BufferBlock, data)
     mem = memory(buffer)
     if Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in properties(mem)
-        tmp = similar(buffer, MEMORY_DOMAIN_HOST)
+        tmp = similar(buffer, MEMORY_DOMAIN_HOST, extra_usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
         copyto!(tmp, data)
-        copyto!(tmp, buffer)
+        transfer(tmp, buffer; semaphore = Vk.SemaphoreSignalInfo(Vk.Semaphore(), 0))
     elseif Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(mem)
         ptr = unwrap(map(mem))
         ptrcopy!(ptr, data)
         unmap(mem)
-        nothing
     else
         error("Buffer not visible neither to device nor to host (memory properties: $(properties(mem))).")
     end
@@ -103,6 +102,22 @@ end
 function ptrcopy!(ptr, data::String)
     GC.@preserve data unsafe_copyto!(Ptr{UInt8}(ptr), Base.unsafe_convert(Ptr{UInt8}, data), sizeof(data))
 end
+
+function transfer(device, src::Buffer, dst::Buffer; signal_fence = false, semaphore = nothing)
+    cb = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
+
+    @assert size(src) == size(dst)
+
+    @record cb begin
+        Vk.cmd_copy_buffer(cb, src, dst, [Vk.BufferCopy(offset(src), offset(dst), size(src))])
+    end
+    signal_semaphores = []
+    !isnothing(semaphore) && push!(signal_semaphores, semaphore)
+    info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(C_NULL, cb, 0)], signal_semaphores)
+    submit(device, cb.queue_family_index, info; signal_fence, semaphore)
+end
+
+Base.collect(buffer::Buffer; device = nothing) = collect(memory(buffer); buffer, size = size(buffer), device)
 
 struct SubBuffer{B<:DenseBuffer} <: Buffer{SubMemory}
     buffer::B
