@@ -20,11 +20,6 @@ Type that records command lazily, for them to be flushed into an Vulkan command 
 """
 abstract type CommandRecord <: LavaAbstraction end
 
-"""
-Apply all the commands recorded into `record` to the provided command buffer.
-"""
-function Base.flush(cb::Vk.CommandBuffer, record::CommandRecord) end
-
 abstract type DrawCommand end
 
 """
@@ -33,7 +28,7 @@ Record that compacts action commands according to their state before flushing.
 This allows to group e.g. draw calls that use the exact same rendering state.
 """
 struct CompactRecord <: CommandRecord
-    programs::Dictionary{Program, Dictionary{DrawState,Vector{DrawCommand}}}
+    programs::Dictionary{Program, Dictionary{DrawState,Vector{Pair{DrawCommand,TargetAttachments}}}}
     other_ops::Vector{LazyOperation}
     state::Ref{DrawState}
     program::Ref{Program}
@@ -42,6 +37,8 @@ struct CompactRecord <: CommandRecord
 end
 
 CompactRecord(fg::FrameGraph, pass::Int) = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}(), fg, pass)
+
+Base.show(io::IO, record::CompactRecord) = print(io, "CompactRecord(", length(record.programs), " programs, $(sum(x -> sum(length, values(x); init = 0), values(record.programs); init = 0)) draw commands)")
 
 function set_program(record::CompactRecord, program::Program)
     record.program[] = program
@@ -70,23 +67,27 @@ end
 
 draw_state(record::CompactRecord) = record.state[]
 
-function draw(record::CompactRecord, vdata, idata)
+function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata)
     (; gd) = record.fg.frame
     state = record.state[]
-
-    program = deepcopy(get!(Dictionary{Program,Dictionary{DrawState,DrawCommand}}, record.programs, record.program[]))
-    commands = get!(Vector{DrawCommand}, program, state)
 
     # vertex data
     sub = copyto!(gd.allocator, vdata)
     record.state[] = @set state.push_data.vertex_data = device_address(sub)
+    state = record.state[]
+
+    # save draw command with its state
+    prog = record.program[]
+    !haskey(record.programs, prog) && insert!(record.programs, prog, Dictionary())
+    program_draws = record.programs[prog]
+    commands = get!(Vector{DrawCommand}, program_draws, state)
 
     # index data
     first_index = length(gd.index_list) + 1
     append!(gd.index_list, idata)
 
     # draw call
-    push!(commands, DrawIndexed(0, first_index:first_index + length(idata), 1:1))
+    push!(commands, DrawIndexed(0, first_index:first_index + length(idata) - 1, 1:1) => targets)
 end
 
 struct Draw <: DrawCommand
@@ -94,9 +95,9 @@ struct Draw <: DrawCommand
     instances::UnitRange{Int}
 end
 
-function apply(cb::Vk.CommandBuffer, draw::Draw)
+function apply(cb::CommandBuffer, draw::Draw)
     buffer = draw.parameters
-    Vk.cmd_draw(cb, draw.vertices.stop - draw.vertices.start, draw.instances.stop - draw.instances.start, draw.vertices.start - 1, draw.instances.start - 1)
+    Vk.cmd_draw(cb, 1 + draw.vertices.stop - draw.vertices.start, 1 + draw.instances.stop - draw.instances.start, draw.vertices.start - 1, draw.instances.start - 1)
 end
 
 struct DrawIndirect{B<:Buffer} <: DrawCommand
@@ -104,7 +105,7 @@ struct DrawIndirect{B<:Buffer} <: DrawCommand
     count::Int
 end
 
-function apply(cb::Vk.CommandBuffer, draw::DrawIndirect)
+function apply(cb::CommandBuffer, draw::DrawIndirect)
     buffer = draw.parameters
     Vk.cmd_draw_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end
@@ -115,8 +116,8 @@ struct DrawIndexed <: DrawCommand
     instances::UnitRange{Int}
 end
 
-function apply(cb::Vk.CommandBuffer, draw::DrawIndexed)
-    Vk.cmd_draw_indexed(cb, draw.indices.stop - draw.indices.start, draw.instances.stop - draw.instances.start, draw.indices.start - 1, draw.vertex_offset, draw.instances.start - 1)
+function apply(cb::CommandBuffer, draw::DrawIndexed)
+    Vk.cmd_draw_indexed(cb, 1 + draw.indices.stop - draw.indices.start, 1 + draw.instances.stop - draw.instances.start, draw.indices.start - 1, draw.vertex_offset, draw.instances.start - 1)
 end
 
 struct DrawIndexedIndirect{B<:Buffer} <: DrawCommand
@@ -124,17 +125,20 @@ struct DrawIndexedIndirect{B<:Buffer} <: DrawCommand
     count::Int
 end
 
-function apply(cb::Vk.CommandBuffer, draw::DrawIndexedIndirect)
+function apply(cb::CommandBuffer, draw::DrawIndexedIndirect)
     buffer = draw.parameters
     Vk.cmd_draw_indexed_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end
 
 function submit_pipelines!(device::Device, pass::RenderPass, record::CompactRecord)
-    pipeline_hashes = Dictionary{Tuple{Program,DrawState},UInt64}()
+    pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
     for (program, calls) in pairs(record.programs)
-        for state in keys(calls)
-            hash = submit_pipeline!(device, pass, program, state.render_state, state.program_state)
-            insert!(pipeline_hashes, (program, state), hash)
+        for (state, draws) in pairs(calls)
+            for targets in unique!(last.(draws))
+                rp = pass_attribute(record.fg.resource_graph, record.pass, :render_pass_handle)
+                hash = submit_pipeline!(device, pass, program, state.render_state, state.program_state, record.fg.frame.gd.resources, targets, rp)
+                set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
+            end
         end
     end
     pipeline_hashes
@@ -145,41 +149,39 @@ Submit a pipeline create info for creation in the next batch.
 
 A hash is returned to serve as the key to get the corresponding pipeline from the hash table.
 """
-function submit_pipeline!(device::Device, pass::RenderPass, program::Program, state::RenderState, invocation_state::ProgramInvocationState, resources::ResourceDescriptors)
-    shader_stages = PipelineShaderStageCreateInfo.(program.shader, program.shader.specialization_constants)
+function submit_pipeline!(device::Device, pass::RenderPass, program::Program, state::RenderState, invocation_state::ProgramInvocationState, resources::ResourceDescriptors, targets::TargetAttachments, rp::Vk.RenderPass)
+    shader_stages = Vk.PipelineShaderStageCreateInfo.(collect(program.shaders))
     # bindless: no vertex data
-    vertex_input_state = PipelineVertexInputStateCreateInfo([], [])
-    attachments = map(program.attachments) do attachment
+    vertex_input_state = Vk.PipelineVertexInputStateCreateInfo([], [])
+    attachments = map(1:length(targets.color)) do attachment
         if isnothing(state.blending_mode)
             Vk.PipelineColorBlendAttachmentState(
                 false,
-                BLEND_FACTOR_SRC_ALPHA,
-                BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                BLEND_OP_ADD,
-                BLEND_FACTOR_SRC_ALPHA,
-                BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                BLEND_OP_ADD;
+                Vk.BLEND_FACTOR_SRC_ALPHA,
+                Vk.BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                Vk.BLEND_OP_ADD,
+                Vk.BLEND_FACTOR_SRC_ALPHA,
+                Vk.BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                Vk.BLEND_OP_ADD;
                 color_write_mask = state.color_write_mask,
             )
         else
             error("Color blending not supported")
         end
     end
-    input_assembly_state = Vk.PipelineInputAssemblyStateCreateInfo(PrimitiveTopology(I), false)
-    viewport_state = Vk.PipelineViewportStateCreateInfo(viewports = [Viewport(pass.area.offset..., pass.area.extent..., 0, 1)], scissors = [pass.area])
+    input_assembly_state = Vk.PipelineInputAssemblyStateCreateInfo(invocation_state.primitive_topology, false)
+    (; x, y) = pass.area.offset
+    (; width, height) = pass.area.extent
+    viewport_state = Vk.PipelineViewportStateCreateInfo(viewports = [Vk.Viewport(x, y, width, height, 0, 1)], scissors = [pass.area])
     rasterizer = Vk.PipelineRasterizationStateCreateInfo(false, false, invocation_state.polygon_mode, invocation_state.triangle_orientation, state.enable_depth_bias, 1.0, 0.0, 0.0, 1.0, cull_mode = invocation_state.face_culling)
     multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(pass.samples), false, 1.0, false, false)
-    blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(_ -> Vk.BLEND_FACTOR_ONE, 4))
-    pipeline_layout = Vk.PipelineLayout(
-        device,
-        [resources.set.layout],
-        [Vk.PushConstantRange(SHADER_STAGE_VERTEX, 0, sizeof(PushConstantData))],
-    )
+    color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1f0), 4))
+    layout = pipeline_layout(device, resources)
     info = Vk.GraphicsPipelineCreateInfo(
         shader_stages,
         rasterizer,
-        pipeline_layout,
-        render_pass,
+        layout.handle,
+        rp,
         0,
         0;
         vertex_input_state,
@@ -197,21 +199,23 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
         apply(cb, op)
     end
     for (program, calls) in pairs(record.programs)
-        for (state, call) in pairs(calls)
-            hash = pipeline_hashes[(program, state)]
-            pipeline = device.pipeline_ht[hash]
-            reqs = BindRequirements(pipeline, state.push_data)
-            bind(cb, reqs, binding_state)
-            binding_state = reqs
-            apply(cb, call)
+        for (state, draws) in pairs(calls)
+            for (call, targets) in draws
+                hash = pipeline_hashes[ProgramInstance(program, state, targets)]
+                pipeline = device.pipeline_ht[hash]
+                reqs = BindRequirements(pipeline, state.push_data)
+                bind(cb, reqs, binding_state)
+                binding_state = reqs
+                apply(cb, call)
+            end
         end
     end
     binding_state
 end
 
-function initialize(cb::Vk.CommandBuffer, gd::GlobalData, first_pipeline::Pipeline)
-    gd.index_buffer[] = buffer(device(gd), gd.index_list)
-    Vk.cmd_bind_index_buffer(cb, gd.ibuffer, 0, Vk.INDEX_TYPE_UINT32)
+function initialize(cb::CommandBuffer, device::Device, gd::GlobalData, first_pipeline::Pipeline)
+    allocate_index_buffer(gd, device)
+    Vk.cmd_bind_index_buffer(cb, gd.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
     populate_descriptor_sets!(gd)
-    Vk.cmd_bind_descriptor_sets(cb, Vk.PipelineBindPoint(first_pipeline.type), first_pipeline.layout, 0, [gd.resources.set], [])
+    Vk.cmd_bind_descriptor_sets(cb, Vk.PipelineBindPoint(first_pipeline.type), first_pipeline.layout, 0, [gd.resources.gset.set], [])
 end

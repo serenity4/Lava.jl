@@ -3,7 +3,7 @@ Computation unit that uses shaders as part of a graphics or compute pipeline.
 
 It exposes a program interface through its shader interfaces and its shader resources.
 """
-struct Program
+@auto_hash_equals struct Program
     shaders::Dictionary{Vk.ShaderStageFlag, Shader}
 end
 
@@ -26,4 +26,13 @@ struct ProgramInterface
     ibuffer::Optional{Buffer}
     descriptors::Vector{DescriptorSet}
     push_constants::Dictionary{Vk.PushConstantRange,Any}
+end
+
+"""
+Program to be compiled into a pipeline with a specific state.
+"""
+@auto_hash_equals struct ProgramInstance
+    program::Program
+    state::DrawState
+    targets::TargetAttachments
 end

@@ -6,7 +6,7 @@ struct ShaderSource
 end
 
 function Base.show(io::IO, source::ShaderSource)
-    println("ShaderSource(", source.language, ", ", source.stage, ", ", length(source.code), " bytes)")
+    print(io, "ShaderSource(", source.language, ", ", source.stage, ", ", length(source.code), " bytes)")
 end
 
 function pad_shader_code!(code::Vector{UInt8})

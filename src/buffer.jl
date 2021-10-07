@@ -55,36 +55,71 @@ function BufferBlock(device, size; usage = Vk.BufferUsageFlag(0), queue_family_i
     buffer = BufferBlock(handle, size, usage, convert(Vector{Int8}, queue_family_indices), sharing_mode, Ref{memory_type}())
 end
 
-function buffer(device, data; device_local = false, kwargs...)
-    buffer = BufferBlock(device, sizeof(data); kwargs...)
-    unwrap(allocate!(buffer, device_local ? MEMORY_DOMAIN_DEVICE : MEMORY_DOMAIN_HOST))
-    ret = copyto!(buffer, data)
-    if ret isa ExecutionState
-        # a staging operation was required
-        push!(device.transfer_ops, ret.semaphore)
+function Base.show(io::IO, block::BufferBlock)
+    print(io, BufferBlock, "($(Base.format_bytes(size(block))), $(block.usage)")
+    if !isallocated(block)
+        print(io, ", unallocated")
     end
+    print(io, ')')
+end
+
+function buffer(device, data, device_local::Val{false}; kwargs...)
+    buffer = BufferBlock(device, sizeof(data); kwargs...)
+    allocate!(buffer, MEMORY_DOMAIN_HOST)
+    copyto!(buffer, data; device)
     buffer
 end
 
-function Base.similar(buffer::BufferBlock{T}; memory_domain = nothing, extra_usage = Vk.BufferUsageFlag(0)) where {T}
-    similar = BufferBlock(device(buffer), size(buffer); usage = buffer.usage | extra_usage, buffer.queue_family_indices, buffer.sharing_mode, memory_type = T)
+"""
+Create a new buffer and fill it with data.
+
+Note that as the buffer is device-local, a transfer via staging buffer is required.
+In this case, a tuple of `(buffer, state)` is returned.
+`state` is an [`ExecutionState`](@ref) whose bound resources **must** be
+preserved until the transfer has been completed. See the related documentation for more details.
+
+!!! warning
+    Failure to comply will result in undefined behavior, potentially leading to crashes or invalid data.
+"""
+function buffer(device, data, device_local::Val{true}; usage = Vk.BufferUsageFlag(0), kwargs...)
+    usage |= Vk.BUFFER_USAGE_TRANSFER_DST_BIT
+    buffer = BufferBlock(device, sizeof(data); usage, kwargs...)
+    allocate!(buffer, MEMORY_DOMAIN_DEVICE)
+    state = copyto!(buffer, data; device)
+    buffer, state
+end
+
+"""
+Create a new buffer and fill it with data.
+
+By default, the buffer will be host-visible.
+
+You can use `buffer(device, data, Val(true))` to make it device-local.
+Note that you will have to preserve a temporary staging
+buffer while the command is executing, as indicated in the documentation.
+"""
+buffer(device, data; kwargs...) = buffer(device, data, Val(false); kwargs...)
+
+function Base.similar(buffer::BufferBlock{T}; memory_domain = nothing, usage = buffer.usage) where {T}
+    similar = BufferBlock(device(buffer), size(buffer); usage, buffer.queue_family_indices, buffer.sharing_mode, memory_type = T)
     if isallocated(buffer)
-        memory_domain = something(memory_domain, memory(buffer).domain)
-        unwrap(allocate!(similar, memory_domain))
+        memory_domain = @something(memory_domain, memory(buffer).domain)
+        allocate!(similar, memory_domain)
     end
     similar
 end
 
-function Base.copyto!(buffer::BufferBlock, data)
+function Base.copyto!(buffer::BufferBlock, data; device = nothing)
     mem = memory(buffer)
     if Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in properties(mem)
-        tmp = similar(buffer, MEMORY_DOMAIN_HOST, extra_usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+        device::Device
+        tmp = similar(buffer; memory_domain = MEMORY_DOMAIN_HOST, usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
         copyto!(tmp, data)
-        transfer(tmp, buffer; semaphore = Vk.SemaphoreSignalInfo(Vk.Semaphore(), 0))
+        transfer(device, tmp, buffer; semaphore = Vk.SemaphoreSubmitInfoKHR(Vk.Semaphore(device), 0, 0), free_src = true, signal_fence = true)
     elseif Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(mem)
-        ptr = unwrap(map(mem))
-        ptrcopy!(ptr, data)
-        unmap(mem)
+        map(mem) do ptr
+            ptrcopy!(ptr, data)
+        end
     else
         error("Buffer not visible neither to device nor to host (memory properties: $(properties(mem))).")
     end
@@ -103,21 +138,23 @@ function ptrcopy!(ptr, data::String)
     GC.@preserve data unsafe_copyto!(Ptr{UInt8}(ptr), Base.unsafe_convert(Ptr{UInt8}, data), sizeof(data))
 end
 
-function transfer(device, src::Buffer, dst::Buffer; signal_fence = false, semaphore = nothing)
-    cb = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
-
+function transfer(device, src::Buffer, dst::Buffer; command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT), signal_fence = false, semaphore = nothing, free_src = false)
     @assert size(src) == size(dst)
 
-    @record cb begin
-        Vk.cmd_copy_buffer(cb, src, dst, [Vk.BufferCopy(offset(src), offset(dst), size(src))])
-    end
+    Vk.cmd_copy_buffer(command_buffer, src, dst, [Vk.BufferCopy(offset(src), offset(dst), size(src))])
+
     signal_semaphores = []
     !isnothing(semaphore) && push!(signal_semaphores, semaphore)
-    info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(C_NULL, cb, 0)], signal_semaphores)
-    submit(device, cb.queue_family_index, info; signal_fence, semaphore)
+    info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(command_buffer)], signal_semaphores)
+    if free_src
+        submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, free_after_completion = [Ref(src)])
+    else
+        submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, release_after_completion = [Ref(src)])
+    end
 end
 
-Base.collect(buffer::Buffer; device = nothing) = collect(memory(buffer); buffer, size = size(buffer), device)
+Base.collect(buffer::Buffer, device = nothing) = collect(memory(buffer), size(buffer), device)
+Base.collect(::Type{T}, buffer::Buffer, device = nothing) where {T} = reinterpret(T, collect(buffer, device))
 
 struct SubBuffer{B<:DenseBuffer} <: Buffer{SubMemory}
     buffer::B
@@ -156,15 +193,16 @@ Base.lastindex(buffer::Buffer) = size(buffer)
 """
 Allocate a `MemoryBlock` and bind it to the provided buffer.
 """
-function allocate!(buffer::DB, domain::MemoryDomain)::Result{DB,Vk.VulkanError} where {DB<:DenseBuffer}
+function allocate!(buffer::DenseBuffer, domain::MemoryDomain)
     _device = device(buffer)
     reqs = Vk.get_buffer_memory_requirements(_device, buffer)
-    @propagate_errors memory = MemoryBlock(_device, reqs.size, reqs.memory_type_bits, domain)
-    @propagate_errors bind!(buffer, memory)
+    memory = MemoryBlock(_device, reqs.size, reqs.memory_type_bits, domain)
+    bind!(buffer, memory)
 end
 
-function bind!(buffer::BufferBlock, memory::Memory)::Result{BufferBlock,Vk.VulkanError}
+function bind!(buffer::BufferBlock, memory::Memory)
+    unwrap(Vk.bind_buffer_memory(buffer, memory))
     buffer.memory[] = memory
-    @propagate_errors Vk.bind_buffer_memory(buffer, memory)
+    memory.is_bound[] = true
     buffer
 end

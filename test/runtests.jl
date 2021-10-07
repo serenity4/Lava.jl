@@ -16,7 +16,7 @@ using Accessors
 
 resource(filename) = joinpath(@__DIR__, "resources", filename)
 
-instance, device = init(; with_validation = !is_ci)
+instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64])
 
 @testset "Lava.jl" begin
     @testset "Buffers & Memory" begin
@@ -50,9 +50,10 @@ instance, device = init(; with_validation = !is_ci)
             too_much = Lava.memory_block(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
             @test iserror(too_much)
             @test unwrap_error(too_much).code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
+            yield()
         end
 
-        unwrap(allocate!(b, MEMORY_DOMAIN_HOST_CACHED))
+        allocate!(b, MEMORY_DOMAIN_HOST_CACHED)
         @test isallocated(b)
         @test device_address(b) ≠ C_NULL
         @test device_address(sub) == device_address(b) + sub.offset
@@ -60,7 +61,7 @@ instance, device = init(; with_validation = !is_ci)
         @test memory(sub) isa SubMemory
         mem2 = MemoryBlock(device, 1000, 7, MEMORY_DOMAIN_HOST_CACHED)
         b2 = BufferBlock(device, 100)
-        unwrap(bind!(b2, mem2))
+        bind!(b2, mem2)
         @test memory(b2) === mem2
 
         sb = similar(b, memory_domain = MEMORY_DOMAIN_DEVICE)
@@ -89,33 +90,48 @@ instance, device = init(; with_validation = !is_ci)
         @testset "Data transfer" begin
             b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
             b2 = BufferBlock(device, 8000; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-            unwrap(allocate!(b2, MEMORY_DOMAIN_DEVICE))
+            allocate!(b2, MEMORY_DOMAIN_DEVICE)
             @test reinterpret(Int, collect(b1)) == collect(1:1000)
             t = transfer(device, b1, b2; signal_fence = true)
             @test t isa ExecutionState
             @test wait(t)
-            @test reinterpret(Int, collect(b2; device)) == collect(1:1000)
+            @test reinterpret(Int, collect(b2, device)) == collect(1:1000)
+
+            b3, exec = buffer(device, collect(1:1000), Val(true); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+            wait(exec)
+            @test reinterpret(Int, collect(b3, device)) == collect(1:1000)
+
+            data = rand(RGBA{Float16}, 100, 100)
+            usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
+            img1 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage)
+            @test collect(RGBA{Float16}, img1, device) == data
+            img2 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; memory_domain = MEMORY_DOMAIN_HOST, usage)
+            @test collect(RGBA{Float16}, img2, device) == data
+            img3 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; optimal_tiling = false, usage)
+            @test collect(RGBA{Float16}, img3, device) == data
+            img4 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; usage)
+            @test collect(RGBA{Float16}, img4, device) == data
         end
     end
 
     @testset "Images" begin
-        image = ImageBlock(device, (512, 512), Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        @test !isallocated(image)
-        @test !isallocated(similar(image))
-        allocate!(image, MEMORY_DOMAIN_DEVICE)
-        @test isallocated(image)
-        @test isallocated(similar(image))
-        @test memory(image) isa MemoryBlock
-        v = View(image)
+        img = ImageBlock(device, (512, 512), Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        @test !isallocated(img)
+        @test !isallocated(similar(img))
+        allocate!(img, MEMORY_DOMAIN_DEVICE)
+        @test isallocated(img)
+        @test isallocated(similar(img))
+        @test memory(img) isa MemoryBlock
+        v = View(img)
         @test v isa ImageView
-    end
-
-    @testset "Frame Graph" begin
-        include("frame_graph.jl")
     end
 
     @testset "Shaders" begin
         include("shaders.jl")
+    end
+
+    @testset "Frame Graph" begin
+        include("frame_graph.jl")
     end
 end
 

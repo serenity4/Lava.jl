@@ -9,13 +9,13 @@ function texture_id!(fg::FrameGraph, arg::Texture, pass)
         # preserve sampler
         register(frame, gensym(:sampler), sampler; persistent = false)
         combined_image_sampler_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
-        push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, ImageView(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
+        push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, View(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
         length(combined_image_sampler_state)
     else
         # sampled image
         sampler = empty_handle(Vk.Sampler)
         sampled_image_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE]
-        push!(sampled_image_state, Vk.DescriptorImageInfo(sampler, ImageView(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
+        push!(sampled_image_state, Vk.DescriptorImageInfo(sampler, View(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
         length(sampled_image_state)
     end
 end

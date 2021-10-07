@@ -6,19 +6,15 @@ end
 
 HashTable{T}() where {T} = HashTable{T}(Dictionary())
 
-"""
-    create_new_entry!(ht, device, info)
-"""
-function create_new_entry! end
-
-function Base.get!(ht::HashTable, info, device)
+function Base.get!(f, ht::HashTable, info)
     h = hash(info)
     val = get(ht, h, nothing)
     if !isnothing(val)
         return val
     else
-        create_new_entry!(ht, device, info)
-        ht[h]
+        entry = f(info)
+        insert!(ht, h, entry)
+        entry
     end
 end
 

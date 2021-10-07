@@ -1,15 +1,13 @@
-instance, device = init(; with_validation = !is_ci)
-
 @testset "Building a frame graph" begin
     frame = Frame(device)
     fg = FrameGraph(device, frame)
 
-    add_pass!(identity, fg, :gbuffer, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
-    add_pass!(identity, fg, :lighting, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
-    add_pass!(identity, fg, :adapt_luminance, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
-    add_pass!(identity, fg, :combine, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
+    add_pass!(identity, fg, :gbuffer, RenderPass((0,0,1920,1080)))
+    add_pass!(identity, fg, :lighting, RenderPass((0,0,1920,1080)))
+    add_pass!(identity, fg, :adapt_luminance, RenderPass((0,0,1920,1080)))
+    add_pass!(identity, fg, :combine, RenderPass((0,0,1920,1080)))
     # can't add a pass more than once
-    @test_throws ErrorException add_pass!(identity, fg, :combine, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.01, 0.08, 1.))
+    @test_throws ErrorException add_pass!(identity, fg, :combine, RenderPass((0,0,1920,1080)))
 
     add_resource!(fg, :vbuffer, BufferResourceInfo(1024))
     add_resource!(fg, :ibuffer, BufferResourceInfo(1024))
@@ -48,33 +46,25 @@ instance, device = init(; with_validation = !is_ci)
     end
 end
 
-@testset "Rendering" begin
+function program_1(device, vdata)
     prog = Program(device, ShaderSpecification(resource("dummy.vert"), GLSL), ShaderSpecification(resource("dummy.frag"), GLSL))
 
     frame = Frame(device)
 
-    color_image = ImageBlock(device, (1920,1080), Vk.FORMAT_B8G8R8A8_SRGB, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
-    unwrap(allocate!(color_image, MEMORY_DOMAIN_DEVICE))
-    color_attachment = Attachment(ImageView(color_image), READ)
+    usage = Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT
+    color_image = allocate!(ImageBlock(device, (1920, 1080), Vk.FORMAT_R16G16B16A16_SFLOAT, usage), MEMORY_DOMAIN_DEVICE)
+    color_attachment = Attachment(View(color_image), WRITE)
     register(frame, :color, color_attachment)
 
     fg = FrameGraph(device, frame)
 
-    add_resource!(fg, :color, AttachmentResourceInfo(Vk.FORMAT_B8G8R8A8_SRGB))
+    add_resource!(fg, :color, AttachmentResourceInfo(color_image.format))
 
-    add_pass!(fg, :main, RenderPass((0,0,1920,1080)); clear_values = (0.1, 0.1, 0.1, 1.)) do rec
+    add_pass!(fg, :main, RenderPass((0,0,1920,1080))) do rec
         set_program(rec, prog)
         ds = draw_state(rec)
         set_draw_state(rec, @set ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
-        set_material(rec,
-            UInt64(0),
-        )
-        draw(rec, [
-            (-1f0, -1f0),
-            (1f0, -1f0),
-            (1f0, 1f0),
-            (-1f0, 1f0),
-        ], collect(1:4))
+        draw(rec, TargetAttachments([:color]), vdata, collect(1:4))
     end
 
     usage = @resource_usages begin
@@ -82,13 +72,42 @@ end
     end
     add_resource_usage!(fg, usage)
 
-    # render(device, fg)
+    Lava.set_prop!(fg.resource_graph, fg.passes[:main], fg.resources[:color], :clear_value, Vk.ClearValue(Vk.ClearColorValue((0.08f0, 0.05f0, 0.1f0, 1f0))))
+
+    fg
+end
+
+@testset "Rendering" begin
+    vdata = [
+        (-0.5f0, -0.5f0, 1.0, RGB{Float32}(1., 0., 0.), 1f0),
+        (0.5f0, -0.5f0, 1.0, RGB{Float32}(1., 1., 1.), 1f0),
+        (-0.5f0, 0.5f0, 1.0, RGB{Float32}(0., 1., 0.), 1f0),
+        (0.5f0, 0.5f0, 1.0, RGB{Float32}(0., 0., 1.), 1f0),
+    ]
+    fg = program_1(device, vdata)
+    snoop = Lava.SnoopCommandBuffer()
+    render(fg; command_buffer = snoop, submit = false)
+    @test length(snoop.records) == 8
+    @test fg.frame.gd.index_list == [1, 2, 3, 4]
+    ib = collect(UInt32, fg.frame.gd.index_buffer[])
+    @test ib == UInt[0, 1, 2, 3] && sizeof(ib) == 16
+    @test fg.frame.gd.allocator.last_offset == sizeof(vdata)
+    vd_raw = collect(memory(fg.frame.gd.allocator.buffer), 80)
+
+    fg = program_1(device, vdata)
+    @test wait(render(fg))
+    data = collect(RGBA{Float16}, image(fg.frame.resources[:color].data), device)
+
+    filename = joinpath(@__DIR__, "render.png")
+    ispath(filename) && rm(filename)
+    save(filename, data')
+    @test stat(filename).size > 5000
 
     # prog = Program(device, ShaderSpecification(resource("headless.vert"), GLSL), ShaderSpecification(resource("headless.frag"), GLSL))
 
     # add_resource!(fg, :normal_map, ImageResourceInfo(Vk.FORMAT_R32G32B32A32_SFLOAT))
 
-    # add_pass!(fg, :main, RenderPass((0,0,1920, 1080)); clear_values = (0.1, 0.1, 0.1, 1.)) do rec
+    # add_pass!(fg, :main, RenderPass((0,0,1920, 1080))) do rec
     #     set_program(rec, prog)
     #     set_material(rec,
     #         Texture(:normal_map, DEFAULT_SAMPLING),

@@ -9,7 +9,7 @@ struct Attachment{IV<:ImageView}
     usage::MemoryAccess
 end
 
-@forward Attachment.view dims, format, samples
+@forward Attachment.view dims, format, samples, image_layout, image
 
 function load_op(usage::MemoryAccess, clear::Bool)
     @match usage begin
@@ -21,7 +21,7 @@ end
 
 function store_op(usage::MemoryAccess)
     @match usage begin
-        &WRITE || &(READ | WRITE)  => Vk.ATTACHMENT_STORE_OP_STORE
+        &WRITE || &(READ | WRITE) => Vk.ATTACHMENT_STORE_OP_STORE
         &READ => Vk.ATTACHMENT_STORE_OP_DONT_CARE
         _ => nothing
     end
@@ -51,3 +51,11 @@ function Vk.AttachmentDescription2(att::Attachment, clear::Bool, initial_layout:
         final_layout,
     )
 end
+
+@auto_hash_equals struct TargetAttachments
+    color::Vector{Symbol}
+    depth::Vector{Symbol}
+    stencil::Vector{Symbol}
+end
+
+TargetAttachments(color; depth = [], stencil = []) = TargetAttachments(color, depth, stencil)

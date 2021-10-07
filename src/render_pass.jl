@@ -1,6 +1,7 @@
 struct RenderPass
     area::Vk.Rect2D
     samples::Int
+    # attachments::Vector{}
 end
 
 RenderPass(area; samples = 1) = RenderPass(area, samples)

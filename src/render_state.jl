@@ -21,8 +21,8 @@ Set of buffer handles for loading per-material and per-vertex data, along with g
 """
 struct PushConstantData
     camera_data::UInt64
-    material_data::UInt64
     vertex_data::UInt64
+    material_data::UInt64
 end
 
 PushConstantData() = PushConstantData(0, 0, 0)

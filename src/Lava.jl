@@ -10,6 +10,7 @@ using LightGraphs, MetaGraphs
 using XCB
 using Transducers
 using SPIRV
+using AutoHashEquals
 
 using glslang_jll: glslang_jll
 const glslangValidator = glslang_jll.glslangValidator_path
@@ -35,12 +36,6 @@ include("hashtable.jl")
 
 const debug_callback_c = Ref{Ptr{Cvoid}}(C_NULL)
 
-function __init__()
-    # for debugging in Vulkan
-    debug_callback_c[] =
-        @cfunction(Vk.default_debug_callback, UInt32, (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{Vk.core.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid}))
-end
-
 include("command_buffer.jl")
 include("init.jl")
 include("wsi.jl")
@@ -62,13 +57,20 @@ include("shaders/source.jl")
 include("shaders/compilation.jl")
 
 include("device.jl")
-include("program.jl")
 include("render_state.jl")
+include("program.jl")
 include("binding_state.jl")
 include("frame.jl")
 include("frame_graph.jl")
 include("resource_resolution.jl")
 include("command.jl")
+include("debug.jl")
+
+function __init__()
+# for debugging in Vulkan
+    debug_callback_c[] =
+        @cfunction(debug_callback, UInt32, (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{Vk.core.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid}))
+end
 
 # include("vulkan.jl")
 
@@ -91,13 +93,13 @@ export
         buffer, transfer,
 
         # images
-        Image, ImageBlock, View, ImageView,
+        Image, ImageBlock, View, ImageView, image,
 
         # textures
         Texture, DEFAULT_SAMPLING,
 
         # attachments
-        Attachment, READ, WRITE,
+        Attachment, READ, WRITE, TargetAttachments,
 
         # attachment dimensions
         SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
