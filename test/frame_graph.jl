@@ -61,8 +61,7 @@ end
 function program_1(device, vdata)
     prog = Program(device, ShaderSpecification(resource("dummy.vert"), GLSL), ShaderSpecification(resource("dummy.frag"), GLSL))
 
-    frame = Frame(device)
-    fg = FrameGraph(device, frame)
+    fg = FrameGraph(device)
     add_color_attachment(fg)
     add_pass!(fg, :main, RenderPass((0,0,1920,1080))) do rec
         set_program(rec, prog)
@@ -82,7 +81,7 @@ end
 function program_2(device, vdata)
     prog = Program(device, ShaderSpecification(resource("texture.vert"), GLSL), ShaderSpecification(resource("texture.frag"), GLSL))
 
-    fg = FrameGraph(device, Frame(device))
+    fg = FrameGraph(device)
     add_color_attachment(fg)
 
     normal = load(joinpath(@__DIR__, "resources", "normal.png"))

@@ -166,7 +166,7 @@ stages(g, idx) = pass_attribute(g, idx, :stages)::Vk.PipelineStageFlag
 render_function(g, idx) = pass_attribute(g, idx, :render_function)
 render_pass(g, idx) = pass_attribute(g, idx, :pass)::RenderPass
 
-function FrameGraph(device, frame)
+function FrameGraph(device::Device, frame::Frame = Frame(device))
     FrameGraph(device, MetaGraph(), Dictionary(), Dictionary(), frame)
 end
 
