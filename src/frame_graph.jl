@@ -130,6 +130,9 @@ pass_attribute(rg::AbstractMetaGraph, i::Integer, key::Symbol) = attribute(rg, i
 pass_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.passes[name], key)
 resource_attribute(rg::AbstractMetaGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
 resource_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.resources[name], key)
+function set_attribute(fg::FrameGraph, pass::Symbol, resource::Symbol, key::Symbol, value)
+    set_prop!(fg.resource_graph, fg.passes[pass], fg.resources[resource], key, value)
+end
 
 virtual_image(g, idx) = resource_attribute(g, idx, :virtual_resource)::ImageResourceInfo
 virtual_buffer(g, idx) = resource_attribute(g, idx, :virtual_resource)::BufferResourceInfo
@@ -145,6 +148,7 @@ access_bits(g, i, j) = attribute(g, Edge(i, j), :access_bits)::Vk.AccessFlag
 image_layout(g, i, j) = attribute(g, Edge(i, j), :image_layout)::Vk.ImageLayout
 clear_value(g, i, j) = attribute(g, Edge(i, j), :clear_value)::Vk.ClearValue
 aspect(g, i, j) = attribute(g, Edge(i, j), :aspect)::Vk.ImageAspectFlag
+# currently unused (not exposed to the user)
 stages(g, i, j) = attribute(g, Edge(i, j), :stages)::Vk.PipelineStageFlag
 
 resource_class(g, idx) = resource_attribute(g, idx, :class)::ResourceClass
@@ -233,7 +237,6 @@ function add_resource_usage!(fg::FrameGraph, pass::Symbol, usage::Dictionary{Sym
         set_prop!(g, i, v, :access, usage.access)
     end
 end
-add_resource_usage!(fg::FrameGraph, pass::Pass, usage::Dictionary{Symbol,ResourceUsage}) = add_resource_usage!(fg, pass.name, usage)
 
 function resource_usages(ex::Expr)
     lines = @match ex begin
@@ -255,16 +258,19 @@ function resource_usages(ex::Expr)
 
         dict = Dictionary{Symbol,ResourceUsage}()
         for (name, type) in extract_resource_spec.(reads)
+            !haskey(dict, name) || error("Resource $name for pass $f specified multiple times in read access")
             insert!(dict, name, ResourceUsage(type, READ))
         end
         for (name, type) in extract_resource_spec.(writes)
             usage = if haskey(dict, name)
+                WRITE ∉ dict[name].access || error("Resource $name for pass $f specified multiple times in write access")
                 ResourceUsage(type | dict[name].type, WRITE | READ)
             else
                 ResourceUsage(type, WRITE)
             end
             set!(dict, name, usage)
         end
+        !haskey(usages, f) || error("Pass $f is specified more than once")
         insert!(usages, f, dict)
     end
     usages
@@ -288,8 +294,8 @@ function extract_resource_spec(ex::Expr)
         :($r::Texture) => (r => RESOURCE_TYPE_TEXTURE)
         :($r::Image::Storage) => (r => RESOURCE_TYPE_IMAGE | RESOURCE_TYPE_STORAGE)
         :($r::Input) => (r => RESOURCE_TYPE_INPUT_ATTACHMENT)
-        ::Symbol => error("Resource type annotation required: $ex")
-        _ => error("Invalid or unsupported resource type annotation: $ex")
+        ::Symbol => error("Resource type annotation required for $ex")
+        _ => error("Invalid or unsupported resource type annotation for $ex")
     end
 end
 
@@ -297,7 +303,26 @@ function extract_resource_name(ex::Expr)
     @match ex begin
         :($r::$_::$_) => r
         :($r::$_) => r
-        _ => error("Cannot extract resource name: $ex")
+        _ => error("Cannot extract resource name from $ex")
+    end
+end
+
+function clear_attachments(fg::FrameGraph, pass::Symbol, color_clears, depth_clears = [], stencil_clears = [])
+    clears = Dictionary{Symbol,Vk.ClearValue}()
+    for (resource, color) in color_clears
+        clear_value = Vk.ClearValue(Vk.ClearColorValue(convert(NTuple{4,Float32}, color)))
+        insert!(clears, resource, clear_value)
+    end
+    for (resource, depth) in depth_clears
+        clear_value = Vk.ClearValue(Vk.ClearDepthStencilValue(depth, 0))
+        insert!(clears, resource, clear_value)
+    end
+    for (resource, stencil) in stencil_clears
+        clear_value = Vk.ClearValue(Vk.ClearDepthStencilValue(0., stencil))
+        insert!(clears, resource, clear_value)
+    end
+    for (resource, clear_value) in pairs(clears)
+        set_attribute(fg, pass, resource, :clear_value, clear_value)
     end
 end
 

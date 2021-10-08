@@ -151,6 +151,6 @@ export
         RESOURCE_TYPE_UNIFORM,
         RESOURCE_TYPE_SAMPLER,
         Pass, add_pass!,
-        ResourceUsage, add_resource_usage!, resource_usages, @resource_usages,
+        ResourceUsage, add_resource_usage!, resource_usages, @resource_usages, clear_attachments,
         FrameGraph, render
 end

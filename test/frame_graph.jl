@@ -75,9 +75,7 @@ function program_1(device, vdata)
         color::Color = main()
     end
     add_resource_usage!(fg, usage)
-
-    Lava.set_prop!(fg.resource_graph, fg.passes[:main], fg.resources[:color], :clear_value, Vk.ClearValue(Vk.ClearColorValue((0.08f0, 0.05f0, 0.1f0, 1f0))))
-
+    clear_attachments(fg, :main, [:color => (0.08, 0.05, 0.1, 1.)])
     fg
 end
 
@@ -108,7 +106,7 @@ function program_2(device, vdata)
         color::Color = main(normal_map::Texture)
     end
     add_resource_usage!(fg, usage)
-    Lava.set_prop!(fg.resource_graph, fg.passes[:main], fg.resources[:color], :clear_value, Vk.ClearValue(Vk.ClearColorValue((0.08f0, 0.05f0, 0.1f0, 1f0))))
+    clear_attachments(fg, :main, [:color => (0.08, 0.05, 0.1, 1.)])
     fg
 end
 
