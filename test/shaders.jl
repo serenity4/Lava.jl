@@ -1,4 +1,4 @@
-frag_shader = resource("headless.frag")
+frag_shader = resource("dummy.frag")
 
 @testset "Shader cache" begin
     spec = ShaderSpecification(frag_shader, GLSL)

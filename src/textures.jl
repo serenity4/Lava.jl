@@ -8,7 +8,7 @@ Base.@kwdef struct Sampling
     address_modes::NTuple{3,Vk.SamplerAddressMode} = ntuple(Returns(Vk.SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER), 3)
     mip_lod_bias::Float32 = 0.
     anistropy_enable::Bool = true
-    max_anisotropy::Float32 = 1000.
+    max_anisotropy::Float32 = 16.
     compare_enable::Bool = false
     compare_op::Vk.CompareOp = Vk.COMPARE_OP_GREATER_OR_EQUAL
     lod_bounds::NTuple{2,Float32} = (0., 1000.)
@@ -16,7 +16,7 @@ Base.@kwdef struct Sampling
     unnormalized_coordinates::Bool = false
 end
 
-function Vk.Sampler(sampling::Sampling)
+function Vk.Sampler(device, sampling::Sampling)
     create_info = Vk.SamplerCreateInfo(
         sampling.magnification,
         sampling.minification,
@@ -31,7 +31,7 @@ function Vk.Sampler(sampling::Sampling)
         sampling.border_color,
         sampling.unnormalized_coordinates,
     )
-    Vk.Sampler(device, create_info)
+    unwrap(Vk.create_sampler(device, create_info))
 end
 
 const DEFAULT_SAMPLING = Sampling()

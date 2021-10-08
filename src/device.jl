@@ -53,7 +53,7 @@ end
 function pipeline_layout(device::Device, resources)
     info = Vk.PipelineLayoutCreateInfo(
         [resources.gset.set.layout],
-        [Vk.PushConstantRange(Vk.ShaderStageFlag(0x7fffffff), 0, sizeof(PushConstantData))],
+        [Vk.PushConstantRange(Vk.SHADER_STAGE_ALL, 0, sizeof(PushConstantData))],
     )
     get!(device.pipeline_layout_ht, info) do info
         handle = unwrap(Vk.create_pipeline_layout(device, info))

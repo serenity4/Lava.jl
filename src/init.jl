@@ -75,7 +75,7 @@ function init(;
 
     instance = Instance(instance_layers, instance_extensions, dbg_info; application_info)
 
-    union!(device_vulkan_features, [:buffer_device_address])
+    union!(device_vulkan_features, [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound])
     synchronization_features = physical_device_features(Vk.PhysicalDeviceSynchronization2FeaturesKHR, [:synchronization2])
     vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features; next = synchronization_features)
     device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)

@@ -16,7 +16,7 @@ using Accessors
 
 resource(filename) = joinpath(@__DIR__, "resources", filename)
 
-instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64])
+instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy])
 
 @testset "Lava.jl" begin
     @testset "Buffers & Memory" begin

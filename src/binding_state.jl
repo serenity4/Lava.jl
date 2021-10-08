@@ -31,6 +31,6 @@ function Base.bind(cbuffer::CommandBuffer, reqs::BindRequirements, state::BindSt
 
     if !isnothing(push_data) && push_data ≠ current_push_data
         ref = Ref(push_data)
-        GC.@preserve ref Vk.cmd_push_constants(cbuffer, pipeline.layout, Vk.ShaderStageFlag(0x7fffffff), 0, sizeof(push_data), Base.unsafe_convert(Ptr{Cvoid}, ref))
+        GC.@preserve ref Vk.cmd_push_constants(cbuffer, pipeline.layout, Vk.SHADER_STAGE_ALL, 0, sizeof(push_data), Base.unsafe_convert(Ptr{Cvoid}, ref))
     end
 end
