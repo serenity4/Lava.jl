@@ -67,12 +67,12 @@ end
 
 draw_state(record::CompactRecord) = record.state[]
 
-function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata)
+function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata; vdata_alignment = 16)
     (; gd) = record.fg.frame
     state = record.state[]
 
     # vertex data
-    sub = copyto!(gd.allocator, vdata)
+    sub = copyto!(gd.allocator, align_blocks(vdata, vdata_alignment), vdata_alignment)
     record.state[] = @set state.push_data.vertex_data = device_address(sub)
     state = record.state[]
 
@@ -88,6 +88,21 @@ function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata)
 
     # draw call
     push!(commands, DrawIndexed(0, first_index:first_index + length(idata) - 1, 1:1) => targets)
+end
+
+"""
+Insert padding bytes after each element so that they
+each start on an offset that is a multiple of `alignment`.
+"""
+function align_blocks(data::AbstractArray, alignment)
+    size = sizeof(eltype(data))
+    size % alignment == 0 && return reinterpret(UInt8, data)
+    bytes = UInt8[]
+    for el in data
+        append!(bytes, reinterpret(UInt8, [el]))
+        append!(bytes, zeros(UInt8, alignment - size % alignment))
+    end
+    bytes
 end
 
 struct Draw <: DrawCommand

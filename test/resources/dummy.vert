@@ -5,12 +5,10 @@
 
 struct VertexData {
     vec2 pos;
-    vec2 unused0;
-    vec3 color;
-    float unused1;
+    float color[3];
 };
 
-layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer VertexBuffer {
+layout(std430, buffer_reference, buffer_reference_align = 16) readonly buffer VertexBuffer {
     VertexData data[];
 };
 
@@ -25,5 +23,5 @@ layout(location = 0) out vec4 frag_color;
 void main() {
     VertexData vd = VertexBuffer(dd.vbuffer).data[gl_VertexIndex];
     gl_Position = vec4(vd.pos, 0.0, 1.0);
-    frag_color = vec4(vd.color, 1.0);
+    frag_color = vec4(vd.color[0], vd.color[1], vd.color[2], 1.0);
 }

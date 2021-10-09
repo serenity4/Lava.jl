@@ -67,7 +67,7 @@ function program_1(device, vdata)
         set_program(rec, prog)
         ds = draw_state(rec)
         set_draw_state(rec, @set ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
-        draw(rec, TargetAttachments([:color]), vdata, collect(1:4))
+        draw(rec, TargetAttachments([:color]), vdata, collect(1:4); vdata_alignment = 8)
     end
 
     usage = @resource_usages begin
@@ -119,10 +119,10 @@ end
 
 @testset "Rendering" begin
     vdata = [
-        (-0.5f0, -0.5f0, 1.0, RGB{Float32}(1., 0., 0.), 1f0),
-        (0.5f0, -0.5f0, 1.0, RGB{Float32}(1., 1., 1.), 1f0),
-        (-0.5f0, 0.5f0, 1.0, RGB{Float32}(0., 1., 0.), 1f0),
-        (0.5f0, 0.5f0, 1.0, RGB{Float32}(0., 0., 1.), 1f0),
+        (-0.5f0, -0.5f0, RGB{Float32}(1., 0., 0.)),
+        (0.5f0, -0.5f0, RGB{Float32}(1., 1., 1.)),
+        (-0.5f0, 0.5f0, RGB{Float32}(0., 1., 0.)),
+        (0.5f0, 0.5f0, RGB{Float32}(0., 0., 1.)),
     ]
     fg = program_1(device, vdata)
     snoop = Lava.SnoopCommandBuffer()
@@ -131,8 +131,7 @@ end
     @test fg.frame.gd.index_list == [1, 2, 3, 4]
     ib = collect(UInt32, fg.frame.gd.index_buffer[])
     @test ib == UInt[0, 1, 2, 3] && sizeof(ib) == 16
-    @test fg.frame.gd.allocator.last_offset == sizeof(vdata)
-    vd_raw = collect(memory(fg.frame.gd.allocator.buffer), 80)
+    @test fg.frame.gd.allocator.last_offset == 24 * 4
 
     fg = program_1(device, vdata)
     @test wait(render(fg))
