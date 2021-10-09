@@ -14,7 +14,10 @@ using FileIO
 using ImageIO
 using Accessors
 
-resource(filename) = joinpath(@__DIR__, "resources", filename)
+shader_file(filename) = joinpath(@__DIR__, "resources", "shaders", filename)
+texture_file(filename) = joinpath(@__DIR__, "resources", "textures", filename)
+font_file(filename) = joinpath(@__DIR__, "resources", "fonts", filename)
+render_file(filename; tmp = false) = joinpath(@__DIR__, "resources", "renders", tmp ? "tmp" : "", filename)
 
 instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy])
 

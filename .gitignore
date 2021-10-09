@@ -2,5 +2,4 @@
 /.vscode
 /JuliaSysimage.so
 /benchmark
-/tmp
-render.png
+tmp

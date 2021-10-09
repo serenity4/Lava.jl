@@ -59,7 +59,7 @@ function add_color_attachment(fg::FrameGraph)
 end
 
 function program_1(device, vdata)
-    prog = Program(device, ShaderSpecification(resource("dummy.vert"), GLSL), ShaderSpecification(resource("dummy.frag"), GLSL))
+    prog = Program(device, ShaderSpecification(shader_file("rectangle.vert"), GLSL), ShaderSpecification(shader_file("rectangle.frag"), GLSL))
 
     fg = FrameGraph(device)
     add_color_attachment(fg)
@@ -79,12 +79,12 @@ function program_1(device, vdata)
 end
 
 function program_2(device, vdata)
-    prog = Program(device, ShaderSpecification(resource("texture.vert"), GLSL), ShaderSpecification(resource("texture.frag"), GLSL))
+    prog = Program(device, ShaderSpecification(shader_file("texture.vert"), GLSL), ShaderSpecification(shader_file("texture.frag"), GLSL))
 
     fg = FrameGraph(device)
     add_color_attachment(fg)
 
-    normal = load(joinpath(@__DIR__, "resources", "normal.png"))
+    normal = load(texture_file("normal.png"))
     normal = convert(Matrix{RGBA{Float16}}, normal)
     normal_map = image(device, normal, Vk.FORMAT_R16G16B16A16_SFLOAT; usage = Vk.IMAGE_USAGE_SAMPLED_BIT)
     register(fg.frame, :normal_map, normal_map)
@@ -109,8 +109,8 @@ function program_2(device, vdata)
     fg
 end
 
-function save_test_render(filename, data, h::UInt)
-    filename = joinpath(@__DIR__, filename)
+function save_test_render(filename, data, h::UInt; tmp = false)
+    filename = render_file(filename; tmp)
     ispath(filename) && rm(filename)
     save(filename, data')
     @test stat(filename).size > 0
