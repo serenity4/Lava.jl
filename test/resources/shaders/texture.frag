@@ -21,5 +21,5 @@ layout(push_constant) uniform DrawData {
 
 void main() {
     MaterialData md = MaterialData(dd.material);
-    out_color = texture(samplers[md.sampler_id], uv * md.uv_scaling);
+    out_color = vec4(texture(samplers[md.sampler_id], uv * md.uv_scaling).rgb, 1.);
 }

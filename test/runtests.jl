@@ -13,6 +13,7 @@ using Colors
 using FileIO
 using ImageIO
 using Accessors
+using OpenType
 
 shader_file(filename) = joinpath(@__DIR__, "resources", "shaders", filename)
 texture_file(filename) = joinpath(@__DIR__, "resources", "textures", filename)

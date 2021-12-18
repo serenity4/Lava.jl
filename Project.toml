@@ -28,8 +28,9 @@ Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
 FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 GeometryExperiments = "1147bd75-18e1-436d-adda-d58e854f897d"
 ImageIO = "82e4d734-157c-48bb-816b-45c225c6df19"
+OpenType = "e5a4412f-5132-4ec5-841c-0d067f41fa94"
 SwiftShader_jll = "c404ff5a-e271-5628-8eaa-423d39d64c15"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "SwiftShader_jll", "GeometryExperiments", "Colors", "FileIO", "ImageIO"]
+test = ["Test", "SwiftShader_jll", "GeometryExperiments", "Colors", "FileIO", "ImageIO", "OpenType"]

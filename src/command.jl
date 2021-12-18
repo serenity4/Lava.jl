@@ -67,12 +67,12 @@ end
 
 draw_state(record::CompactRecord) = record.state[]
 
-function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata; vdata_alignment = 16)
+function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata; alignment = 16)
     (; gd) = record.fg.frame
     state = record.state[]
 
     # vertex data
-    sub = copyto!(gd.allocator, align_blocks(vdata, vdata_alignment), vdata_alignment)
+    sub = copyto!(gd.allocator, align_blocks(vdata, alignment), alignment)
     record.state[] = @set state.push_data.vertex_data = device_address(sub)
     state = record.state[]
 
@@ -171,7 +171,7 @@ function submit_pipeline!(device::Device, pass::RenderPass, program::Program, st
     attachments = map(1:length(targets.color)) do attachment
         if isnothing(state.blending_mode)
             Vk.PipelineColorBlendAttachmentState(
-                false,
+                true,
                 Vk.BLEND_FACTOR_SRC_ALPHA,
                 Vk.BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
                 Vk.BLEND_OP_ADD,
