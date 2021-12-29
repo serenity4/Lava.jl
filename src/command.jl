@@ -77,9 +77,7 @@ function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata; a
     state = record.state[]
 
     # save draw command with its state
-    prog = record.program[]
-    !haskey(record.programs, prog) && insert!(record.programs, prog, Dictionary())
-    program_draws = record.programs[prog]
+    program_draws = get!(Dictionary, record.programs, record.program[])
     commands = get!(Vector{DrawCommand}, program_draws, state)
 
     # index data

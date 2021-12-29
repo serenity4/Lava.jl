@@ -6,7 +6,7 @@ using Reexport
 using Dictionaries
 using Accessors
 using MLStyle
-using LightGraphs, MetaGraphs
+using Graphs, MetaGraphs
 using XCB
 using Transducers
 using SPIRV
