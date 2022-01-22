@@ -39,14 +39,8 @@ function program_1(device, vdata)
         features = SPIRV_FEATURES,
     )
 
-    # make_shader(@cfg(rectangle_vert(::Vec{4, Float32}, ::Vec{4, Float32}, ::UInt32, ::DrawData)), vert_interface)
-    # make_shader(@cfg(rectangle_frag(::Vec{4, Float32}, ::Vec{4, Float32})), frag_interface)
-    # mod = parse(SPIRV.Module, read(shader_file("rectangle.vert.spvasm"), String))
-    # vert_shader = ShaderSource(reinterpret(UInt8, assemble(mod)), Vk.SHADER_STAGE_VERTEX_BIT, :main)
     vert_shader = @shader vert_interface rectangle_vert(::Vec{4, Float32}, ::Vec{4, Float32}, ::UInt32, ::DrawData)
     frag_shader = @shader frag_interface rectangle_frag(::Vec{4, Float32}, ::Vec{4, Float32})
-    # vert_shader = ShaderSource(shader_file("rectangle.vert.spv"))
-    # frag_shader = ShaderSource(shader_file("rectangle.frag.spv"))
     prog = Program(device, vert_shader, frag_shader)
 
     fg = FrameGraph(device)
