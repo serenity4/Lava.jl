@@ -19,3 +19,4 @@ function save_test_render(filename, data, h::UInt; tmp = false)
 end
 
 include("examples/rectangle.jl")
+include("examples/texture_drawing.jl")

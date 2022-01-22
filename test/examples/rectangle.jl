@@ -1,13 +1,12 @@
-struct VertexData
+struct VertexDataRectangle
     pos::Vec{2,Float32}
     color::Arr{3,Float32}
 end
 
 function rectangle_vert(frag_color, position, index, dd)
-    vd = Pointer{Vector{VertexData}}(dd.vertex_data)[index]
+    vd = Pointer{Vector{VertexDataRectangle}}(dd.vertex_data)[index]
     (; pos, color) = vd
     position[] = Vec(pos.x, pos.y, 0f0, 1f0)
-    # frag_color[] = Vec(1f0, 1f0, 1f0, 1f0)
     frag_color[] = Vec(color[UInt32(0)], color[UInt32(1)], color[UInt32(2)], 1f0)
 end
 

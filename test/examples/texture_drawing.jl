@@ -1,5 +1,45 @@
+struct VertexDataTexture
+    pos::Vec{2, Float32}
+    uv::Vec{2, Float32}
+end
+
+function texture_vert(uv, position, index, dd)
+    vd = Pointer{Vector{VertexDataTexture}}(dd.vertex_data)[index]
+    (; pos) = vd
+    position[] = Vec(pos.x, pos.y, 0f0, 1f0)
+    uv[] = vd.uv
+end
+
+struct MaterialDataTexture
+    uv_scaling::Vec{2, Float32}
+    sampler_id::UInt32
+end
+
+function texture_frag(out_color, dd, samplers)
+    md = Pointer{MaterialDataTexture}(dd.material)
+    (; uv_scaling, sampler_id) = md
+    texcolor = texture(samplers[sampler_id], uv * uv_scaling)
+    out_color[] = Vec4(texcolor.r, texcolor.g, texcolor.b, 1f0)
+end
+
 function program_2(device, vdata)
-    prog = Program(device, ShaderSpecification(shader_file("texture.vert"), GLSL), ShaderSpecification(shader_file("texture.frag"), GLSL))
+    vert_interface = ShaderInterface(
+        storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
+        variable_decorations = dictionary([
+            1 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
+            2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
+            3 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
+        ]),
+        type_decorations = dictionary([
+            DrawData => dictionary([SPIRV.DecorationBlock => []]),
+        ]),
+        features = SPIRV_FEATURES,
+    )
+
+    vert_shader = @shader vert_interface texture_vert(::Vec{2, Float32}, ::Vec{4, Float32}, ::UInt32, ::DrawData)
+    # vert_shader = ShaderSource(shader_file("texture.vert.spv"))
+    frag_shader = ShaderSource(shader_file("texture.frag.spv"))
+    prog = Program(device, vert_shader, frag_shader)
 
     fg = FrameGraph(device)
     add_color_attachment(fg)
