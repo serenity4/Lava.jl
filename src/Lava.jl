@@ -52,9 +52,8 @@ include("pipeline.jl")
 
 include("shaders/dependencies.jl")
 include("shaders/formats.jl")
-include("shaders/specification.jl")
 include("shaders/source.jl")
-include("shaders/compilation.jl")
+include("shaders/vulkan.jl")
 
 include("device.jl")
 include("render_state.jl")
@@ -108,10 +107,7 @@ export
         Program, ProgramInterface, ProgramInvocationState,
 
         # shaders
-        ShaderDependencies,
-        ShaderResource,
-        ShaderLanguage, SPIR_V, GLSL, HLSL,
-        ShaderSpecification,
+        ShaderSource, @shader,
         ShaderCache,
         Shader,
 
@@ -128,6 +124,7 @@ export
         CompactRecord, draw,
         DrawCommand, Draw, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
         set_program, draw_state, set_draw_state, set_material,
+        DrawData,
 
         # frame
         Frame, Resource, register,
@@ -152,5 +149,8 @@ export
         RESOURCE_TYPE_SAMPLER,
         Pass, add_pass!,
         ResourceUsage, add_resource_usage!, resource_usages, @resource_usages, clear_attachments,
-        FrameGraph, render
+        FrameGraph, render,
+
+        # SPIR-V reexports
+        ShaderInterface
 end

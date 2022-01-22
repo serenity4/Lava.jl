@@ -1,91 +1,44 @@
+"""
+SPIR-V shader code, with stage and entry point information.
+"""
 struct ShaderSource
     code::Vector{UInt8}
-    language::ShaderLanguage
     stage::Vk.ShaderStageFlag
-    entry_points::Vector{Symbol}
+    entry_point::Symbol
 end
 
 function Base.show(io::IO, source::ShaderSource)
-    print(io, "ShaderSource(", source.language, ", ", source.stage, ", ", length(source.code), " bytes)")
+    print(io, "ShaderSource(", source.stage, ", ", length(source.code), " bytes)")
 end
 
-function pad_shader_code!(code::Vector{UInt8})
-    size = cld(length(code), 4)
-    rem = size * 4 - length(code)
-    if rem ≠ 0
-        resize!(code, size * 4)
-        code[end - rem + 1:end] .= 0
-    end
-    @assert length(code) % 4 == 0
-    code
+function ShaderSource(fname::AbstractString; stage = shader_stage(fname), entry_point = :main)
+    ShaderSource(read(fname), stage, entry_point)
 end
 
-struct Shader
-    source::ShaderSource
-    shader_module::Vk.ShaderModule
-    entry_point::Symbol
-    push_constant_ranges::Vector{Vk.PushConstantRange}
-    specialization_constants::Vector{Vk.SpecializationInfo}
+function ShaderSource(io::IO, stage::Vk.ShaderStageFlag, entry_point = :main)
+    code = UInt8[]
+    readbytes!(io, code, bytesavailable(io))
+    ShaderSource(code, stage, entry_point)
 end
 
-device(shader::Shader) = shader.shader_module.device
+function ShaderSource(f, argtypes, interface::ShaderInterface)
+    cfg = CFG(f, argtypes, inferred = true)
+    try
+        ir = make_shader(cfg, interface)
+        ret = validate_shader(ir)
+        @assert !iserror(ret) unwrap_error(ret)
+        ShaderSource(reinterpret(UInt8, assemble(ir)), shader_stage(interface.execution_model), :main)
+    catch
+        @error """
+        Shader compilation failed. Showing inferred code:
 
-Shader(source, shader_module, entry_point) = Shader(source, shader_module, entry_point, [], [])
-
-struct ShaderCache
-    device::Vk.Device
-    compiled::Dictionary{String,ShaderSource}
-    shaders::Dictionary{ShaderSource,Shader}
-end
-
-Base.hash(source::ShaderSource, h::UInt64) = objectid(source.code) + h
-
-ShaderCache(device) = ShaderCache(device, Dictionary(), Dictionary())
-
-function find_source!(cache::ShaderCache, spec::ShaderSpecification)
-    file = string(spec.source_file)
-    if haskey(cache.compiled, file)
-        source = cache.compiled[file]
-        if spec.entry_point in source.entry_points
-            return source
-        end
-    else
-        source = ShaderSource(spec)
-        if source.language ≠ SPIR_V
-            source = compile(source)
-        end
-        insert!(cache.compiled, file, source)
-        source
+        $(sprint(show, cfg.code; context = :color => true))
+        """
+        rethrow()
     end
 end
 
-function ShaderSource(spec::ShaderSpecification)
-    ShaderSource(read(spec.source_file), spec.language, spec.stage, [spec.entry_point])
+macro shader(interface, ex)
+    args = SPIRV.get_signature(ex)
+    :(ShaderSource($(esc.(args)...), $(esc(interface))))
 end
-
-function find_shader!(cache::ShaderCache, source::ShaderSource, entry_point::Symbol)
-    if source.language ≠ SPIR_V
-        source = compile(source)
-    end
-    find_shader!(cache, source, ShaderSpecification("", false, entry_point, SPIR_V))
-end
-
-find_shader!(cache::ShaderCache, spec::ShaderSpecification) = find_shader!(cache, find_source!(cache, spec), spec)
-
-function find_shader!(cache::ShaderCache, source::ShaderSource, spec::ShaderSpecification)
-    if haskey(cache.shaders, source)
-        cache.shaders[source]
-    else
-        shader_module = Vk.ShaderModule(cache.device, source)
-        shader = Shader(source, shader_module, spec.entry_point)
-        insert!(cache.shaders, source, shader)
-        shader
-    end
-end
-
-"""
-Retrieve a shader from the provided cache.
-
-Note that the cache will be modified if it does not contain the requested shader.
-"""
-Shader(cache::ShaderCache, spec::ShaderSpecification) = find_shader!(cache, spec)

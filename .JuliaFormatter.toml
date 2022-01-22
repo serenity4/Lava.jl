@@ -1,0 +1,7 @@
+margin = 300
+align_struct_field = true
+align_conditional = true
+align_assignment = true
+align_pair_arrow = true
+align_matrix = true
+whitespace_ops_in_indices = true

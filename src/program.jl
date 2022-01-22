@@ -7,14 +7,14 @@ It exposes a program interface through its shader interfaces and its shader reso
     shaders::Dictionary{Vk.ShaderStageFlag, Shader}
 end
 
-function Program(cache::ShaderCache, shaders::ShaderSpecification...)
-    shaders = map(shaders) do shader_spec
-        shader_spec.stage => find_shader!(cache, shader_spec)
+function Program(cache::ShaderCache, shaders...)
+    shaders = map(shaders) do shader
+        shader.stage => find_shader!(cache, shader)
     end
     Program(dictionary(shaders))
 end
 
-function Program(device, shaders::ShaderSpecification...)
+function Program(device, shaders...)
     Program(device.shader_cache, shaders...)
 end
 

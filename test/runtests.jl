@@ -4,7 +4,7 @@ if is_ci
     ENV["JULIA_VULKAN_LIBNAME"] = basename(SwiftShader_jll.libvulkan)
 end
 
-using Lava
+using Lava, SPIRV, Dictionaries
 
 is_ci && Vk.@set_driver :SwiftShader
 using Test
@@ -18,9 +18,23 @@ using OpenType
 shader_file(filename) = joinpath(@__DIR__, "resources", "shaders", filename)
 texture_file(filename) = joinpath(@__DIR__, "resources", "textures", filename)
 font_file(filename) = joinpath(@__DIR__, "resources", "fonts", filename)
-render_file(filename; tmp = false) = joinpath(@__DIR__, "resources", "renders", tmp ? "tmp" : "", filename)
+render_file(filename; tmp = false) = joinpath(@__DIR__, "examples", "renders", tmp ? "tmp" : "", filename)
 
 instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy])
+
+#TODO: Detect supported features from Vulkan.
+const SPIRV_FEATURES = SupportedFeatures(
+    [
+        "SPV_KHR_vulkan_memory_model",
+        "SPV_EXT_physical_storage_buffer",
+    ],
+    [
+        SPIRV.CapabilityVulkanMemoryModel,
+        SPIRV.CapabilityShader,
+        SPIRV.CapabilityInt64,
+        SPIRV.CapabilityPhysicalStorageBufferAddresses,
+    ]
+)
 
 @testset "Lava.jl" begin
     @testset "Buffers & Memory" begin
@@ -136,6 +150,10 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
 
     @testset "Frame Graph" begin
         include("frame_graph.jl")
+    end
+
+    @testset "Examples" begin
+        include("examples.jl")
     end
 end
 

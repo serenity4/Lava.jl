@@ -27,6 +27,8 @@ end
 
 PushConstantData() = PushConstantData(0, 0, 0)
 
+const DrawData = PushConstantData
+
 struct DrawState
     render_state::RenderState
     program_state::ProgramInvocationState
