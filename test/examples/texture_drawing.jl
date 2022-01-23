@@ -6,7 +6,7 @@ end
 function texture_vert(uv, position, index, dd)
     vd = Pointer{Vector{VertexDataTexture}}(dd.vertex_data)[index]
     (; pos) = vd
-    position[] = Vec(pos.x, pos.y, 0f0, 1f0)
+    position[] = Vec(pos.x, pos.y, 0F, 1F)
     uv[] = vd.uv
 end
 
@@ -19,14 +19,14 @@ function texture_frag(out_color, dd, samplers)
     md = Pointer{MaterialDataTexture}(dd.material)
     (; uv_scaling, sampler_id) = md
     texcolor = texture(samplers[sampler_id], uv * uv_scaling)
-    out_color[] = Vec4(texcolor.r, texcolor.g, texcolor.b, 1f0)
+    out_color[] = Vec4(texcolor.r, texcolor.g, texcolor.b, 1F)
 end
 
 function program_2(device, vdata)
     vert_interface = ShaderInterface(
         storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
         variable_decorations = dictionary([
-            1 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
+            1 => dictionary([SPIRV.DecorationLocation => [0U]]),
             2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
             3 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
         ]),

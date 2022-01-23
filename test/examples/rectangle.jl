@@ -6,8 +6,8 @@ end
 function rectangle_vert(frag_color, position, index, dd)
     vd = Pointer{Vector{VertexDataRectangle}}(dd.vertex_data)[index]
     (; pos, color) = vd
-    position[] = Vec(pos.x, pos.y, 0f0, 1f0)
-    frag_color[] = Vec(color[UInt32(0)], color[UInt32(1)], color[UInt32(2)], 1f0)
+    position[] = Vec(pos.x, pos.y, 0F, 1F)
+    frag_color[] = Vec(color[0U], color[1U], color[2U], 1F)
 end
 
 function rectangle_frag(out_color, frag_color)
@@ -18,12 +18,9 @@ function program_1(device, vdata)
     vert_interface = ShaderInterface(
         storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
         variable_decorations = dictionary([
-            1 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
+            1 => dictionary([SPIRV.DecorationLocation => [0U]]),
             2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
             3 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
-        ]),
-        type_decorations = dictionary([
-            DrawData => dictionary([SPIRV.DecorationBlock => []]),
         ]),
         features = SPIRV_FEATURES,
     )
@@ -32,8 +29,8 @@ function program_1(device, vdata)
         execution_model = SPIRV.ExecutionModelFragment,
         storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput],
         variable_decorations = dictionary([
-            1 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
-            2 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
+            1 => dictionary([SPIRV.DecorationLocation => [0U]]),
+            2 => dictionary([SPIRV.DecorationLocation => [0U]]),
         ]),
         features = SPIRV_FEATURES,
     )
