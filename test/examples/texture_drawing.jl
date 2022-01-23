@@ -12,14 +12,14 @@ end
 
 struct MaterialDataTexture
     uv_scaling::Vec{2, Float32}
-    sampler_id::UInt32
+    img_index::UInt32
 end
 
-function texture_frag(out_color, dd, samplers)
-    md = Pointer{MaterialDataTexture}(dd.material)
-    (; uv_scaling, sampler_id) = md
-    texcolor = texture(samplers[sampler_id], uv * uv_scaling)
-    out_color[] = Vec4(texcolor.r, texcolor.g, texcolor.b, 1F)
+function texture_frag(out_color, uv, dd, images)
+    md = Pointer{MaterialDataTexture}(dd.material_data)[]
+    (; uv_scaling, img_index) = md
+    texcolor = images[img_index](uv * uv_scaling)
+    out_color[] = Vec(texcolor.r, texcolor.g, texcolor.b, 1F)
 end
 
 function program_2(device, vdata)
@@ -30,15 +30,22 @@ function program_2(device, vdata)
             2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
             3 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
         ]),
-        type_decorations = dictionary([
-            DrawData => dictionary([SPIRV.DecorationBlock => []]),
+        features = SPIRV_FEATURES,
+    )
+
+    frag_interface = ShaderInterface(
+        execution_model = SPIRV.ExecutionModelFragment,
+        storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant, SPIRV.StorageClassUniformConstant],
+        variable_decorations = dictionary([
+            1 => dictionary([SPIRV.DecorationLocation => [0U]]),
+            2 => dictionary([SPIRV.DecorationLocation => [0U]]),
+            4 => dictionary([SPIRV.DecorationDescriptorSet => [0U], SPIRV.DecorationBinding => [3U]]),
         ]),
         features = SPIRV_FEATURES,
     )
 
     vert_shader = @shader vert_interface texture_vert(::Vec{2, Float32}, ::Vec{4, Float32}, ::UInt32, ::DrawData)
-    # vert_shader = ShaderSource(shader_file("texture.vert.spv"))
-    frag_shader = ShaderSource(shader_file("texture.frag.spv"))
+    frag_shader = @shader frag_interface texture_frag(::Vec{4, Float32}, ::Vec{2, Float32}, ::DrawData, ::Arr{2048,SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}})
     prog = Program(device, vert_shader, frag_shader)
 
     fg = FrameGraph(device)
