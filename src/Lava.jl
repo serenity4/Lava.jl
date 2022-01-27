@@ -66,91 +66,95 @@ include("command.jl")
 include("debug.jl")
 
 function __init__()
-# for debugging in Vulkan
-    debug_callback_c[] =
-        @cfunction(debug_callback, UInt32, (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{Vk.core.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid}))
+  # for debugging in Vulkan
+  debug_callback_c[] =
+    @cfunction(
+      debug_callback,
+      UInt32,
+      (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{Vk.core.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid})
+    )
 end
 
 # include("vulkan.jl")
 
 export
-        Vk,
-        Instance, QueueDispatch, Device, init,
+  Vk,
+  Instance, QueueDispatch, Device, init,
 
-        # synchronization
-        ExecutionState,
+  # synchronization
+  ExecutionState,
 
-        # memory
-        Memory, DenseMemory, MemoryBlock, SubMemory,
-        memory,
-        MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
-        offset, ismapped,
+  # memory
+  Memory, DenseMemory, MemoryBlock, SubMemory,
+  memory,
+  MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
+  offset, ismapped,
 
-        # buffers
-        Buffer, DenseBuffer, BufferBlock, SubBuffer,
-        device_address, allocate!, isallocated, bind!,
-        buffer, transfer,
+  # buffers
+  Buffer, DenseBuffer, BufferBlock, SubBuffer,
+  device_address, allocate!, isallocated, bind!,
+  buffer, transfer,
 
-        # images
-        Image, ImageBlock, View, ImageView, image,
+  # images
+  Image, ImageBlock, View, ImageView, image,
 
-        # textures
-        Texture, DEFAULT_SAMPLING,
+  # textures
+  Texture, DEFAULT_SAMPLING,
 
-        # attachments
-        Attachment, READ, WRITE, TargetAttachments,
+  # attachments
+  Attachment, READ, WRITE, TargetAttachments,
 
-        # attachment dimensions
-        SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
+  # attachment dimensions
+  SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
 
-        # program
-        Program, ProgramInterface, ProgramInvocationState,
+  # program
+  Program, ProgramInterface, ProgramInvocationState,
 
-        # shaders
-        ShaderSource, @shader,
-        ShaderCache,
-        Shader,
+  # shaders
+  ShaderSource, @shader,
+  ShaderCache,
+  Shader,
 
-        # descriptors
-        ResourceDescriptors, ResourceMetaConfig,
+  # descriptors
+  ResourceDescriptors, ResourceMetaConfig,
 
-        # render pass
-        RenderPass,
+  # render pass
+  RenderPass,
 
-        # render state
-        RenderState,
+  # render state
+  RenderState,
 
-        # commands
-        CompactRecord, draw,
-        DrawCommand, Draw, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
-        set_program, draw_state, set_draw_state, set_material,
-        DrawData,
+  # commands
+  CompactRecord, draw,
+  DrawCommand, Draw, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
+  set_program, draw_state, set_draw_state, set_material,
+  DrawData,
 
-        # frame
-        Frame, Resource, register,
+  # frame
+  Frame, Resource, register,
 
-        # frame graph
-        BufferResourceInfo, ImageResourceInfo, AttachmentResourceInfo,
-        ResourceInfo, add_resource!,
-        ResourceType,
-        RESOURCE_TYPE_VERTEX_BUFFER,
-        RESOURCE_TYPE_INDEX_BUFFER,
-        RESOURCE_TYPE_COLOR_ATTACHMENT,
-        RESOURCE_TYPE_DEPTH_ATTACHMENT,
-        RESOURCE_TYPE_STENCIL_ATTACHMENT,
-        RESOURCE_TYPE_INPUT_ATTACHMENT,
-        RESOURCE_TYPE_TEXTURE,
-        RESOURCE_TYPE_BUFFER,
-        RESOURCE_TYPE_IMAGE,
-        RESOURCE_TYPE_DYNAMIC,
-        RESOURCE_TYPE_STORAGE,
-        RESOURCE_TYPE_TEXEL,
-        RESOURCE_TYPE_UNIFORM,
-        RESOURCE_TYPE_SAMPLER,
-        Pass, add_pass!,
-        ResourceUsage, add_resource_usage!, resource_usages, @resource_usages, clear_attachments,
-        FrameGraph, render,
+  # frame graph
+  BufferResourceInfo, ImageResourceInfo, AttachmentResourceInfo,
+  ResourceInfo, add_resource!,
+  ResourceType,
+  RESOURCE_TYPE_VERTEX_BUFFER,
+  RESOURCE_TYPE_INDEX_BUFFER,
+  RESOURCE_TYPE_COLOR_ATTACHMENT,
+  RESOURCE_TYPE_DEPTH_ATTACHMENT,
+  RESOURCE_TYPE_STENCIL_ATTACHMENT,
+  RESOURCE_TYPE_INPUT_ATTACHMENT,
+  RESOURCE_TYPE_TEXTURE,
+  RESOURCE_TYPE_BUFFER,
+  RESOURCE_TYPE_IMAGE,
+  RESOURCE_TYPE_DYNAMIC,
+  RESOURCE_TYPE_STORAGE,
+  RESOURCE_TYPE_TEXEL,
+  RESOURCE_TYPE_UNIFORM,
+  RESOURCE_TYPE_SAMPLER,
+  Pass, add_pass!,
+  ResourceUsage, add_resource_usage!, resource_usages, @resource_usages, clear_attachments,
+  FrameGraph, render,
 
-        # SPIR-V reexports
-        ShaderInterface
+  # SPIR-V reexports
+  ShaderInterface
 end

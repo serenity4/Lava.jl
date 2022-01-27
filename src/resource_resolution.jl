@@ -1,34 +1,34 @@
 function texture_id!(fg::FrameGraph, arg::Texture, pass)::UInt32
-    # let's create the resource eagerly for now
-    img = image(fg, arg.name)
-    (; frame, resource_graph) = fg
-    if !isnothing(arg.sampling)
-        # combined image sampler
-        sampling = arg.sampling
-        sampler = Vk.Sampler(device(fg), sampling)
-        # preserve sampler
-        register(frame, gensym(:sampler), sampler; persistent = false)
-        combined_image_sampler_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
-        push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, View(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
-        length(combined_image_sampler_state) - 1
-    else
-        # sampled image
-        sampler = empty_handle(Vk.Sampler)
-        sampled_image_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE]
-        push!(sampled_image_state, Vk.DescriptorImageInfo(sampler, View(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
-        length(sampled_image_state) - 1
-    end
-end
-
-function sampler_id!(fg::FrameGraph, arg::Sampling)
-    (; frame) = fg
-    view = empty_handle(Vk.ImageView)
+  # let's create the resource eagerly for now
+  img = image(fg, arg.name)
+  (; frame, resource_graph) = fg
+  if !isnothing(arg.sampling)
+    # combined image sampler
+    sampling = arg.sampling
     sampler = Vk.Sampler(device(fg), sampling)
     # preserve sampler
     register(frame, gensym(:sampler), sampler; persistent = false)
-    sampler_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLER]
-    push!(sampler_state, Vk.DescriptorImageInfo(sampler, view, Vk.IMAGE_LAYOUT_UNDEFINED))
-    length(sampler_state) - 1
+    combined_image_sampler_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
+    push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, View(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
+    length(combined_image_sampler_state) - 1
+  else
+    # sampled image
+    sampler = empty_handle(Vk.Sampler)
+    sampled_image_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE]
+    push!(sampled_image_state, Vk.DescriptorImageInfo(sampler, View(img), image_layout(resource_graph, fg.resources[arg.name], pass)))
+    length(sampled_image_state) - 1
+  end
+end
+
+function sampler_id!(fg::FrameGraph, arg::Sampling)
+  (; frame) = fg
+  view = empty_handle(Vk.ImageView)
+  sampler = Vk.Sampler(device(fg), sampling)
+  # preserve sampler
+  register(frame, gensym(:sampler), sampler; persistent = false)
+  sampler_state = frame.gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLER]
+  push!(sampler_state, Vk.DescriptorImageInfo(sampler, view, Vk.IMAGE_LAYOUT_UNDEFINED))
+  length(sampler_state) - 1
 end
 
 #=

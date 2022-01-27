@@ -1,16 +1,16 @@
 macro propagate_errors(ex)
-    sym, ex = @match ex begin
-        :($sym = $ex) => (sym, ex)
-        _ => (nothing, ex)
+  sym, ex = @match ex begin
+    :($sym = $ex) => (sym, ex)
+    _ => (nothing, ex)
+  end
+  quote
+    ret = $(esc(ex))
+    if iserror(ret)
+      return unwrap_error(ret)
+    else
+      $(isnothing(sym) ? :(unwrap(ret)) : :($(esc(sym)) = unwrap(ret)))
     end
-    quote
-        ret = $(esc(ex))
-        if iserror(ret)
-            return unwrap_error(ret)
-        else
-            $(isnothing(sym) ? :(unwrap(ret)) : :($(esc(sym)) = unwrap(ret)))
-        end
-    end
+  end
 end
 
 
@@ -25,23 +25,23 @@ method(x::MyType, args...; kwargs...) = method(x.prop, args...; kwargs...)
 
 """
 macro forward(ex, fs)
-    T, prop = @match ex begin
-        :($T.$prop) => (T, prop)
-        _ => error("Invalid expression $ex, expected <Type>.<prop>")
-    end
+  T, prop = @match ex begin
+    :($T.$prop) => (T, prop)
+    _ => error("Invalid expression $ex, expected <Type>.<prop>")
+  end
 
-    fs = @match fs begin
-        :(($(fs...),)) => fs
-        :($mod.$method) => [fs]
-        ::Symbol => [fs]
-        _ => error("Expected a method or a tuple of methods, got $fs")
-    end
+  fs = @match fs begin
+    :(($(fs...),)) => fs
+    :($mod.$method) => [fs]
+    ::Symbol => [fs]
+    _ => error("Expected a method or a tuple of methods, got $fs")
+  end
 
-    defs = map(fs) do f
-        esc(:($f(x::$T, args...; kwargs...) = $f(x.$prop, args...; kwargs...)))
-    end
+  defs = map(fs) do f
+    esc(:($f(x::$T, args...; kwargs...) = $f(x.$prop, args...; kwargs...)))
+  end
 
-    Expr(:block, defs...)
+  Expr(:block, defs...)
 end
 
 walk(ex::Expr, inner, outer) = outer(Expr(ex.head, map(inner, ex.args)...))

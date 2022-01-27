@@ -79,17 +79,17 @@ different usage in a different pass.
 =#
 
 resources = @resources begin
-    shadow_main = 
+  shadow_main =
     shadow_near = Texture(...)
-    average_luminance = Buffer(...)
-    bloom_downsample_3 = Texture(...)
+  average_luminance = Buffer(...)
+  bloom_downsample_3 = Texture(...)
 end
 
 prog = @program begin
-    emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
-    color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
-    average_luminance::Buffer::Storage = adapt_luminance(average_luminance::Buffer::Storage, bloom_downsample_3::Texture)
-    output::Color = combine(color::Color, average_luminance::Texture)
+  emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
+  color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
+  average_luminance::Buffer::Storage = adapt_luminance(average_luminance::Buffer::Storage, bloom_downsample_3::Texture)
+  output::Color = combine(color::Color, average_luminance::Texture)
 end
 
 #=
@@ -197,16 +197,16 @@ Programs implement passes. Passes can be provided to the render graph without as
 =#
 
 main_pipeline = Pipeline(
-    vertex_shader = Shader("my_shader.vert", GLSL, (pc_offset = PushConstant(0, UInt),)),
-    fragment_shader = Shader("my_shader.frag", GLSL, (image = SampledImage(my_image; sample_parameters...),)),
-    (color = ColorAttachment(), depth = DepthAttachment(), normal = ColorAttachment(), pbr = ColorAttachment(), albedo = ColorAttachment());
-    name = "graphics_pipeline", # optional name
+  vertex_shader = Shader("my_shader.vert", GLSL, (pc_offset = PushConstant(0, UInt),)),
+  fragment_shader = Shader("my_shader.frag", GLSL, (image = SampledImage(my_image; sample_parameters...),)),
+  (color = ColorAttachment(), depth = DepthAttachment(), normal = ColorAttachment(), pbr = ColorAttachment(), albedo = ColorAttachment());
+  name = "graphics_pipeline", # optional name
 )
 
 emissive_map = Pipeline(
-    vertex_shader = Shader("my_emissive_map.vert", GLSL),
-    fragment_shader = Shader("my_emissive_map.frag", GLSL),
-    (emissive = ColorAttachment(),),
+  vertex_shader = Shader("my_emissive_map.vert", GLSL),
+  fragment_shader = Shader("my_emissive_map.frag", GLSL),
+  (emissive = ColorAttachment(),),
 )
 
 #=
@@ -225,7 +225,7 @@ gbuffer = Pass(:gbuffer)
 
 draw!(gbuffer, main_pipeline, vbuffer, ibuffer[1:120], PushConstant(:pc_offset) => 20)
 for obj in objects
-    draw!(gbuffer, main_pipeline, vbuffer(obj), ibuffer(obj), PushConstant(:pc_offset) => 20)
+  draw!(gbuffer, main_pipeline, vbuffer(obj), ibuffer(obj), PushConstant(:pc_offset) => 20)
 end
 draw!(gbuffer, emissive_map, vbuffer[51:123], ibuffer[121:2325])
 
@@ -243,11 +243,11 @@ TODO: explain why variable assignment can be useful
 =#
 
 gbuffer = @pass begin
-    color, depth, normal, pbr, albedo = main_pipeline(vbuffer[1:50], ibuffer[1:120]; pc_offset = 20)
-    for obj in objects
-        color, depth, normal, pbr, albedo = main_pipeline($(vbuffer(obj)), $(ibuffer(obj)); pc_offset = 20)
-    end
-    emissive = emissive_map(vbuffer[51:123], ibuffer[121:2325])
+  color, depth, normal, pbr, albedo = main_pipeline(vbuffer[1:50], ibuffer[1:120]; pc_offset = 20)
+  for obj in objects
+    color, depth, normal, pbr, albedo = main_pipeline($(vbuffer(obj)), $(ibuffer(obj)); pc_offset = 20)
+  end
+  emissive = emissive_map(vbuffer[51:123], ibuffer[121:2325])
 end
 
 #=
