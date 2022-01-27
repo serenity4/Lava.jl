@@ -1,7 +1,7 @@
 struct Resource
-    data::Any
-    name::Symbol
-    persistent::Bool
+  data::Any
+  name::Symbol
+  persistent::Bool
 end
 
 """
@@ -15,52 +15,53 @@ This includes general image data & samplers, with the corresponding descriptors.
 The index list is used to append index data and is turned into an index buffer before initiating the render sequence.
 """
 struct GlobalData
-    allocator::LinearAllocator
-    resources::ResourceDescriptors
-    index_list::Vector{UInt32}
-    index_buffer::Ref{BufferBlock{MemoryBlock}}
+  allocator::LinearAllocator
+  resources::ResourceDescriptors
+  index_list::Vector{UInt32}
+  index_buffer::Ref{BufferBlock{MemoryBlock}}
 end
 
 GlobalData(device) = GlobalData(
-    LinearAllocator(device, 1_000_000), # 1 MB
-    ResourceDescriptors(device),
-    [],
-    Ref{BufferBlock{MemoryBlock}}(),
+  LinearAllocator(device, 1_000_000), # 1 MB
+  ResourceDescriptors(device),
+  [],
+  Ref{BufferBlock{MemoryBlock}}(),
 )
 
 function populate_descriptor_sets!(gd::GlobalData)
-    state = gd.resources.gset.state
-    types = [Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, Vk.DESCRIPTOR_TYPE_SAMPLER, Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
-    writes = types |> Enumerate() |> Map() do (i, type)
-        infos = state[type]
-        !isempty(infos) || return nothing
-        Vk.WriteDescriptorSet(gd.resources.gset.set.handle, i-1, 0, type, infos, [], [])
+  state = gd.resources.gset.state
+  types = [Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, Vk.DESCRIPTOR_TYPE_SAMPLER, Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
+  writes =
+    types |> Enumerate() |> Map() do (i, type)
+      infos = state[type]
+      !isempty(infos) || return nothing
+      Vk.WriteDescriptorSet(gd.resources.gset.set.handle, i - 1, 0, type, infos, [], [])
     end |> Filter(!isnothing) |> collect
-    !isempty(writes) || return
-    Vk.update_descriptor_sets(
-        device(gd.resources.gset.set),
-        writes,
-        [],
-    )
+  !isempty(writes) || return
+  Vk.update_descriptor_sets(
+    device(gd.resources.gset.set),
+    writes,
+    [],
+  )
 end
 
 function allocate_index_buffer(gd::GlobalData, device::Device)
-    gd.index_buffer[] = buffer(device, convert(Vector{UInt32}, gd.index_list .- 1); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
+  gd.index_buffer[] = buffer(device, convert(Vector{UInt32}, gd.index_list .- 1); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 end
 
 struct Frame
-    resources::Dictionary{Symbol,Resource}
-    gd::GlobalData
+  resources::Dictionary{Symbol,Resource}
+  gd::GlobalData
 end
 
 Frame(device) = Frame(Dictionary(), GlobalData(device))
 
 function register(frame::Frame, resource_name::Symbol, resource_data; persistent = true)
-    insert!(frame.resources, resource_name, Resource(resource_data, resource_name, persistent))
+  insert!(frame.resources, resource_name, Resource(resource_data, resource_name, persistent))
 end
 
 function Base.get(frame::Frame, ::Type{T}, symbol::Symbol) where {T}
-    frame.resources[symbol].data::T
+  frame.resources[symbol].data::T
 end
 
 #=
