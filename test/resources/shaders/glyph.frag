@@ -23,8 +23,8 @@ layout(location = 2) flat in uint curve_count;
 
 layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer MaterialData {
     float text_color[4];
-    float pixel_per_em;
     uint64_t curve_buffer_pointer;
+    float pixel_per_em;
 } md;
 
 layout(push_constant) uniform DrawData {
@@ -34,9 +34,9 @@ layout(push_constant) uniform DrawData {
 } dd;
 
 struct CurveData {
-    float p1[2];
-    float p2[2];
-    float p3[2];
+    vec2 p1;
+    vec2 p2;
+    vec2 p3;
 };
 
 layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer CurveBuffer {
@@ -45,7 +45,11 @@ layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer Cur
 
 layout(location = 0) out vec4 out_color;
 
-const float atol = 0.0001;
+const float atol = 0.5e-6;
+
+vec2 bezier_curve(vec2 p1, vec2 p2, vec2 p3, float t) {
+    return (1 - t) * (1 - t) * p1 + 2 * t * (1 - t) * p2 + t * t * p3;
+}
 
 void main() {
     float intensity = 0.0;
@@ -56,16 +60,9 @@ void main() {
 
         CurveData curve_points = curve_buffer.curves[curve_idx];
 
-        float p1[2] = curve_points.p1;
-        float p2[2] = curve_points.p2;
-        float p3[2] = curve_points.p3;
-
-        p1[0] = p1[0] - position[0];
-        p1[1] = p1[1] + position[1];
-        p2[0] = p2[0] - position[0];
-        p2[1] = p2[1] + position[1];
-        p3[0] = p3[0] - position[0];
-        p3[1] = p3[1] + position[1];
+        vec2 p1 = curve_points.p1 - position;
+        vec2 p2 = curve_points.p2 - position;
+        vec2 p3 = curve_points.p3 - position;
 
         for (uint coord = 0; coord < 2; coord++) {
 
@@ -79,8 +76,6 @@ void main() {
             uint code = (0x2E74U >> rshift) & 3U;
 
             if (code != 0U) {
-                intensity = 1.0;
-
                 float a = xbar_1 - 2 * xbar_2 + xbar_3;
                 float b = xbar_1 - xbar_2;
                 float c = xbar_1;
@@ -99,20 +94,19 @@ void main() {
                     t2 = (b + delta) / a;
                 }
 
-                float x1 = (a * t1 - 2.0 * b) * t1 + c;
-                float x2 = (a * t2 - 2.0 * b) * t2 + c;
                 float val = 0;
 
                 if ((code & 1U) == 1U) {
-                    val = clamp(md.pixel_per_em * x1 + 0.5, 0.0, 1.0);
+                    val = clamp(md.pixel_per_em * bezier_curve(p1, p2, p3, t1)[coord] + 0.5, 0.0, 1.0);
                 }
                 if (code > 1U) {
-                    val = clamp(md.pixel_per_em * x2 + 0.5, 0.0, 1.0);
+                    val = -clamp(md.pixel_per_em * bezier_curve(p1, p2, p3, t2)[coord] + 0.5, 0.0, 1.0);
                 }
-                intensity += val * (coord == 0U ? 1 : -1);
+                intensity += val * (coord == 1 ? 1 : -1);
             }
         }
     }
+    intensity = clamp(intensity, -1, 1);
     intensity = sqrt(abs(intensity));
     float alpha = md.text_color[3] * intensity;
     out_color = vec4(md.text_color[0], md.text_color[1], md.text_color[2], alpha);

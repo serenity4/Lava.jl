@@ -1,3 +1,5 @@
+using ImageMagick: clamp01nan
+
 function color_attachment(device)
   usage = Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT
   color_image = allocate!(ImageBlock(device, (1920, 1080), Vk.FORMAT_R16G16B16A16_SFLOAT, usage), MEMORY_DOMAIN_DEVICE)
@@ -10,7 +12,8 @@ function add_color_attachment(fg::FrameGraph)
   add_resource!(fg, :color, AttachmentResourceInfo(Lava.format(color_attachm)))
 end
 
-function save_test_render(filename, data, h::UInt; tmp = false)
+function save_test_render(filename, data, h::UInt; tmp = false, clamp = false)
+  clamp && (data = clamp01nan.(data))
   filename = render_file(filename; tmp)
   ispath(filename) && rm(filename)
   save(filename, data')
