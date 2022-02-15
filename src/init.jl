@@ -79,7 +79,7 @@ function init(;
   synchronization_features = physical_device_features(Vk.PhysicalDeviceSynchronization2FeaturesKHR, [:synchronization2])
   vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features)
   device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)
-  enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = chain(vulkan_features, synchronization_features))
+  enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = Vk.chain(vulkan_features, synchronization_features))
 
   physical_device = pick_supported_device(unwrap(Vk.enumerate_physical_devices(instance)), enabled_features)
 
@@ -108,33 +108,7 @@ end
 function pick_supported_device(physical_devices, features)
   unsupported = nothing
   for pdevice in physical_devices
-    # TODO: fix Vk.get_physical_device_features_2 in Vulkan.jl
-
-    # initialize structure
-    original = Vk._PhysicalDeviceFeatures2(
-      Vk._PhysicalDeviceFeatures(ntuple(Returns(false), fieldcount(Vk.PhysicalDeviceFeatures))...);
-      next = Vk._PhysicalDeviceVulkan12Features(ntuple(Returns(false), fieldcount(Vk.PhysicalDeviceVulkan12Features) - 1)...),
-    )
-
-    # build reference
-    original_vk = Base.unsafe_convert(Vk.core.VkPhysicalDeviceFeatures2, original)
-    ref = Ref(original_vk)
-
-    # fill it with data
-    GC.@preserve original Vk.core.vkGetPhysicalDeviceFeatures2(pdevice, ref)
-    filled = ref[]
-
-    # load next chain
-    filled_next = unsafe_load(convert(Ptr{Vk.core.VkPhysicalDeviceVulkan12Features}, filled.pNext))
-
-    # reconstruct wrapper structs (equivalent to `Vk.from_vk` that is defined for other structs, but by hand)
-    vulkan_features =
-      Vk.PhysicalDeviceVulkan12Features((getproperty(filled_next, name) for name in fieldnames(Vk.core.VkPhysicalDeviceVulkan12Features)[2:end])...)
-    device_specific_features =
-      Vk.PhysicalDeviceFeatures((getproperty(filled.features, name) for name in fieldnames(Vk.core.VkPhysicalDeviceFeatures))...)
-
-    pdevice_features = Vk.PhysicalDeviceFeatures2(device_specific_features; next = vulkan_features)
-
+    pdevice_features = Vk.get_physical_device_features_2(pdevice, Vk.PhysicalDeviceVulkan12Features)
     unsupported = unsupported_features(features, pdevice_features)
     isempty(unsupported) && return pdevice
   end

@@ -1,6 +1,6 @@
 module Lava
 
-import Vulkan as Vk
+using Vulkan: Vk, VkCore
 
 using Reexport
 using Dictionaries
@@ -72,7 +72,7 @@ function __init__()
     @cfunction(
       debug_callback,
       UInt32,
-      (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{Vk.core.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid})
+      (Vk.DebugUtilsMessageSeverityFlagEXT, Vk.DebugUtilsMessageTypeFlagEXT, Ptr{VkCore.VkDebugUtilsMessengerCallbackDataEXT}, Ptr{Cvoid})
     )
 end
 
