@@ -22,21 +22,21 @@ render_file(filename; tmp = false) = joinpath(@__DIR__, "examples", "renders", t
 
 instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy])
 
-#TODO: Detect supported features from Vulkan.
-const SPIRV_FEATURES = SupportedFeatures(
-  [
-    "SPV_KHR_vulkan_memory_model",
-    "SPV_EXT_physical_storage_buffer",
-  ],
-  [
-    SPIRV.CapabilityVulkanMemoryModel,
-    SPIRV.CapabilityShader,
-    SPIRV.CapabilityInt64,
-    SPIRV.CapabilityPhysicalStorageBufferAddresses,
-  ],
-)
-
 @testset "Lava.jl" begin
+  @testset "Initialization" begin
+    @testset "SPIR-V capability/extension detection" begin
+      (; physical_device) = device.handle
+      feats = Lava.spirv_features(physical_device, device.extensions, device.features)
+      @test !isempty(feats.extensions)
+      @test !isempty(feats.capabilities)
+      @test SPIRV.CapabilityVulkanMemoryModel in feats.capabilities
+      @test SPIRV.CapabilityShader in feats.capabilities
+      feats = Lava.spirv_features(physical_device, [], Vk.initialize(Vk.PhysicalDeviceFeatures2))
+      @test SPIRV.CapabilityVulkanMemoryModel ∉ feats.capabilities
+      @test SPIRV.CapabilityShader in feats.capabilities
+    end
+  end
+
   @testset "Buffers & Memory" begin
     b = BufferBlock(device, 100)
     @test !isallocated(b)

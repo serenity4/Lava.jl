@@ -38,8 +38,7 @@ function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config, fe
     ShaderCache(handle),
     [],
     CommandPools(handle),
-    # SupportedFeatures(physical_device, extensions, features),
-    SupportedFeatures([], []),
+    spirv_features(physical_device, extensions, features),
   )
 end
 

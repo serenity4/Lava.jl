@@ -22,7 +22,7 @@ function program_1(device, vdata)
       2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
       3 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
     ]),
-    features = SPIRV_FEATURES,
+    features = device.spirv_features,
   )
 
   frag_interface = ShaderInterface(
@@ -32,7 +32,7 @@ function program_1(device, vdata)
       1 => dictionary([SPIRV.DecorationLocation => [0U]]),
       2 => dictionary([SPIRV.DecorationLocation => [0U]]),
     ]),
-    features = SPIRV_FEATURES,
+    features = device.spirv_features,
   )
 
   vert_shader = @shader vert_interface rectangle_vert(::Vec{4,Float32}, ::Vec{4,Float32}, ::UInt32, ::DrawData)

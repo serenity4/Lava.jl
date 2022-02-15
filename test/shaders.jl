@@ -10,7 +10,7 @@ end
       1 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
       2 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
     ]),
-    features = SPIRV_FEATURES,
+    features = device.spirv_features,
   )
   frag_shader = @shader frag_interface test_frag_shader(::Vec{4,Float32}, ::Vec{4,Float32})
 
