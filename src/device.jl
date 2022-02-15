@@ -10,6 +10,7 @@ struct Device <: LavaAbstraction
   shader_cache::ShaderCache
   transfer_ops::Vector{Vk.SemaphoreSubmitInfoKHR}
   command_pools::CommandPools
+  spirv_features::SupportedFeatures
 end
 
 vk_handle_type(::Type{Device}) = Vk.Device
@@ -37,6 +38,8 @@ function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config, fe
     ShaderCache(handle),
     [],
     CommandPools(handle),
+    # SupportedFeatures(physical_device, extensions, features),
+    SupportedFeatures([], []),
   )
 end
 

@@ -77,9 +77,9 @@ function init(;
 
   union!(device_vulkan_features, [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model])
   synchronization_features = physical_device_features(Vk.PhysicalDeviceSynchronization2FeaturesKHR, [:synchronization2])
-  vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features; next = synchronization_features)
+  vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features)
   device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)
-  enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = vulkan_features)
+  enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = chain(vulkan_features, synchronization_features))
 
   physical_device = pick_supported_device(unwrap(Vk.enumerate_physical_devices(instance)), enabled_features)
 
@@ -95,18 +95,14 @@ function init(;
   instance, device
 end
 
-function physical_device_features(@nospecialize(T), features; next = C_NULL)
+function physical_device_features(@nospecialize(T), features)
   names = fieldnames(T)
   unknown = filter(!in(names), features)
   if !isempty(unknown)
     error("Trying to set unknown features: $unknown")
   end
   fields = map(in(features), filter(≠(:next), names))
-  if :next in names
-    T(fields...; next)
-  else
-    T(fields...)
-  end
+  T(fields...)
 end
 
 function pick_supported_device(physical_devices, features)
@@ -142,7 +138,7 @@ function pick_supported_device(physical_devices, features)
     unsupported = unsupported_features(features, pdevice_features)
     isempty(unsupported) && return pdevice
   end
-  throw("Physical device features $unsupported are required but not available on any device.")
+  throw("Physical device features $features are required but not available on any device.")
 end
 
 function unsupported_features(requested::Vk.PhysicalDeviceFeatures2, available::Vk.PhysicalDeviceFeatures2)

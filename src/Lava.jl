@@ -50,6 +50,7 @@ include("render_pass.jl")
 include("descriptors.jl")
 include("pipeline.jl")
 
+include("spirv.jl")
 include("shaders/dependencies.jl")
 include("shaders/formats.jl")
 include("shaders/source.jl")
