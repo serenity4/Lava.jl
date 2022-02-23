@@ -14,6 +14,7 @@ Vk.handle(x::LavaAbstraction) = handle(x)
 
 Base.finalize(x::LavaAbstraction) = finalize(handle(x))
 
+Vk.instance(x::LavaAbstraction) = Vk.instance(handle(x))
 Vk.device(x::LavaAbstraction) = Vk.device(handle(x))
 device(x::LavaAbstraction) = Vk.device(handle(x))
 device(x::Vk.Device) = x

@@ -42,9 +42,7 @@ function init(;
   if with_validation && "VK_LAYER_KHRONOS_validation" ∉ instance_layers
     push!(instance_layers, "VK_LAYER_KHRONOS_validation")
   end
-  if debug && "VK_EXT_debug_utils" ∉ instance_extensions
-    push!(instance_extensions, "VK_EXT_debug_utils")
-  end
+  debug && union!(instance_extensions, ["VK_EXT_debug_utils"])
 
   available_layers = unwrap(Vk.enumerate_instance_layer_properties())
   unsupported_layers = filter(!in(getproperty.(available_layers, :layer_name)), instance_layers)

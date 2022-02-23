@@ -163,7 +163,7 @@ function Base.collect(memory::MemoryBlock, size::Integer = size(memory))
   map(memory) do mapped
     ptr = Libc.malloc(size)
     @ccall memmove(ptr::Ptr{Cvoid}, mapped::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
-    Base.unsafe_wrap(Array, Base.unsafe_convert(Ptr{UInt8}, ptr), (size,); own = true)
+    Base.unsafe_wrap(Array, Ptr{UInt8}(ptr), (size,); own = true)
   end
 end
 
