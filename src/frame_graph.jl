@@ -67,14 +67,6 @@ struct ResourceUsage
   access::MemoryAccess
 end
 
-struct SynchronizationRequirements
-  stages::Vk.PipelineStageFlag
-  access::Vk.AccessFlag
-  wait_semaphores::Vector{Vk.Semaphore}
-end
-
-SynchronizationRequirements(stages, access) = SynchronizationRequirements(stages, access, [])
-
 """
 Frame graph implementation.
 
@@ -372,9 +364,7 @@ function render(fg::FrameGraph; semaphore = nothing, command_buffer = nothing, s
   create_pipelines!(device)
 
   # fill command buffer with synchronization commands & recorded commands
-  if isnothing(command_buffer)
-    command_buffer = request_command_buffer(device, Vk.QUEUE_GRAPHICS_BIT)
-  end
+  command_buffer = @something(command_buffer, request_command_buffer(device, Vk.QUEUE_GRAPHICS_BIT))
   first_pipeline = device.pipeline_ht[first(values(pipeline_hashes))]
   initialize(command_buffer, device, fg.frame.gd, first_pipeline)
   flush(command_buffer, fg, passes, records, pipeline_hashes)
@@ -415,10 +405,12 @@ function Base.flush(cb::CommandBuffer, fg::FrameGraph, passes, records, pipeline
     synchronize_before(cb, fg, pass)
     begin_render_pass(cb, fg, pass)
     binding_state = flush(cb, record, device(fg), binding_state, pipeline_hashes)
-    Vk.cmd_end_render_pass_2(cb, Vk.SubpassEndInfo())
+    end_render_pass(cb)
     synchronize_after(cb, fg, pass)
   end
 end
+
+end_render_pass(cb) = Vk.cmd_end_render_pass_2(cb, Vk.SubpassEndInfo())
 
 function sort_passes(fg::FrameGraph)
   indices = topological_sort_by_dfs(execution_graph(fg))
@@ -460,7 +452,13 @@ function synchronize_before(cb, fg::FrameGraph, pass::Integer)
         @switch class begin
           @case &RESOURCE_CLASS_BUFFER
           buff = buffer(g, resource)
-          barrier = Vk.BufferMemoryBarrier2KHR(p_stages, req_stages, r_access, req_access_bits, 0, 0, buff, offset(buff), size(buff))
+          barrier = Vk.BufferMemoryBarrier2KHR(
+            0, 0, handle(buff), offset(buff), size(buff);
+            src_stage_mask = p_stages,
+            src_access_mask = r_access,
+            dst_stage_mask = req_stages,
+            dst_access_mask = req_access_bits,
+          )
           push!(deps.buffer_memory_barriers, barrier)
           @case &RESOURCE_CLASS_IMAGE || &RESOURCE_CLASS_ATTACHMENT
           view = if class == RESOURCE_CLASS_IMAGE
@@ -471,17 +469,11 @@ function synchronize_before(cb, fg::FrameGraph, pass::Integer)
           new_layout = image_layout(g, pass, resource)
           range = subresource_range(view)
           barrier = Vk.ImageMemoryBarrier2KHR(
-            C_NULL,
-            p_stages,
-            req_stages,
-            r_access,
-            req_access_bits,
-            current_layout(g, resource),
-            new_layout,
-            0,
-            0,
-            view.image,
-            range,
+            current_layout(g, resource), new_layout, 0, 0, handle(view.image), range;
+            src_stage_mask = p_stages,
+            src_access_mask = r_access,
+            dst_stage_mask = req_stages,
+            dst_access_mask = req_access_bits,
           )
           push!(deps.image_memory_barriers, barrier)
           set_prop!(g, resource, :current_layout, new_layout)
@@ -497,19 +489,7 @@ function synchronize_before(cb, fg::FrameGraph, pass::Integer)
         attachment(g, resource).view
       end
       new_layout = image_layout(g, pass, resource)
-      barrier = Vk.ImageMemoryBarrier2KHR(
-        C_NULL,
-        Vk.PipelineStageFlag(0),
-        Vk.PipelineStageFlag(0),
-        Vk.AccessFlag(0),
-        Vk.AccessFlag(0),
-        current_layout(g, resource),
-        new_layout,
-        0,
-        0,
-        view.image,
-        subresource_range(view),
-      )
+      barrier = Vk.ImageMemoryBarrier2KHR(current_layout(g, resource), new_layout, 0, 0, handle(view.image), subresource_range(view))
       push!(deps.image_memory_barriers, barrier)
       set_prop!(g, resource, :current_layout, new_layout)
       view.image.layout[] = new_layout
@@ -550,7 +530,7 @@ function prepare_render_pass(fg::FrameGraph, pass::Integer)
     # subpass (local) attachment info
     # only one subpass per pass is currently supported
     # we could later look up an internal subpass graph to support more
-    for subpass = 1:1
+    for subpass in 1:1
       stage_flags = stages(g, pass)
       pipeline_bind_point = Vk.PIPELINE_STAGE_COMPUTE_SHADER_BIT in stage_flags ? Vk.PIPELINE_BIND_POINT_COMPUTE : Vk.PIPELINE_BIND_POINT_GRAPHICS
       color_attachments = Vk.AttachmentReference2[]

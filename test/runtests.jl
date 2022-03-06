@@ -89,12 +89,15 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
     @test buffer(device, collect(1:1000)) isa Buffer
 
     @testset "Allocators" begin
-      la = Lava.LinearAllocator(device, 1000)
+      la = LinearAllocator(device, 1000)
+      @test size(la) == available_size(la) == 1000
       @test device_address(la) ≠ C_NULL
 
       sub = copyto!(la, [1, 2, 3])
       @test offset(sub) == 0
       @test size(sub) == 24
+      @test available_size(la) == size(la) - size(sub) == 976
+      @test available_size(la, 16) == 968
       sub = copyto!(la, (4.0f0, 5.0f0, 6.0f0))
       @test offset(sub) == 24
       @test size(sub) == 12

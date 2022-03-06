@@ -134,16 +134,22 @@ function Base.copyto!(buffer::BufferBlock, data; device = nothing)
 end
 
 function ptrcopy!(ptr, data::DenseArray{T}) where {T}
+  check_isbits(T)
   GC.@preserve data unsafe_copyto!(Ptr{T}(ptr), pointer(data), length(data))
 end
 
 function ptrcopy!(ptr, data::T) where {T}
+  check_isbits(T)
   ref = Ref{T}(data)
   GC.@preserve ref unsafe_copyto!(Ptr{T}(ptr), Base.unsafe_convert(Ptr{T}, ref), 1)
 end
 
 function ptrcopy!(ptr, data::String)
   GC.@preserve data unsafe_copyto!(Ptr{UInt8}(ptr), Base.unsafe_convert(Ptr{UInt8}, data), sizeof(data))
+end
+
+function check_isbits(@nospecialize(T))
+  isbitstype(T) || error("Expected isbits type for a pointer copy operation, got data of type $T")
 end
 
 function transfer(

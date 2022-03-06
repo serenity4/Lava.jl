@@ -91,6 +91,9 @@ export
   MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
   offset, ismapped,
 
+  # allocators
+  LinearAllocator, available_size,
+
   # buffers
   Buffer, DenseBuffer, BufferBlock, SubBuffer,
   device_address, allocate!, isallocated, bind!,
