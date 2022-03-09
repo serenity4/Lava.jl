@@ -1,5 +1,6 @@
 struct Device <: LavaAbstraction
   handle::Vk.Device
+  api_version::VersionNumber
   extensions::Vector{String}
   features::Vk.PhysicalDeviceFeatures2
   queues::QueueDispatch
@@ -15,7 +16,9 @@ end
 
 vk_handle_type(::Type{Device}) = Vk.Device
 
-function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config, features::Vk.PhysicalDeviceFeatures2; surface = nothing, next = C_NULL)
+function Device(physical_device::Vk.PhysicalDevice, application_version::VersionNumber, extensions, queue_config,
+  features::Vk.PhysicalDeviceFeatures2; surface = nothing, next = C_NULL)
+
   infos = queue_infos(QueueDispatch, physical_device, queue_config)
   info = Vk.DeviceCreateInfo(
     infos,
@@ -24,10 +27,14 @@ function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config, fe
     next,
   )
 
+  supported_device_version = Vk.get_physical_device_properties_2(physical_device).properties.api_version
+  api_version = min(application_version, supported_device_version)
+
   handle = unwrap(create(Device, physical_device, info))
   queues = QueueDispatch(handle, infos; surface)
   Device(
     handle,
+    api_version,
     extensions,
     features,
     queues,
@@ -38,7 +45,7 @@ function Device(physical_device::Vk.PhysicalDevice, extensions, queue_config, fe
     ShaderCache(handle),
     [],
     CommandPools(handle),
-    spirv_features(physical_device, extensions, features),
+    spirv_features(physical_device, api_version, extensions, features),
   )
 end
 

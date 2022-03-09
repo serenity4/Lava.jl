@@ -26,7 +26,8 @@ const REQUIRED_DEVICE_EXTENSIONS = [
 function init(;
   instance_layers = String[],
   instance_extensions = String[],
-  application_info = Vk.ApplicationInfo(v"1", v"1", v"1.2"),
+  requested_version = v"1.2",
+  application_info = Vk.ApplicationInfo(v"1", v"1", requested_version),
   device_extensions = String[],
   device_specific_features::AbstractVector{Symbol} = Symbol[],
   device_vulkan_features::AbstractVector{Symbol} = Symbol[],
@@ -88,7 +89,7 @@ function init(;
     error("Requesting unsupported device extensions: $unsupported_extensions")
   end
 
-  device = Device(physical_device, device_extensions, queue_config, enabled_features; next = enabled_features)
+  device = Device(physical_device, application_info.api_version, device_extensions, queue_config, enabled_features; next = enabled_features)
 
   instance, device
 end
