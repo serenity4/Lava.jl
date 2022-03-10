@@ -232,7 +232,6 @@ function submit_pipeline!(
     shader_stages,
     rasterizer,
     layout.handle,
-    rp,
     0,
     0;
     vertex_input_state,
@@ -240,6 +239,7 @@ function submit_pipeline!(
     color_blend_state,
     input_assembly_state,
     viewport_state,
+    render_pass = rp,
   )
   push!(device.pending_pipelines, info)
   hash(info)

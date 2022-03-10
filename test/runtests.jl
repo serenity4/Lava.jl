@@ -22,28 +22,6 @@ render_file(filename; tmp = false) = joinpath(@__DIR__, "examples", "renders", t
 
 instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy])
 
-b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-b2 = BufferBlock(device, 8000; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-allocate!(b2, MEMORY_DOMAIN_DEVICE)
-src = b1;
-dst = b2;
-command_buffer = Lava.request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT);
-signal_fence = true;
-semaphore = nothing;
-free_src = false;
-@assert size(src) == size(dst)
-
-Vk.cmd_copy_buffer(command_buffer, src, dst, [Vk.BufferCopy(offset(src), offset(dst), size(src))])
-
-signal_semaphores = []
-!isnothing(semaphore) && push!(signal_semaphores, semaphore)
-info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(command_buffer)], signal_semaphores)
-if free_src
-  Lava.submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, free_after_completion = [Ref(src)])
-else
-  Lava.submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, release_after_completion = [Ref(src)])
-end
-
 @testset "Lava.jl" begin
   @testset "Initialization" begin
     @testset "SPIR-V capability/extension detection" begin
