@@ -142,6 +142,8 @@ View of a resource, such as an image or buffer.
 """
 abstract type View{O<:LavaAbstraction} <: LavaAbstraction end
 
+aspect(view) = view.aspect
+
 struct ImageView{I<:Image} <: View{I}
   handle::Vk.ImageView
   image::I

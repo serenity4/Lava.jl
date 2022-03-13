@@ -13,20 +13,20 @@ struct RenderArea
   rect::Vk.Rect2D
 end
 
-RenderArea(x, y) = RenderArea(Vk.Offset2D(0, 0), Vk.Extent2D(x, y))
-RenderArea(x, y, offset_x, offset_y) = RenderArea(Vk.Offset2D(offset_x, offset_y), Vk.Extent2D(x, y))
+RenderArea(x, y) = RenderArea(Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(x, y)))
+RenderArea(x, y, offset_x, offset_y) = RenderArea(Vk.Rect2D(Vk.Offset2D(offset_x, offset_y), Vk.Extent2D(x, y)))
 
 const NodeUUID = UUID
 
 struct RenderNode
   uuid::NodeUUID
   render
-  stages::Vk.PipelineStageFlag
+  stages::Vk.PipelineStageFlag2
   render_area::Optional{Vk.Rect2D}
 end
 
-function RenderNode(render; stages::Vk.PipelineStageFlag2 = PIPELINE_STAGE_2_ALL_COMMANDS_BIT, render_area::Optional{RenderArea} = nothing)
-  RenderNode(uuid(), render, stages, render_area.rect)
+function RenderNode(render; stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT, render_area::Optional{RenderArea} = nothing)
+  RenderNode(uuid(), render, stages, isnothing(render_area) ? nothing : render_area.rect)
 end
 
 struct ResourceDependencies
@@ -106,7 +106,8 @@ struct RenderGraph
 end
 
 function RenderGraph(device::Device)
-  RenderGraph(device, MetaGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary())
+  RenderGraph(device, MetaGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(),
+    ResourceDependencies(), LogicalResources(), PhysicalResources(), [], [])
 end
 
 device(rg::RenderGraph) = rg.device
@@ -128,8 +129,9 @@ function add_node!(rg::RenderGraph, node::RenderNode)
   uuid
 end
 
-new_resource!(rg::RenderGraph, args...) = add_resource!(rg, new!(rg.logical_resources, args...))
-new!(rg::RenderGraph, args...) = new_resource!(rg, args...)
+new!(rg::RenderGraph, args...) = add_resource!(rg, new!(rg.logical_resources, args...))
+
+@forward RenderGraph.logical_resources (buffer, image, attachment)
 
 function add_resource(rg::RenderGraph, data::Union{Buffer,Image,Attachment})
   resource = new!(rg.physical_resources, data)
@@ -139,7 +141,7 @@ end
 
 function add_resource(rg::RenderGraph, data::PhysicalResource)
   (; uuid) = data
-  haskey(rg.physical_resources, uuid) && return uuid
+  in(data, rg.physical_resources) && return uuid
   insert!(rg.physical_resources, uuid, data)
   add_resource(rg, uuid)
   uuid
@@ -147,7 +149,7 @@ end
 
 function add_resource(rg::RenderGraph, data::LogicalResource)
   (; uuid) = data
-  haskey(rg.logical_resources, uuid) && return uuid
+  in(data, rg.logical_resources) && return uuid
   insert!(rg.logical_resources, uuid, data)
   push!(rg.temporary, uuid)
   add_resource(rg, uuid)
@@ -177,14 +179,15 @@ end
 function add_resource_dependency(rg::RenderGraph, node::RenderNode, dependency::ResourceDependency)
   node_uuid = node.uuid
   haskey(rg.nodes, node_uuid) || add_node!(rg, node)
-  v = rg.node_indices[node]
+  v = rg.node_indices[node_uuid]
   g = rg.resource_graph
   resource_uuid = dependency.uuid
-  haskey(rg.resource_indices, resource_uuid) || add_resource!(rg, resource_uuid)
+  haskey(rg.resource_indices, resource_uuid) || add_resource(rg, resource_uuid)
   i = rg.resource_indices[resource_uuid]
   add_edge!(g, i, v)
-  prev_dependency = get(rg.resource_dependencies[node_uuid], resource_uuid, ResourceDependency(resource_uuid, ResourceType(0), MemoryAccess(0)))
-  set!(rg.resource_dependencies[node_uuid], resource_uuid, dependency | prev_dependency)
+  node_deps = get!(Dictionary, rg.resource_dependencies.node, node_uuid)
+  prev_dependency = get(node_deps, resource_uuid, ResourceDependency(resource_uuid, ResourceType(0), MemoryAccess(0)))
+  set!(node_deps, resource_uuid, merge(dependency, prev_dependency))
   nothing
 end
 
@@ -248,7 +251,7 @@ function add_resource_dependencies(rg, ex::Expr, resource_scope = nothing, node_
   end
 
   declarations_map = Dictionary{Any,Symbol}()
-  resource_declarations = Expr(:block)
+  resource_declarations = Expr[]
   for expr in resource_exs
     uuid_var = gensym(:resource)
     push!(resource_declarations, :($uuid_var = add_resource($rg, $(esc(expr)))))
@@ -581,15 +584,22 @@ end
 function ResourceUses(rg::RenderGraph)
   uses = ResourceUses()
   for (resource_uuid, i) in pairs(rg.resource_indices)
-    resource = rg.logical_resources[resource_uuid]
-    usage = nothing
+    resource = resource_uuid in rg.logical_resources ? rg.logical_resources[resource_uuid] : nothing
+    isnothing(resource) && (resource = rg.physical_resources[resource_uuid])
+    usage = if resource isa BufferResource_T
+      BufferUsage()
+    elseif resource isa ImageResource_T
+      ImageUsage()
+    elseif resource isa AttachmentResource_T
+      AttachmentUsage()
+    else
+      error("Unknown logical resource $resource")
+    end
     for j in neighbors(rg.resource_graph, i)
       node_uuid = rg.node_indices_inv[j]
       node = rg.nodes[node_uuid]
-      node_usage = rg.uses[node_uuid][resource]
-      if isnothing(usage)
-        usage = node_usage
-      elseif usage isa BufferUsage
+      node_usage = rg.resource_dependencies[node_uuid][resource_uuid]
+      if usage isa BufferUsage
         usage = setproperties(
           usage,
           (;
@@ -616,49 +626,66 @@ function ResourceUses(rg::RenderGraph)
             access = usage.access | node_usage.access,
             stages = usage.stages | node.stages,
             aspect = usage.aspect | aspect_bits(node_usage.type),
-            samples = usage.samples | Vk.SampleCountFlag(node_usage.samples),
+            # samples = usage.samples | Vk.SampleCountFlag(node_usage.samples),
           ),
         )
       end
     end
     usage isa ImageUsage && (usage = (@set usage.usage = image_usage_bits(usage.type, usage.access)))
     usage isa BufferUsage && (usage = (@set usage.usage = buffer_usage_bits(usage.type, usage.access)))
-    insert!(uses, resource_uuid, usage::Union{BufferUsage,ImageUsage,AttachmentUsage})
+    insert!(uses, resource_uuid, usage)
+    resource = nothing
   end
   uses
 end
 
-function materialize_physical_resources!(rg::RenderGraph)
-  (; logical_resources, physical_resources) = rg
+function materialize_logical_resources(rg::RenderGraph)
+  res = PhysicalResources()
   uses = ResourceUses(rg)
   check_physical_resources(rg, uses)
-  for info in logical_resources.buffers
-    usage = uses.buffers[info.uuid]
-    insert!(physical_resources.buffers, uuid, buffer(rg.device; info.size, usage.usage))
+  for info in rg.logical_resources.buffers
+    usage = uses[info]
+    insert!(res, info.uuid, buffer(rg.device; info.size, usage.usage))
   end
-  for info in logical_resources.images
-    usage = uses.images[info.uuid]
-    insert!(physical_resources.images, uuid, image(rg.device; info.dims, usage.usage))
+  for info in rg.logical_resources.images
+    usage = uses[info]
+    dims = (info.dims[1], info.dims[2])
+    insert!(res, info.uuid, image(rg.device; info.format, dims, usage.usage))
   end
-  for info in logical_resources.attachments
-    usage = uses.attachments[info.uuid]
-    insert!(physical_resources.attachments, uuid, attachment(rg.device; info.format, usage.samples, usage.aspect, usage.access))
+  for info in rg.logical_resources.attachments
+    usage = uses[info]
+    dims = isnothing(info.dims) ? nothing : (info.dims[1], info.dims[2])
+    if isnothing(info.dims)
+      # Try to inherit image dimensions from a render area in which the node is used.
+      for node in rg.nodes
+        !isnothing(node.render_area) || continue
+        if info.uuid in keys(rg.resource_dependencies[node.uuid])
+          ext = node.render_area.extent
+          dims = (ext.width, ext.height)
+          break
+        end
+      end
+      isnothing(dims) && error(
+        "Could not determine the dimensions of the attachment $(info.uuid). You must either provide them or use the attachment with a node that has a render area.",
+      )
+    end
+    insert!(res, info.uuid, attachment(rg.device; info.format, dims, usage.samples, usage.aspect, usage.access))
   end
-  empty!(rg.logical_resources)
+  res
 end
 
 function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
   (; physical_resources) = rg
   for buffer in physical_resources.buffers
-    usage = uses.buffers[buffer.uuid]
+    usage = uses[buffer]
     usage.usage in buffer.usage || error("An existing buffer with usage $(buffer.usage) was provided, but a usage of $(usage.usage) is required.")
   end
   for image in physical_resources.images
-    usage = uses.images[image.uuid]
+    usage = uses[image]
     usage.usage in image.usage || error("An existing image with usage $(image.usage) was provided, but a usage of $(usage.usage) is required.")
   end
   for attachment in physical_resources.attachments
-    usage = uses.attachments[attachment.uuid]
+    usage = uses[attachment]
     usage.usage in attachment.usage ||
       error("An existing attachment with usage $(attachment.usage) was provided, but a usage of $(usage.usage) is required.")
     usage.samples in attachment.samples ||

@@ -4,41 +4,38 @@ struct LogicalBuffer <: LogicalResource
   uuid::ResourceUUID
   size::Int
 end
-
-LogicalBuffer(buffer::Buffer, uuid = uuid()) = LogicalBuffer(uuid, size(buffer))
-LogicalResource(buffer::Buffer, uuid = uuid()) = LogicalBuffer(buffer, uuid)
+LogicalBuffer(uuid::ResourceUUID, buffer::Buffer) = LogicalBuffer(uuid, size(buffer))
 
 struct LogicalImage <: LogicalResource
   uuid::ResourceUUID
   format::Vk.Format
   dims::Vector{Int}
 end
-LogicalImage(image::Image, uuid = uuid()) = LogicalImage(uuid, format(image), dims(image))
-LogicalResource(image::Image, uuid = uuid()) = LogicalImage(image, uuid)
+LogicalImage(uuid::ResourceUUID, format::Vk.Format, dims::Tuple) = LogicalImage(uuid, format, collect(dims))
+LogicalImage(uuid::ResourceUUID, image::Image) = LogicalImage(uuid, format(image), dims(image))
 
 struct LogicalAttachment <: LogicalResource
   uuid::ResourceUUID
+  format::Vk.Format
   # If `nothing`, will inherit dimensions from the rendered area.
   dims::Optional{Vector{Int}}
-  format::Vk.Format
   samples::Int
   resolve_mode::Vk.ResolveModeFlag
 end
+LogicalAttachment(uuid, format, dims::Tuple, samples, resolve_mode) = LogicalAttachment(uuid, format, collect(dims), samples, resolve_mode)
 
 function LogicalAttachment(
-  uuid,
+  uuid::ResourceUUID,
   format,
   dims = nothing;
-  aspect = Vk.ImageAspectFlag(0),
   samples = 1,
   resolve_mode = Vk.RESOLVE_MODE_AVERAGE_BIT,
 )
   ispow2(samples) || error("The number of samples must be a power of two.")
-  LogicalAttachment(uuid, format, dims, usage, aspect, size_unit, samples, resolve_mode)
+  LogicalAttachment(uuid, format, dims, samples, resolve_mode)
 end
-LogicalAttachment(attachment::Attachment, uuid = uuid()) =
-  LogicalAttachment(uuid, format(attachment), dims(attachment), aspect(attachment), samples(attachment), Vk.RESOLVE_MODE_AVERAGE_BIT)
-LogicalResource(attachment::Attachment, uuid = uuid()) = LogicalAttachment(attachment, uuid)
+LogicalAttachment(uuid::ResourceUUID, attachment::Attachment) =
+  LogicalAttachment(uuid, format(attachment), dims(attachment), samples(attachment), Vk.RESOLVE_MODE_AVERAGE_BIT)
 
 struct LogicalResources
   buffers::Dictionary{ResourceUUID,LogicalBuffer}
@@ -47,16 +44,3 @@ struct LogicalResources
 end
 
 LogicalResources() = LogicalResources(Dictionary(), Dictionary(), Dictionary())
-
-new!(lres::LogicalResources, data) = insert!(lres, uuid(), data)
-
-Base.insert!(lres::LogicalResources, uuid::ResourceUUID, data::Union{Buffer,Image,Attachment}) = insert!(lres, uuid, LogicalResource(data, uuid))
-Base.insert!(lres::LogicalResources, uuid::ResourceUUID, buffer::LogicalBuffer) = insert!(lres.buffers, uuid, buffer)
-Base.insert!(lres::LogicalResources, uuid::ResourceUUID, image::LogicalImage) = insert!(lres.images, uuid, image)
-Base.insert!(lres::LogicalResources, uuid::ResourceUUID, attachment::LogicalAttachment) = insert!(lres.attachments, uuid, attachment)
-
-new!(lres, args...) = new!(lres, LogicalResource(args...))
-
-buffer_resource(lres, args...) = new!(lres, LogicalBuffer(args...))
-image_resource(lres, args...) = new!(lres, LogicalImage(args...))
-attachment_resource(lres, args...) = new!(lres, LogicalAttachment(args...))

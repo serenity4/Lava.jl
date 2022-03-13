@@ -9,7 +9,7 @@ struct Attachment{IV<:ImageView}
   usage::MemoryAccess
 end
 
-@forward Attachment.view dims, format, samples, image_layout, image
+@forward Attachment.view dims, format, samples, image_layout, image, aspect
 
 function load_op(usage::MemoryAccess, clear::Bool)
   clear && return Vk.ATTACHMENT_LOAD_OP_CLEAR

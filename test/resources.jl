@@ -1,38 +1,34 @@
-using Base: UUID
-
 @testset "Resources" begin
-  resources = Resources()
-  b = UUID(new!(resources, LogicalBuffer(1024)))
-  @test isnothing(Lava.resource_data(resources, b))
-  @test haskey(resources, b)
-  delete!(resources, b)
-  @test !haskey(resources, b)
-  @test_throws IndexError Lava.resource_data(resources, b)
+  @testset "Logical resources" begin
+    resources = Lava.LogicalResources()
+    b = buffer(resources, 1024)
+    @test b isa LogicalBuffer
+    @test resources[b.uuid] === b
 
-  data = buffer(device, 1024)
-  b2 = UUID(new!(resources, data))
-  @test b ≠ b2
-  @test Lava.resource_data(resources, b2) === data
-  @test haskey(resources, b2)
-  delete!(resources, b2)
-  @test !haskey(resources, b2)
+    im = image(resources, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+    @test im isa LogicalImage
+    @test resources[im.uuid] === im
 
-  img = UUID(new!(resources, LogicalImage(Vk.FORMAT_R32G32B32A32_SFLOAT)))
-  @test isnothing(Lava.resource_data(resources, img))
-  delete!(resources, img)
+    att = attachment(resources, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+    @test att isa LogicalAttachment
+    @test resources[att.uuid] === att
+  end
 
-  data = image(device, rand(RGBA{Float32}, 64, 64), Vk.FORMAT_R32G32B32A32_SFLOAT)
-  img2 = UUID(new!(resources, data))
-  @test img ≠ img2
-  @test Lava.resource_data(resources, img2) === data
-  delete!(resources, img2, false)
+  @testset "Physical resources" begin
+    resources = Lava.PhysicalResources()
+    b = buffer(device; size = 1024)
+    r = buffer(resources, b)
+    @test r isa PhysicalBuffer
+    @test resources[r.uuid] === r
 
-  img3 = UUID(new!(device, data))
-  @test haskey(device.resources, img3)
-  delete!(device, img3)
-  @test !haskey(device.resources, img3)
+    im = image(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (16, 16))
+    r = image(resources, im)
+    @test r isa PhysicalImage
+    @test resources[r.uuid] === r
 
-  @test haskey(resources, UUID(buffer_resource!(resources, 1024)))
-  @test haskey(resources, UUID(image_resource!(resources, Vk.FORMAT_R32G32B32A32_SFLOAT)))
-  @test haskey(resources, UUID(attachment_resource!(resources, Vk.FORMAT_R32G32B32A32_SFLOAT)))
+    att = attachment(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (16, 16))
+    r = attachment(resources, att)
+    @test r isa PhysicalAttachment
+    @test resources[r.uuid] === r
+  end
 end

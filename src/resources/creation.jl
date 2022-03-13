@@ -190,16 +190,17 @@ function attachment(
   data = nothing;
   format = Vk.FORMAT_UNDEFINED,
   usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
+  dims = nothing,
   access::MemoryAccess = READ | WRITE,
   samples = Vk.SAMPLE_COUNT_1_BIT,
   aspect = DEFAULT_ASPECT,
 )
 
   if isnothing(data)
-    img = image(device, data; format, usage, samples)
+    img = image(device, data; format, usage, samples, dims)
     Attachment(View(img; aspect), access)
   else
-    img, state = image(device, data; format, usage, samples)
+    img, state = image(device, data; format, usage, samples, dims)
     attachment = Attachment(View(img; aspect), access)
     attachment, state
   end

@@ -1,5 +1,5 @@
 /Manifest.toml
 /.vscode
 /JuliaSysimage.so
-/benchmark
 tmp
+/LocalPreferences.toml

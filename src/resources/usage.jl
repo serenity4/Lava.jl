@@ -1,30 +1,30 @@
 abstract type ResourceUsage end
 
-struct BufferUsage <: ResourceUsage
-  type::ResourceType
-  access::MemoryAccess
-  stages::Vk.PipelineStageFlag2
-  usage::Vk.BufferUsageFlag
+Base.@kwdef struct BufferUsage <: ResourceUsage
+  type::ResourceType = ResourceType(0)
+  access::MemoryAccess = MemoryAccess(0)
+  stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
+  usage::Vk.BufferUsageFlag = Vk.BufferUsageFlag(0)
 end
 
-struct ImageUsage <: ResourceUsage
-  type::ResourceType
-  access::MemoryAccess
-  stages::Vk.PipelineStageFlag2
-  usage::Vk.ImageUsageFlag
-  layout::Vk.ImageLayout
+Base.@kwdef struct ImageUsage <: ResourceUsage
+  type::ResourceType = ResourceType(0)
+  access::MemoryAccess = MemoryAccess(0)
+  stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
+  usage::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
+  layout::Vk.ImageLayout = Vk.IMAGE_LAYOUT_UNDEFINED
 end
 
-struct AttachmentUsage <: ResourceUsage
-  type::ResourceType
-  access::MemoryAccess
-  stages::Vk.PipelineStageFlag2
-  usage::Vk.ImageUsageFlag
-  aspect::Vk.ImageAspectFlag
-  samples::Vk.SampleCountFlag
-  layout::Vk.ImageLayout
-  resolve_layout::Optional{Vk.ImageLayout}
-  clear_value::Optional{Vk.ClearValue}
+Base.@kwdef struct AttachmentUsage <: ResourceUsage
+  type::ResourceType = ResourceType(0)
+  access::MemoryAccess = MemoryAccess(0)
+  stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
+  usage::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
+  aspect::Vk.ImageAspectFlag = Vk.ImageAspectFlag(0)
+  samples::Vk.SampleCountFlag = Vk.SampleCountFlag(0)
+  layout::Vk.ImageLayout = Vk.IMAGE_LAYOUT_UNDEFINED
+  resolve_layout::Optional{Vk.ImageLayout} = nothing
+  clear_value::Optional{Vk.ClearValue} = nothing
 end
 
 const DEFAULT_CLEAR_VALUE = Vk.ClearValue(Vk.ClearColorValue((0.0f0, 0.0f0, 0.0f0, 0.0f0)))
@@ -50,7 +50,3 @@ struct ResourceUses
 end
 
 ResourceUses() = ResourceUses(Dictionary(), Dictionary(), Dictionary())
-
-Base.insert!(uses::ResourceUses, uuid::ResourceUUID, usage::BufferUsage) = insert!(uses.buffers, uuid, usage)
-Base.insert!(uses::ResourceUses, uuid::ResourceUUID, image::ImageUsage) = insert!(uses.buffers, uuid, image)
-Base.insert!(uses::ResourceUses, uuid::ResourceUUID, attachment::AttachmentUsage) = insert!(uses.buffers, uuid, attachment)

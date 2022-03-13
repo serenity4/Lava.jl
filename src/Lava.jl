@@ -102,10 +102,10 @@ export
   # buffers
   Buffer, DenseBuffer, BufferBlock, SubBuffer,
   device_address, allocate!, isallocated, bind!,
-  buffer, transfer,
+  transfer,
 
   # images
-  Image, ImageBlock, View, ImageView, image,
+  Image, ImageBlock, View, ImageView,
 
   # textures
   Texture, DEFAULT_SAMPLING,
@@ -125,17 +125,13 @@ export
   Shader,
 
   # resources
-  Resources, Resource,
-  ResourceClass, RESOURCE_CLASS_BUFFER, RESOURCE_CLASS_IMAGE, RESOURCE_CLASS_ATTACHMENT,
-  new!, delete!,
+  new!,
+  buffer, image, attachment,
   LogicalBuffer, LogicalImage, LogicalAttachment,
-  buffer_resource!, image_resource!, attachment_resource!,
+  PhysicalBuffer, PhysicalImage, PhysicalAttachment,
 
   # descriptors
   ResourceDescriptors, ResourceMetaConfig,
-
-  # render pass
-  RenderPass,
 
   # render state
   RenderState,
@@ -163,8 +159,8 @@ export
   RESOURCE_TYPE_UNIFORM,
   RESOURCE_TYPE_SAMPLER,
   RenderGraph, render,
-  RenderNode, add_node!, new_node!,
-  ResourceDependency, add_resource_dependencies!, resource_dependencies, @resource_dependencies, clear_attachments,
+  RenderArea, RenderNode,
+  ResourceDependency, add_resource_dependency, add_resource_dependencies, @add_resource_dependencies, clear_attachments,
 
   # SPIR-V reexports
   ShaderInterface
