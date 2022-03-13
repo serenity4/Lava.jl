@@ -5,6 +5,8 @@ drawing commands to render correctly.
 struct BindRequirements
   pipeline::Pipeline
   push_data::Any
+  "Global bind-once descriptor set. May require rebinding when pipeline layouts or pipeline types change."
+  unique_dset::DescriptorSet
 end
 
 """
@@ -22,7 +24,11 @@ function Base.bind(cbuffer::CommandBuffer, reqs::BindRequirements, state::BindSt
   current_push_data = state.push_data
 
   if pipeline ≠ state.pipeline
-    Vk.cmd_bind_pipeline(cbuffer, Vk.PipelineBindPoint(pipeline.type), pipeline)
+    bind_point = Vk.PipelineBindPoint(pipeline.type)
+    Vk.cmd_bind_pipeline(cbuffer, bind_point, pipeline)
+    if isnothing(state.pipeline) || state.pipeline.layout ≠ pipeline.layout || state.pipeline.type ≠ pipeline.type
+      Vk.cmd_bind_descriptor_sets(cbuffer, bind_point, pipeline.layout, 0, [reqs.unique_dset], [])
+    end
     if isnothing(state.pipeline) || pipeline.layout.push_constant_ranges ≠ state.pipeline.layout.push_constant_ranges
       # push data gets invalidated
       current_push_data = nothing

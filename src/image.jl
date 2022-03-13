@@ -41,6 +41,7 @@ image(image::ImageBlock) = image
 memory(image::ImageBlock) = image.memory[]
 isallocated(image::ImageBlock) = isdefined(image.memory, 1)
 samples(image::ImageBlock) = image.samples
+is_multisampled(x) = samples(x) ≠ Vk.SAMPLE_COUNT_1_BIT
 usage(image::ImageBlock) = image.usage
 
 function Vk.Extent3D(image::Image)
@@ -227,116 +228,4 @@ Opaque image that comes from the Window System Integration (WSI) as returned by 
 """
 struct ImageWSI <: Image{2,OpaqueMemory}
   handle::Vk.Image
-end
-
-function transfer(
-  src::Union{<:Image,<:ImageView},
-  dst::Union{<:Image,<:ImageView},
-  device;
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT),
-  signal_fence = true,
-  semaphore = nothing,
-  free_src = false,
-)
-
-  @assert dims(src) == dims(dst)
-
-  if image_layout(src) ≠ Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
-    transition_layout(command_buffer, device, src, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-  end
-  if image_layout(dst) ≠ Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-    transition_layout(command_buffer, device, dst, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-  end
-
-  Vk.cmd_copy_image(command_buffer,
-    image(src), image_layout(src),
-    image(dst), image_layout(dst),
-    [Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src), subresource_layers(dst), Vk.Offset3D(dst), Vk.Extent3D(src))],
-  )
-  signal_semaphores = []
-  !isnothing(semaphore) && push!(signal_semaphores, semaphore)
-  info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(command_buffer)], signal_semaphores)
-  if free_src
-    submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, free_after_completion = [Ref(src)])
-  else
-    submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, release_after_completion = [Ref(src)])
-  end
-end
-
-
-function transition_layout_info(view_or_image::Union{<:Image,<:ImageView}, new_layout)
-  Vk.ImageMemoryBarrier2KHR(image_layout(view_or_image), new_layout, 0, 0, handle(image(view_or_image)), subresource_range(view_or_image))
-end
-
-function transition_layout(command_buffer::CommandBuffer, device, view_or_image::Union{<:Image,<:ImageView}, new_layout)
-  Vk.cmd_pipeline_barrier_2_khr(command_buffer,
-    Vk.DependencyInfoKHR([], [], [transition_layout_info(view_or_image, new_layout)]),
-  )
-  image(view_or_image).layout[] = new_layout
-end
-
-function Base.collect(@nospecialize(T), image::ImageBlock, device)
-  if image.is_linear && Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory(image))
-    isbitstype(T) || error("Image type is not an `isbits` type.")
-    bytes = collect(memory(image), prod(dims(image)) * sizeof(T), device)
-    data = reinterpret(T, bytes)
-    reshape(data, dims(image))
-  else
-    usage = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-    dst = ImageBlock(device, dims(image), format(image), usage; is_linear = true)
-    allocate!(dst, MEMORY_DOMAIN_HOST)
-    wait(transfer(image, dst, device))
-    collect(T, dst, device)
-  end
-end
-
-function transfer(data::AbstractArray, image::Image, device; kwargs...)
-  b = buffer(device, data; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-  transfer(b, image, device; kwargs...)
-end
-
-function transfer(
-  buffer::Buffer,
-  view_or_image::Union{<:Image,<:ImageView},
-  device;
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT),
-  free_src = false,
-)
-  transition_layout(command_buffer, device, view_or_image, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-  Vk.cmd_copy_buffer_to_image(command_buffer, buffer, image(view_or_image), Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-    [
-      Vk.BufferImageCopy(
-        offset(buffer),
-        dims(view_or_image)...,
-        subresource_layers(view_or_image),
-        Vk.Offset3D(view_or_image),
-        Vk.Extent3D(view_or_image),
-      ),
-    ])
-  info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(command_buffer)], [])
-  release_after_completion = Ref[Ref(view_or_image)]
-  free_after_completion = Ref[]
-  push!(free_src ? free_after_completion : release_after_completion, Ref(buffer))
-  submit(device, command_buffer.queue_family_index, info; signal_fence = true, free_after_completion, release_after_completion)
-end
-
-function image(
-  device,
-  data::AbstractArray,
-  format::Vk.Format;
-  memory_domain = MEMORY_DOMAIN_DEVICE,
-  optimal_tiling = true,
-  usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
-  kwargs...,
-)
-  upload_usage = usage | Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-  optimal_tiling && (upload_usage |= Vk.IMAGE_USAGE_TRANSFER_SRC_BIT)
-  img = ImageBlock(device, size(data), format, upload_usage; is_linear = !optimal_tiling)
-  allocate!(img, memory_domain)
-  wait(transfer(data, img, device; free_src = true))
-  !optimal_tiling && return img
-
-  dst = similar(img; is_linear = false, usage = usage | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
-  wait(transfer(img, dst, device; free_src = true))
-  dst
 end

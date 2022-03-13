@@ -86,7 +86,10 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
     @test isallocated(sb)
     @test memory(sb) ≠ memory(b)
 
-    @test buffer(device, collect(1:1000)) isa Buffer
+    @test buffer(device, collect(1:1000); memory_domain = MEMORY_DOMAIN_HOST) isa Buffer
+    @test wait(buffer(device, collect(1:1000))) isa Buffer
+    @test buffer(device; size = 800) isa Buffer
+    @test_throws ErrorException buffer(device)
 
     @testset "Allocators" begin
       la = LinearAllocator(device, 1000)
@@ -108,50 +111,56 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
       Lava.reset!(la)
     end
 
+    @testset "Images" begin
+      img = ImageBlock(device, (512, 512), Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+      @test !isallocated(img)
+      @test !isallocated(similar(img))
+      allocate!(img, MEMORY_DOMAIN_DEVICE)
+      @test isallocated(img)
+      @test isallocated(similar(img))
+      @test memory(img) isa MemoryBlock
+
+      v = View(img)
+      @test v isa ImageView
+
+      img = image(device; dims = (512, 512), format = Vk.FORMAT_R32G32B32A32_SFLOAT)
+      @test img isa Image
+      img = wait(image(device, rand(RGBA{Float32}, 512, 512); format = Vk.FORMAT_R32G32B32A32_SFLOAT))
+      @test isallocated(img)
+    end
+
     @testset "Data transfer" begin
-      b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-      b2 = BufferBlock(device, 8000; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-      allocate!(b2, MEMORY_DOMAIN_DEVICE)
+      b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
+      b2 = buffer(device; size = 8000, usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int, collect(b1)) == collect(1:1000)
       t = transfer(device, b1, b2; signal_fence = true)
       @test t isa ExecutionState
       @test wait(t)
       @test reinterpret(Int, collect(b2, device)) == collect(1:1000)
 
-      b3, exec = buffer(device, collect(1:1000), Val(true); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-      wait(exec)
+      b3 = wait(buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT))
       @test reinterpret(Int, collect(b3, device)) == collect(1:1000)
 
       data = rand(RGBA{Float16}, 100, 100)
       usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
-      img1 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage)
+      img1 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage))
       @test collect(RGBA{Float16}, img1, device) == data
-      img2 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; memory_domain = MEMORY_DOMAIN_HOST, usage)
+      img2 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, memory_domain = MEMORY_DOMAIN_HOST, usage))
       @test collect(RGBA{Float16}, img2, device) == data
-      img3 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; optimal_tiling = false, usage)
+      img3 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, optimal_tiling = false, usage))
       @test collect(RGBA{Float16}, img3, device) == data
-      img4 = image(device, data, Vk.FORMAT_R16G16B16A16_SFLOAT; usage)
+      img4 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, usage))
       @test collect(RGBA{Float16}, img4, device) == data
     end
   end
 
-  @testset "Images" begin
-    img = ImageBlock(device, (512, 512), Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-    @test !isallocated(img)
-    @test !isallocated(similar(img))
-    allocate!(img, MEMORY_DOMAIN_DEVICE)
-    @test isallocated(img)
-    @test isallocated(similar(img))
-    @test memory(img) isa MemoryBlock
-    v = View(img)
-    @test v isa ImageView
-  end
+  include("resources.jl")
 
   @testset "Shaders" begin
     include("shaders.jl")
   end
 
-  @testset "Frame Graph" begin
+  @testset "Render Graph" begin
     include("frame_graph.jl")
   end
 

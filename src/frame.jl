@@ -1,9 +1,3 @@
-struct Resource
-  data::Any
-  name::Symbol
-  persistent::Bool
-end
-
 """
 Frame-global structure that holds all data needed in the frame.
 
@@ -49,19 +43,16 @@ function allocate_index_buffer(gd::GlobalData, device::Device)
   gd.index_buffer[] = buffer(device, convert(Vector{UInt32}, gd.index_list .- 1); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 end
 
-struct Frame
-  resources::Dictionary{Symbol,Resource}
-  gd::GlobalData
+function add_image_descriptor!(gd::GlobalData, sampler, view, image_layout)
+  combined_image_sampler_state = gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
+  push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, view, image_layout))
+  length(combined_image_sampler_state) - 1
 end
 
-Frame(device) = Frame(Dictionary(), GlobalData(device))
-
-function register(frame::Frame, resource_name::Symbol, resource_data; persistent = true)
-  insert!(frame.resources, resource_name, Resource(resource_data, resource_name, persistent))
-end
-
-function Base.get(frame::Frame, ::Type{T}, symbol::Symbol) where {T}
-  frame.resources[symbol].data::T
+function add_sampler_descriptor!(gd::GlobalData, sampler, view)
+  combined_image_sampler_state = gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLER]
+  push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, view, Vk.IMAGE_LAYOUT_UNDEFINED))
+  length(combined_image_sampler_state) - 1
 end
 
 #=

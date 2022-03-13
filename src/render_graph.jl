@@ -1,71 +1,44 @@
-Vk.@bitmask_flag ResourceType::UInt32 begin
-  RESOURCE_TYPE_VERTEX_BUFFER = 1
-  RESOURCE_TYPE_INDEX_BUFFER = 2
-  RESOURCE_TYPE_COLOR_ATTACHMENT = 4
-  RESOURCE_TYPE_DEPTH_ATTACHMENT = 8
-  RESOURCE_TYPE_STENCIL_ATTACHMENT = 16
-  RESOURCE_TYPE_INPUT_ATTACHMENT = 32
-  RESOURCE_TYPE_TEXTURE = 64
-  RESOURCE_TYPE_BUFFER = 128
-  RESOURCE_TYPE_IMAGE = 256
-  RESOURCE_TYPE_DYNAMIC = 512
-  RESOURCE_TYPE_STORAGE = 1024
-  RESOURCE_TYPE_TEXEL = 2048
-  RESOURCE_TYPE_UNIFORM = 4096
-  RESOURCE_TYPE_SAMPLER = 8192
-end
-
-@enum ResourceClass::Int8 begin
-  RESOURCE_CLASS_BUFFER = 1
-  RESOURCE_CLASS_IMAGE = 2
-  RESOURCE_CLASS_ATTACHMENT = 3
-end
-
-abstract type ResourceInfo end
-
-struct BufferResourceInfo <: ResourceInfo
-  size::Int
-  usage::Vk.BufferUsageFlag
-end
-
-BufferResourceInfo(size) = BufferResourceInfo(size, Vk.BufferUsageFlag(0))
-
-struct ImageResourceInfo <: ResourceInfo
-  dims::Vector{Int}
-  size_unit::SizeUnit
-  format::Vk.Format
-  usage::Vk.ImageUsageFlag
-  aspect::Vk.ImageAspectFlag
-end
-
-function ImageResourceInfo(
-  format;
-  dims = [1.0, 1.0],
-  size_unit = SIZE_SWAPCHAIN_RELATIVE,
-  usage = Vk.ImageUsageFlag(0),
-  aspect = Vk.ImageAspectFlag(0),
-)
-  ImageResourceInfo(dims, size_unit, format, usage, aspect)
-end
-
-struct AttachmentResourceInfo <: ResourceInfo
-  image_info::ImageResourceInfo
-  AttachmentResourceInfo(image_info::ImageResourceInfo) = new(image_info)
-end
-
-AttachmentResourceInfo(args...; kwargs...) = AttachmentResourceInfo(ImageResourceInfo(args...; kwargs...))
-
-struct Pass
-  name::Symbol
-  stages::Vk.PipelineStageFlag
-end
-
-Pass(stages) = Pass(gensym("Pass"), stages)
-
-struct ResourceUsage
+struct ResourceDependency
+  uuid::ResourceUUID
   type::ResourceType
   access::MemoryAccess
 end
+
+function Base.merge(x::ResourceDependency, y::ResourceDependency)
+  @assert x.uuid === y.uuid
+  ResourceDependency(x.uuid, x.type | y.type, x.access | y.access)
+end
+
+struct RenderArea
+  rect::Vk.Rect2D
+end
+
+RenderArea(x, y) = RenderArea(Vk.Offset2D(0, 0), Vk.Extent2D(x, y))
+RenderArea(x, y, offset_x, offset_y) = RenderArea(Vk.Offset2D(offset_x, offset_y), Vk.Extent2D(x, y))
+
+const NodeUUID = UUID
+
+struct RenderNode
+  uuid::NodeUUID
+  render
+  stages::Vk.PipelineStageFlag
+  render_area::Optional{Vk.Rect2D}
+end
+
+function RenderNode(render; stages::Vk.PipelineStageFlag2 = PIPELINE_STAGE_2_ALL_COMMANDS_BIT, render_area::Optional{RenderArea} = nothing)
+  RenderNode(uuid(), render, stages, render_area.rect)
+end
+
+struct ResourceDependencies
+  node::Dictionary{NodeUUID,Dictionary{ResourceUUID,ResourceDependency}}
+end
+
+@forward ResourceDependencies.node (Base.getindex, Base.delete!, Base.get, Base.haskey)
+
+Base.merge!(x::ResourceDependencies, y::ResourceDependencies) = mergewith!(merge_node_dependencies, x.node, y.node)
+merge_node_dependencies!(x, y) = mergewith!(merge, x, y)
+
+ResourceDependencies() = ResourceDependencies(Dictionary())
 
 """
 Frame graph implementation.
@@ -113,171 +86,182 @@ Reusing the example above, the graph has three vertices: `gbuffer`, `lighting` a
 
 This graph is generated just-in-time, to convert the resource graph into a linear sequence of passes.
 """
-mutable struct FrameGraph
+struct RenderGraph
   device::Device
   resource_graph::MetaGraph{Int}
-  resources::Dictionary{Symbol,Int}
-  passes::Dictionary{Symbol,Int}
-  frame::Frame
+  nodes::Dictionary{NodeUUID,RenderNode}
+  node_indices::Dictionary{NodeUUID,Int}
+  node_indices_inv::Dictionary{Int,NodeUUID}
+  resource_indices::Dictionary{ResourceUUID,Int}
+  "Combined use of render graph resources."
+  uses::Dictionary{NodeUUID,ResourceUses}
+  "Per-node resource dependencies."
+  resource_dependencies::ResourceDependencies
+  logical_resources::LogicalResources
+  physical_resources::PhysicalResources
+  "Temporary resources meant to be thrown away after execution."
+  temporary::Vector{UUID}
+  "Execution dependencies that must be preserved during execution."
+  dependencies::Vector{Any}
 end
 
-device(fg::FrameGraph) = fg.device
-
-attribute(rg::AbstractMetaGraph, i, key) = get_prop(rg, i, key)
-pass_attribute(rg::AbstractMetaGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
-pass_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.passes[name], key)
-resource_attribute(rg::AbstractMetaGraph, i::Integer, key::Symbol) = attribute(rg, i, key)
-resource_attribute(fg::FrameGraph, name::Symbol, key::Symbol) = attribute(fg.resource_graph, fg.resources[name], key)
-function set_attribute(fg::FrameGraph, pass::Symbol, resource::Symbol, key::Symbol, value)
-  set_prop!(fg.resource_graph, fg.passes[pass], fg.resources[resource], key, value)
+function RenderGraph(device::Device)
+  RenderGraph(device, MetaGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary())
 end
 
-virtual_image(g, idx) = resource_attribute(g, idx, :virtual_resource)::ImageResourceInfo
-virtual_buffer(g, idx) = resource_attribute(g, idx, :virtual_resource)::BufferResourceInfo
-virtual_attachment(g, idx) = resource_attribute(g, idx, :virtual_resource)::AttachmentResourceInfo
+device(rg::RenderGraph) = rg.device
 
-image(g, idx) = resource_attribute(g, idx, :physical_resource)::Image
-buffer(g::Union{FrameGraph,MetaGraph}, idx) = resource_attribute(g, idx, :physical_resource)::Buffer
-attachment(g, idx) = resource_attribute(g, idx, :physical_resource)::Attachment
-
-resource_type(g, i, j) = attribute(g, Edge(i, j), :type)::ResourceType
-access(g, i, j) = attribute(g, Edge(i, j), :access)::MemoryAccess
-access_bits(g, i, j) = attribute(g, Edge(i, j), :access_bits)::Vk.AccessFlag
-image_layout(g, i, j) = attribute(g, Edge(i, j), :image_layout)::Vk.ImageLayout
-clear_value(g, i, j) = attribute(g, Edge(i, j), :clear_value)::Vk.ClearValue
-aspect(g, i, j) = attribute(g, Edge(i, j), :aspect)::Vk.ImageAspectFlag
-# currently unused (not exposed to the user)
-stages(g, i, j) = attribute(g, Edge(i, j), :stages)::Vk.PipelineStageFlag
-
-resource_class(g, idx) = resource_attribute(g, idx, :class)::ResourceClass
 current_layout(g, idx) = resource_attribute(g, idx, :current_layout)::Vk.ImageLayout
-format(g, idx) = resource_attribute(g, idx, :format)::Vk.Format
-buffer_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.BufferUsageFlag
-image_usage(g, idx) = resource_attribute(g, idx, :usage)::Vk.ImageUsageFlag
-_size(g, idx) = resource_attribute(g, idx, :size)::Int
-_dims(g, idx) = resource_attribute(g, idx, :dims)::Vector{Int}
-name(g, idx) = attribute(g, idx, :name)::Symbol
 last_write(g, idx) = resource_attribute(g, idx, :last_write)::Pair{Vk.AccessFlag,Vk.PipelineStageFlag}
 synchronization_state(g, idx) = resource_attribute(g, idx, :synchronization_state)::Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}
-access(g, idx) = resource_attribute(g, idx, :access)::MemoryAccess
-stages(g, idx) = pass_attribute(g, idx, :stages)::Vk.PipelineStageFlag
-render_function(g, idx) = pass_attribute(g, idx, :render_function)
-render_pass(g, idx) = pass_attribute(g, idx, :pass)::RenderPass
 
-function FrameGraph(device::Device, frame::Frame = Frame(device))
-  FrameGraph(device, MetaGraph(), Dictionary(), Dictionary(), frame)
+new_node!(rg::RenderGraph, args...; kwargs...) = add_node!(rg, RenderNode(args...; kwargs...))
+
+function add_node!(rg::RenderGraph, node::RenderNode)
+  (; uuid) = node
+  !haskey(rg.nodes, uuid) || error("Node '$uuid' was already added to the frame graph. Passes can only be provided once.")
+  insert!(rg.nodes, uuid, node)
+  g = rg.resource_graph
+  add_vertex!(g)
+  insert!(rg.node_indices, uuid, nv(g))
+  insert!(rg.node_indices_inv, nv(g), uuid)
+  uuid
 end
 
-function add_pass!(render_function, fg::FrameGraph, name::Symbol, pass::RenderPass, stages::Vk.PipelineStageFlag = Vk.PIPELINE_STAGE_ALL_GRAPHICS_BIT)
-  !haskey(fg.passes, name) || error("Pass '$name' was already added to the frame graph. Passes can only be provided once.")
-  g = fg.resource_graph
+new_resource!(rg::RenderGraph, args...) = add_resource!(rg, new!(rg.logical_resources, args...))
+new!(rg::RenderGraph, args...) = new_resource!(rg, args...)
+
+function add_resource(rg::RenderGraph, data::Union{Buffer,Image,Attachment})
+  resource = new!(rg.physical_resources, data)
+  push!(rg.temporary, resource.uuid)
+  add_resource(rg, resource)
+end
+
+function add_resource(rg::RenderGraph, data::PhysicalResource)
+  (; uuid) = data
+  haskey(rg.physical_resources, uuid) && return uuid
+  insert!(rg.physical_resources, uuid, data)
+  add_resource(rg, uuid)
+  uuid
+end
+
+function add_resource(rg::RenderGraph, data::LogicalResource)
+  (; uuid) = data
+  haskey(rg.logical_resources, uuid) && return uuid
+  insert!(rg.logical_resources, uuid, data)
+  push!(rg.temporary, uuid)
+  add_resource(rg, uuid)
+  uuid
+end
+
+function add_resource(rg::RenderGraph, uuid::ResourceUUID)
+  haskey(rg.resource_indices, uuid) && return uuid
+  g = rg.resource_graph
   add_vertex!(g)
-  v = nv(g)
-  set_prop!(g, v, :name, name)
-  set_prop!(g, v, :stages, stages)
-  set_prop!(g, v, :render_function, render_function)
-  set_prop!(g, v, :pass, pass)
-  insert!(fg.passes, name, v)
+  insert!(rg.resource_indices, uuid, nv(g))
+  uuid
+end
+
+function add_resource_dependencies(rg::RenderGraph, resource_dependencies::ResourceDependencies)
+  for (node_uuid, dependencies) in pairs(resource_dependencies)
+    add_resource_dependencies!(rg, rg.nodes[node_uuid], dependencies)
+  end
+end
+
+function add_resource_dependencies(rg::RenderGraph, node::RenderNode, uses::Dictionary{ResourceUUID,ResourceDependency})
+  for dependency in uses
+    add_resource_dependency!(rg, node, dependency)
+  end
+end
+
+function add_resource_dependency(rg::RenderGraph, node::RenderNode, dependency::ResourceDependency)
+  node_uuid = node.uuid
+  haskey(rg.nodes, node_uuid) || add_node!(rg, node)
+  v = rg.node_indices[node]
+  g = rg.resource_graph
+  resource_uuid = dependency.uuid
+  haskey(rg.resource_indices, resource_uuid) || add_resource!(rg, resource_uuid)
+  i = rg.resource_indices[resource_uuid]
+  add_edge!(g, i, v)
+  prev_dependency = get(rg.resource_dependencies[node_uuid], resource_uuid, ResourceDependency(resource_uuid, ResourceType(0), MemoryAccess(0)))
+  set!(rg.resource_dependencies[node_uuid], resource_uuid, dependency | prev_dependency)
   nothing
 end
 
-add_pass!(fg::FrameGraph, pass::Pass) = add_pass!(fg, pass.name, pass.stages)
-
-function add_resource!(fg::FrameGraph, name::Symbol, info::ResourceInfo)
-  !haskey(fg.resources, name) || error("Resource '$name' was already added to the frame graph. Resources can only be provided once.")
-  g = fg.resource_graph
-  add_vertex!(g)
-  v = nv(g)
-  set_prop!(g, v, :name, name)
-  set_prop!(g, v, :access, MemoryAccess(0))
-  insert!(fg.resources, name, v)
-  if info isa BufferResourceInfo
-    set_prop!(g, v, :size, info.size)
-    set_prop!(g, v, :usage, info.usage)
-    set_prop!(g, v, :class, RESOURCE_CLASS_BUFFER)
-  else
-    image_info = if info isa AttachmentResourceInfo
-      set_prop!(g, v, :class, RESOURCE_CLASS_ATTACHMENT)
-      info.image_info
-    else
-      set_prop!(g, v, :class, RESOURCE_CLASS_IMAGE)
-      info
-    end
-    set_prop!(g, v, :dims, image_info.dims)
-    set_prop!(g, v, :usage, image_info.usage)
-    set_prop!(g, v, :aspect, image_info.aspect)
-    set_prop!(g, v, :format, image_info.format)
-  end
-  if haskey(fg.frame.resources, name)
-    set_prop!(g, v, :physical_resource, fg.frame.resources[name].data)
-    if resource_class(g, v) in (RESOURCE_CLASS_IMAGE, RESOURCE_CLASS_ATTACHMENT)
-      set_prop!(g, v, :current_layout, image_layout(fg.frame.resources[name].data))
-    end
-  end
-  nothing
+macro add_resource_dependencies(rg, ex)
+  add_resource_dependencies(rg, ex)
 end
 
-function add_resource_usage!(fg::FrameGraph, iter)
-  for (pass, usage) in pairs(iter)
-    add_resource_usage!(fg, pass, usage)
-  end
+macro add_resource_dependencies(rg, resource_scope, pass_scope, ex)
+  add_resource_dependencies(rg, ex, resource_scope, pass_scope)
 end
 
-function add_resource_usage!(fg::FrameGraph, pass::Symbol, usage::Dictionary{Symbol,ResourceUsage})
-  haskey(fg.passes, pass) || error("Unknown pass '$(pass)'")
-  v = fg.passes[pass]
-  g = fg.resource_graph
-  for (name, usage) in pairs(usage)
-    haskey(fg.resources, name) || error("Unknown resource '$name'")
-    i = fg.resources[name]
-    add_edge!(g, i, v) || error(
-      "A resource usage between pass '$pass' and resource '$name' was already added to the frame graph. Resource usages can only be provided once.",
-    )
-    set_prop!(g, i, v, :type, usage.type)
-    set_prop!(g, i, v, :access, usage.access)
-  end
-end
-
-function resource_usages(ex::Expr)
+function add_resource_dependencies(rg, ex::Expr, resource_scope = nothing, node_scope = nothing)
+  rg = esc(rg)
   lines = @match ex begin
     Expr(:block, _...) => ex.args
     _ => [ex]
   end
 
-  filter!(Base.Fix2(!isa, LineNumberNode), lines)
+  dependency_exs = Dictionary{Union{Expr,Symbol},Dictionary{Union{Expr,Symbol},Pair{ResourceType,MemoryAccess}}}()
+  node_exs = Set(Union{Expr,Symbol}[])
+  resource_exs = Set(Union{Expr,Symbol}[])
 
-  usages = Dictionary{Symbol,Dictionary{Symbol,ResourceUsage}}()
   for line in lines
+    line isa LineNumberNode && continue
     (f, reads, writes) = @match line begin
-      :($writes = $f($(reads...))) => @match writes begin
-        Expr(:tuple, _...) => (f, reads, writes.args)
-        ::Expr => (f, reads, [writes])
-      end
+      :($writes = $f($(reads...))) => (f, reads, Meta.isexpr(writes, :tuple) ? writes.args : [writes])
       _ => error("Malformed expression, expected :(a, b = f(c, d)), got $line")
     end
 
-    dict = Dictionary{Symbol,ResourceUsage}()
-    for (name, type) in extract_resource_spec.(reads)
-      !haskey(dict, name) || error("Resource $name for pass $f specified multiple times in read access")
-      insert!(dict, name, ResourceUsage(type, READ))
-    end
-    for (name, type) in extract_resource_spec.(writes)
-      usage = if haskey(dict, name)
-        WRITE ∉ dict[name].access || error("Resource $name for pass $f specified multiple times in write access")
-        ResourceUsage(type | dict[name].type, WRITE | READ)
-      else
-        ResourceUsage(type, WRITE)
+    if !isnothing(resource_scope)
+      for (i, w) in enumerate(writes)
+        w isa Symbol && (writes[i] = :($resource_scope.$w))
       end
-      set!(dict, name, usage)
+      for (i, r) in enumerate(reads)
+        r isa Symbol && (reads[i] = :($resource_scope.$r))
+      end
     end
-    !haskey(usages, f) || error("Pass $f is specified more than once")
-    insert!(usages, f, dict)
-  end
-  usages
-end
+    !isnothing(node_scope) && isa(f, Symbol) && (f = :($node_scope.$f))
+    !in(f, node_exs) || error("Node '$f' is specified more than once")
+    push!(node_exs, f)
 
-macro resource_usages(ex)
-  :($(resource_usages(ex)))
+    node_dependencies = Dictionary{Any,Pair{ResourceType,MemoryAccess}}()
+
+    for (expr, type) in extract_resource_spec.(reads)
+      !haskey(node_dependencies, expr) || error("Resource $expr for node $f specified multiple times in read access")
+      insert!(node_dependencies, expr, type => READ)
+      push!(resource_exs, expr)
+    end
+    for (expr, type) in extract_resource_spec.(writes)
+      dep = if haskey(node_dependencies, expr)
+        WRITE ∉ node_dependencies[expr].second || error("Resource $expr for node $f specified multiple times in write access")
+        (type | node_dependencies[expr].first) => (WRITE | READ)
+      else
+        type => WRITE
+      end
+      set!(node_dependencies, expr, dep)
+      push!(resource_exs, expr)
+    end
+
+    insert!(dependency_exs, f, node_dependencies)
+  end
+
+  declarations_map = Dictionary{Any,Symbol}()
+  resource_declarations = Expr(:block)
+  for expr in resource_exs
+    uuid_var = gensym(:resource)
+    push!(resource_declarations, :($uuid_var = add_resource($rg, $(esc(expr)))))
+    insert!(declarations_map, expr, uuid_var)
+  end
+  add_dependency_exs = Expr[]
+  for (node_expr, node_dependencies) in pairs(dependency_exs)
+    for (expr, dependency) in pairs(node_dependencies)
+      uuid_var = declarations_map[expr]
+      push!(add_dependency_exs, :(add_resource_dependency($rg, $(esc(node_expr)), ResourceDependency($uuid_var, $(dependency...)))))
+    end
+  end
+  Expr(:block, resource_declarations..., add_dependency_exs...)
 end
 
 function extract_resource_spec(ex::Expr)
@@ -299,15 +283,7 @@ function extract_resource_spec(ex::Expr)
   end
 end
 
-function extract_resource_name(ex::Expr)
-  @match ex begin
-    :($r::$_::$_) => r
-    :($r::$_) => r
-    _ => error("Cannot extract resource name from $ex")
-  end
-end
-
-function clear_attachments(fg::FrameGraph, pass::Symbol, color_clears, depth_clears = [], stencil_clears = [])
+function clear_attachments(rg::RenderGraph, pass::UUID, color_clears, depth_clears = [], stencil_clears = [])
   clears = Dictionary{Symbol,Vk.ClearValue}()
   for (resource, color) in color_clears
     clear_value = Vk.ClearValue(Vk.ClearColorValue(convert(NTuple{4,Float32}, color)))
@@ -322,14 +298,14 @@ function clear_attachments(fg::FrameGraph, pass::Symbol, color_clears, depth_cle
     insert!(clears, resource, clear_value)
   end
   for (resource, clear_value) in pairs(clears)
-    set_attribute(fg, pass, resource, :clear_value, clear_value)
+    set_attribute(rg, pass, resource, :clear_value, clear_value)
   end
 end
 
-function execution_graph(fg::FrameGraph)
-  g = fg.resource_graph
-  eg = SimpleDiGraph(length(fg.passes))
-  for pass in fg.passes
+function execution_graph(rg::RenderGraph)
+  g = rg.resource_graph
+  eg = SimpleDiGraph(length(rg.nodes))
+  for pass in rg.node_indices
     resources = neighbors(g, pass)
     for resource in resources
       WRITE in access(g, pass, resource) || continue
@@ -351,70 +327,29 @@ mostly intended for debugging purposes.
 
 A semaphore to wait for can be provided to synchronize with other commands.
 """
-function render(fg::FrameGraph; semaphore = nothing, command_buffer = nothing, submit = true)
-  prepare!(fg)
-  passes = sort_passes(fg)
-  for pass in passes
-    # create render pass & framebuffer objects
-    prepare_render_pass(fg, pass)
-  end
-  records, pipeline_hashes = record_commands!(fg, passes)
-  !isempty(pipeline_hashes) || error("No draw calls detected.")
-  device = Lava.device(fg)
-  create_pipelines!(device)
-
-  # fill command buffer with synchronization commands & recorded commands
-  command_buffer = @something(command_buffer, request_command_buffer(device, Vk.QUEUE_GRAPHICS_BIT))
-  first_pipeline = device.pipeline_ht[first(values(pipeline_hashes))]
-  initialize(command_buffer, device, fg.frame.gd, first_pipeline)
-  flush(command_buffer, fg, passes, records, pipeline_hashes)
-  submit || return command_buffer
+function render(rg::RenderGraph; semaphore = nothing, command_buffer = request_command_buffer(rg.device, Vk.QUEUE_GRAPHICS_BIT), submit = true)
+  analyze!(rg)
+  baked = bake(rg, command_buffer)
 
   # submit rendering work
+  submit || return command_buffer
   wait_semaphores = device.transfer_ops
   !isnothing(semaphore) && push!(wait_semaphores, semaphore)
   submit_info = Vk.SubmitInfo2KHR(wait_semaphores, [Vk.CommandBufferSubmitInfoKHR(command_buffer)], [])
-  Lava.submit(device, command_buffer.queue_family_index, [submit_info]; signal_fence = true, release_after_completion = [Ref(fg)])
+  Lava.submit(device, command_buffer.queue_family_index, [submit_info]; signal_fence = true, release_after_completion = [Ref(rg)])
 end
 
-function prepare!(fg::FrameGraph)
-  resolve_attributes!(fg)
-  create_physical_resources!(fg)
+function analyze!(rg::RenderGraph)
+  resolve_attributes!(rg)
+  create_physical_resources!(rg)
 end
 
-function record_commands!(fg::FrameGraph, passes)
-  records = CompactRecord[]
-  pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
-  g = fg.resource_graph
-
-  # record commands and submit pipelines for creation
-  for pass in passes
-    record = CompactRecord(fg, pass)
-    f = render_function(g, pass)
-    f(record)
-    push!(records, record)
-    merge!(pipeline_hashes, submit_pipelines!(device(fg), render_pass(g, pass), record))
+function sort_nodes(rg::RenderGraph)
+  indices = topological_sort_by_dfs(execution_graph(rg))
+  node_uuids = collect(keys(rg.node_indices))[indices]
+  map(node_uuids) do uuid
+    rg.nodes[uuid]
   end
-
-  records, pipeline_hashes
-end
-
-function Base.flush(cb::CommandBuffer, fg::FrameGraph, passes, records, pipeline_hashes)
-  binding_state = BindState()
-  for (pass, record) in zip(passes, records)
-    synchronize_before(cb, fg, pass)
-    begin_render_pass(cb, fg, pass)
-    binding_state = flush(cb, record, device(fg), binding_state, pipeline_hashes)
-    end_render_pass(cb)
-    synchronize_after(cb, fg, pass)
-  end
-end
-
-end_render_pass(cb) = Vk.cmd_end_render_pass_2(cb, Vk.SubpassEndInfo())
-
-function sort_passes(fg::FrameGraph)
-  indices = topological_sort_by_dfs(execution_graph(fg))
-  collect(values(fg.passes))[indices]
 end
 
 """
@@ -422,8 +357,8 @@ Build barriers for all resources that require it.
 
 Requires the extension `VK_KHR_synchronization2`.
 """
-function synchronize_before(cb, fg::FrameGraph, pass::Integer)
-  g = fg.resource_graph
+function synchronize_before(cb, rg::RenderGraph, pass::Integer)
+  g = rg.resource_graph
   deps = Vk.DependencyInfoKHR([], [], [])
   for resource in neighbors(g, pass)
     type = resource_type(g, pass, resource)
@@ -503,82 +438,43 @@ function synchronize_before(cb, fg::FrameGraph, pass::Integer)
     Vk.cmd_pipeline_barrier_2_khr(cb, deps)
 end
 
-function prepare_render_pass(fg::FrameGraph, pass::Integer)
-  g = fg.resource_graph
-  attachment_nodes = (resource for resource in neighbors(g, pass) if ResourceClass(resource_type(g, pass, resource)) == RESOURCE_CLASS_ATTACHMENT)
-  attachms = Attachment[]
-  attach_descs = Vk.AttachmentDescription2[]
-  clear_values = Vk.ClearValue[]
+function rendering_info(rg::RenderGraph, node::RenderNode)
+  color_attachments = Vk.RenderingAttachmentInfo[]
+  depth_attachment = C_NULL
+  stencil_attachment = C_NULL
 
-  subpass_descriptions = Vk.SubpassDescription2[]
-  subpass_dependencies = Vk.SubpassDependency2[]
-
-  for (i, node) in enumerate(attachment_nodes)
-    # render pass (global) attachment info
-    attachm = attachment(g, i)
-    push!(attachms, attachm)
-    clear = has_prop(g, pass, node, :clear_value)
-    push!(attach_descs, Vk.AttachmentDescription2(attachm, clear, image_layout(g, pass, node), image_layout(g, pass, node), aspect(g, pass, node)))
-    clear_val = if clear
-      clear_value(g, pass, node)
+  for (uuid, attachment_usage) in rg.uses[node.uuid].attachments
+    attachment = rg.physical_resources[uuid]
+    (; aspect) = usage
+    info = rendering_info(attachment, attachment_usage)
+    if Vk.IMAGE_ASPECT_COLOR_BIT in aspect
+      push!(color_attachments, info)
+    elseif Vk.IMAGE_ASPECT_DEPTH_BIT in aspect
+      depth_attachment == C_NULL || error("Multiple depth attachments detected (node: $(node.uuid))")
+      depth_attachment = info
+    elseif Vk.IMAGE_ASPECT_STENCIL_BIT in aspect
+      stencil_attachment == C_NULL || error("Multiple stencil attachments detected (node: $(node.uuid))")
+      stencil_attachment = info
     else
-      # need a filler clear value
-      Vk.ClearValue(Vk.ClearColorValue(ntuple(Returns(0.0f0), 4)))
-    end
-    push!(clear_values, clear_val)
-
-    # subpass (local) attachment info
-    # only one subpass per pass is currently supported
-    # we could later look up an internal subpass graph to support more
-    for subpass in 1:1
-      stage_flags = stages(g, pass)
-      pipeline_bind_point = Vk.PIPELINE_STAGE_COMPUTE_SHADER_BIT in stage_flags ? Vk.PIPELINE_BIND_POINT_COMPUTE : Vk.PIPELINE_BIND_POINT_GRAPHICS
-      color_attachments = Vk.AttachmentReference2[]
-      depth_stencil_attachment = C_NULL
-      input_attachments = Vk.AttachmentReference2[]
-      type = resource_type(g, pass, node)
-      ref = Vk.AttachmentReference2(i - 1, image_layout(g, pass, node), aspect(g, pass, node))
-      if RESOURCE_TYPE_COLOR_ATTACHMENT in type
-        push!(color_attachments, ref)
-      end
-      if RESOURCE_TYPE_DEPTH_ATTACHMENT in type || RESOURCE_TYPE_STENCIL_ATTACHMENT in type
-        depth_stencil_attachment = ref
-      end
-      if RESOURCE_TYPE_INPUT_ATTACHMENT in type
-        push!(input_attachments, ref)
-      end
-      push!(subpass_descriptions, Vk.SubpassDescription2(pipeline_bind_point, 0, input_attachments, color_attachments, []; depth_stencil_attachment))
-
-      acc_bits = access_bits(g, pass, node)
-      push!(
-        subpass_dependencies,
-        Vk.SubpassDependency2(Vk.SUBPASS_EXTERNAL, subpass - 1, 0; dst_stage_mask = stage_flags, dst_access_mask = acc_bits),
-      )
+      error("Attachment is not a depth, color or stencil attachment as per its aspect value $aspect (node: $(node.uuid))")
     end
   end
-  rp = render_pass(g, pass)
-  rp_handle = Vk.RenderPass(fg.device, attach_descs, subpass_descriptions, subpass_dependencies, [])
-  (; width, height) = rp.area.extent
-  fb = Vk.Framebuffer(fg.device, rp_handle, [att.view for att in attachms], width, height, 1)
-  set_prop!(g, pass, :render_pass_handle, rp_handle)
-  set_prop!(g, pass, :framebuffer, fb)
-  set_prop!(g, pass, :clear_values, clear_values)
-end
-
-function begin_render_pass(cb, fg::FrameGraph, pass::Integer)
-  g = fg.resource_graph
-  Vk.cmd_begin_render_pass_2(cb,
-    Vk.RenderPassBeginInfo(
-      pass_attribute(g, pass, :render_pass_handle),
-      pass_attribute(g, pass, :framebuffer),
-      render_pass(g, pass).area,
-      pass_attribute(g, pass, :clear_values),
-    ),
-    Vk.SubpassBeginInfo(Vk.SUBPASS_CONTENTS_INLINE),
+  info = Vk.RenderingInfo(
+    node.render_area,
+    0,
+    0,
+    color_attachments;
+    depth_attachment,
+    stencil_attachment,
   )
 end
 
-function synchronize_after(cb, fg, pass)
+function begin_render_node(cb, rg::RenderGraph, node::RenderNode)
+  isnothing(node.render_pass) && return
+  Vk.cmd_begin_rendering(cb, rendering_info(rg, node))
+end
+
+function synchronize_after(cb, rg, node)
   nothing
 end
 
@@ -627,15 +523,15 @@ function image_usage_bits(type::ResourceType, access::MemoryAccess)
 end
 
 const SHADER_STAGES = |(
-  Vk.PIPELINE_STAGE_VERTEX_SHADER_BIT,
-  Vk.PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT,
-  Vk.PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT,
-  Vk.PIPELINE_STAGE_GEOMETRY_SHADER_BIT,
-  Vk.PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-  Vk.PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+  Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR,
+  Vk.PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT_KHR,
+  Vk.PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT_KHR,
+  Vk.PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT_KHR,
+  Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR,
+  Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 )
 
-function access_bits(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag)
+function access_bits(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag2)
   bits = Vk.AccessFlag(0)
   RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_VERTEX_ATTRIBUTE_READ_BIT)
   RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_INDEX_READ_BIT)
@@ -682,58 +578,95 @@ function descriptor_type(type::ResourceType, access::MemoryAccess)
   end
 end
 
-function resolve_attributes!(fg::FrameGraph)
-  g = fg.resource_graph
-  for pass in fg.passes
-    for resource in neighbors(g, pass)
-      type = resource_type(g, pass, resource)
-      resource_access = access(g, pass, resource)
-      set_prop!(g, resource, :access, access(g, resource) | resource_access)
-      pipeline_stages = if has_prop(g, pass, resource, :stages)
-        stages(g, pass, resource)
-      else
-        stages(g, pass)
-      end
-      # class-independent attributes
-      acc_bits = access_bits(type, resource_access, pipeline_stages)
-      set_prop!(g, pass, resource, :access_bits, acc_bits)
-
-      # class-dependent attributes
-      class = resource_class(g, resource)
-      if class == RESOURCE_CLASS_IMAGE || class == RESOURCE_CLASS_ATTACHMENT
-        usage = image_usage_bits(type, resource_access)
-        set_prop!(g, pass, resource, :usage, usage)
-        layout = image_layout(type, resource_access, pipeline_stages)
-        set_prop!(g, pass, resource, :image_layout, layout)
-        aspect = aspect_bits(type)
-        set_prop!(g, pass, resource, :aspect, aspect)
-        set_prop!(g, resource, :usage, usage | image_usage(g, resource))
-      else
-        usage = buffer_usage_bits(type, resource_access)
-        set_prop!(g, pass, resource, :usage, usage)
-        set_prop!(g, resource, :usage, usage | buffer_usage(g, resource))
+function ResourceUses(rg::RenderGraph)
+  uses = ResourceUses()
+  for (resource_uuid, i) in pairs(rg.resource_indices)
+    resource = rg.logical_resources[resource_uuid]
+    usage = nothing
+    for j in neighbors(rg.resource_graph, i)
+      node_uuid = rg.node_indices_inv[j]
+      node = rg.nodes[node_uuid]
+      node_usage = rg.uses[node_uuid][resource]
+      if isnothing(usage)
+        usage = node_usage
+      elseif usage isa BufferUsage
+        usage = setproperties(
+          usage,
+          (;
+            type = usage.type | node_usage.type,
+            access = usage.access | node_usage.access,
+            stages = usage.stages | node.stages,
+          ),
+        )
+      elseif usage isa ImageUsage
+        usage = setproperties(
+          usage,
+          (;
+            type = usage.type | node_usage.type,
+            access = usage.access | node_usage.access,
+            stages = usage.stages | node.stages,
+            layout = usage.layout,
+          ),
+        )
+      elseif usage isa AttachmentUsage
+        usage = setproperties(
+          usage,
+          (;
+            type = usage.type | node_usage.type,
+            access = usage.access | node_usage.access,
+            stages = usage.stages | node.stages,
+            aspect = usage.aspect | aspect_bits(node_usage.type),
+            samples = usage.samples | Vk.SampleCountFlag(node_usage.samples),
+          ),
+        )
       end
     end
+    usage isa ImageUsage && (usage = (@set usage.usage = image_usage_bits(usage.type, usage.access)))
+    usage isa BufferUsage && (usage = (@set usage.usage = buffer_usage_bits(usage.type, usage.access)))
+    insert!(uses, resource_uuid, usage::Union{BufferUsage,ImageUsage,AttachmentUsage})
   end
+  uses
 end
 
-function create_physical_resources!(fg::FrameGraph)
-  g = fg.resource_graph
-  for resource in fg.resources |> Filter(x -> !has_prop(g, x, :physical_resource))
-    c = resource_class(g, resource)
-    if c == RESOURCE_CLASS_IMAGE || c == RESOURCE_CLASS_ATTACHMENT
-      image = ImageBlock(device(fg), Tuple(_dims(g, resource)), format(g, resource), image_usage(g, resource))
-      allocate!(image, MEMORY_DOMAIN_DEVICE)
-      if c == RESOURCE_CLASS_ATTACHMENT
-        set_prop!(g, resource, :physical_resource, Attachment(View(image), access(g, resource)))
-      else
-        set_prop!(g, resource, :physical_resource, image)
-      end
-    else
-      buffer = BufferBlock(device(fg), _size(g, resource); usage = buffer_usage(g, resource))
-      allocate!(buffer, MEMORY_DOMAIN_DEVICE)
-      set_prop!(g, resource, :physical_resource, buffer)
-    end
+function materialize_physical_resources!(rg::RenderGraph)
+  (; logical_resources, physical_resources) = rg
+  uses = ResourceUses(rg)
+  check_physical_resources(rg, uses)
+  for info in logical_resources.buffers
+    usage = uses.buffers[info.uuid]
+    insert!(physical_resources.buffers, uuid, buffer(rg.device; info.size, usage.usage))
+  end
+  for info in logical_resources.images
+    usage = uses.images[info.uuid]
+    insert!(physical_resources.images, uuid, image(rg.device; info.dims, usage.usage))
+  end
+  for info in logical_resources.attachments
+    usage = uses.attachments[info.uuid]
+    insert!(physical_resources.attachments, uuid, attachment(rg.device; info.format, usage.samples, usage.aspect, usage.access))
+  end
+  empty!(rg.logical_resources)
+end
+
+function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
+  (; physical_resources) = rg
+  for buffer in physical_resources.buffers
+    usage = uses.buffers[buffer.uuid]
+    usage.usage in buffer.usage || error("An existing buffer with usage $(buffer.usage) was provided, but a usage of $(usage.usage) is required.")
+  end
+  for image in physical_resources.images
+    usage = uses.images[image.uuid]
+    usage.usage in image.usage || error("An existing image with usage $(image.usage) was provided, but a usage of $(usage.usage) is required.")
+  end
+  for attachment in physical_resources.attachments
+    usage = uses.attachments[attachment.uuid]
+    usage.usage in attachment.usage ||
+      error("An existing attachment with usage $(attachment.usage) was provided, but a usage of $(usage.usage) is required.")
+    usage.samples in attachment.samples ||
+      error(
+        "An existing attachment compatible with multisampling settings $(attachment.samples) samples was provided, but is used with a multisampling of $(usage.samples).",
+      )
+    usage.aspect in attachment.aspect ||
+      error("An existing attachment with aspect $(attachment.aspect) was provided, but is used with an aspect of $(usage.aspect).")
   end
 end
 

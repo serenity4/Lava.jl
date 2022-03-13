@@ -12,6 +12,7 @@ struct Device <: LavaAbstraction
   transfer_ops::Vector{Vk.SemaphoreSubmitInfoKHR}
   command_pools::CommandPools
   spirv_features::SupportedFeatures
+  resources::PhysicalResources
 end
 
 vk_handle_type(::Type{Device}) = Vk.Device
@@ -46,6 +47,7 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     [],
     CommandPools(handle),
     spirv_features(physical_device, api_version, extensions, features),
+    PhysicalResources(),
   )
 end
 
@@ -85,6 +87,8 @@ function pipeline_layout(device::Device, resources)
 end
 
 pipeline_layout(device::Device, handle::Vk.PipelineLayout) = device.pipeline_layouts[handle]
+
+@forward Device.resources (new!, Base.delete!)
 
 function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")

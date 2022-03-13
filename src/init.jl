@@ -26,8 +26,8 @@ const REQUIRED_DEVICE_EXTENSIONS = [
 function init(;
   instance_layers = String[],
   instance_extensions = String[],
-  requested_version = v"1.2",
-  application_info = Vk.ApplicationInfo(v"1", v"1", requested_version),
+  vulkan_version = unwrap(Vk.enumerate_instance_version()),
+  application_info = Vk.ApplicationInfo(v"1", v"1", vulkan_version),
   device_extensions = String[],
   device_specific_features::AbstractVector{Symbol} = Symbol[],
   device_vulkan_features::AbstractVector{Symbol} = Symbol[],

@@ -23,6 +23,8 @@ const to = TimerOutput()
 
 const Optional{T} = Union{T,Nothing}
 
+using UUIDs: UUID, uuid1
+
 """
 Abstraction defined in the scope of this package.
 """
@@ -46,7 +48,6 @@ include("allocators.jl")
 include("dimensions.jl")
 include("attachments.jl")
 include("textures.jl")
-include("render_pass.jl")
 include("descriptors.jl")
 include("pipeline.jl")
 
@@ -56,13 +57,17 @@ include("shaders/formats.jl")
 include("shaders/source.jl")
 include("shaders/vulkan.jl")
 
+include("resources.jl")
 include("device.jl")
+include("resources/creation.jl")
 include("render_state.jl")
 include("program.jl")
 include("binding_state.jl")
 include("frame.jl")
-include("frame_graph.jl")
-include("resource_resolution.jl")
+include("render_graph.jl")
+include("bake.jl")
+include("resources/resolution.jl")
+# include("transition.jl")
 include("command.jl")
 include("debug.jl")
 
@@ -106,7 +111,7 @@ export
   Texture, DEFAULT_SAMPLING,
 
   # attachments
-  Attachment, READ, WRITE, TargetAttachments,
+  Attachment, READ, WRITE, RenderTargets,
 
   # attachment dimensions
   SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
@@ -118,6 +123,13 @@ export
   ShaderSource, @shader,
   ShaderCache,
   Shader,
+
+  # resources
+  Resources, Resource,
+  ResourceClass, RESOURCE_CLASS_BUFFER, RESOURCE_CLASS_IMAGE, RESOURCE_CLASS_ATTACHMENT,
+  new!, delete!,
+  LogicalBuffer, LogicalImage, LogicalAttachment,
+  buffer_resource!, image_resource!, attachment_resource!,
 
   # descriptors
   ResourceDescriptors, ResourceMetaConfig,
@@ -134,12 +146,7 @@ export
   set_program, draw_state, set_draw_state, set_material,
   DrawData,
 
-  # frame
-  Frame, Resource, register,
-
-  # frame graph
-  BufferResourceInfo, ImageResourceInfo, AttachmentResourceInfo,
-  ResourceInfo, add_resource!,
+  # render graph
   ResourceType,
   RESOURCE_TYPE_VERTEX_BUFFER,
   RESOURCE_TYPE_INDEX_BUFFER,
@@ -155,9 +162,9 @@ export
   RESOURCE_TYPE_TEXEL,
   RESOURCE_TYPE_UNIFORM,
   RESOURCE_TYPE_SAMPLER,
-  Pass, add_pass!,
-  ResourceUsage, add_resource_usage!, resource_usages, @resource_usages, clear_attachments,
-  FrameGraph, render,
+  RenderGraph, render,
+  RenderNode, add_node!, new_node!,
+  ResourceDependency, add_resource_dependencies!, resource_dependencies, @resource_dependencies, clear_attachments,
 
   # SPIR-V reexports
   ShaderInterface

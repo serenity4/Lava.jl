@@ -1,13 +1,13 @@
 Base.@kwdef struct RenderState
   blending_mode = nothing
   enable_depth_testing::Bool = false
-  enable_depth_bias::Bool = false
+  depth_bias::Optional{DepthBias} = nothing
   enable_depth_clamp::Bool = false
   color_write_mask::Vk.ColorComponentFlag = Vk.COLOR_COMPONENT_R_BIT | Vk.COLOR_COMPONENT_G_BIT | Vk.COLOR_COMPONENT_B_BIT
 end
 
 Base.@kwdef struct ProgramInvocationState
-  face_culling::Vk.CullModeFlag = Vk.CULL_MODE_BACK_BIT
+  cull_mode::Vk.CullModeFlag = Vk.CULL_MODE_BACK_BIT
   triangle_orientation::Vk.FrontFace = Vk.FRONT_FACE_CLOCKWISE
   enable_primitive_restart::Bool = false
   primitive_topology::Vk.PrimitiveTopology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_LIST

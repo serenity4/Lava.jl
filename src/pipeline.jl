@@ -35,3 +35,60 @@ struct Pipeline <: LavaAbstraction
   type::PipelineType
   layout::PipelineLayout
 end
+
+struct DepthBias
+  constant_factor::Float32
+  "Clamp limit. Negative values define a lower bound, while positive values define an upper bound."
+  clamp::Float32
+  slope_factor::Float32
+end
+
+struct PipelineState
+  depth_bias::Optional{DepthBias}
+  blending_mode
+  enable_depth_testing::Bool
+  enable_depth_clamp::Bool
+  cull_mode::Vk.CullModeFlag
+  triangle_orientation::Vk.FrontFace
+  primitive_topology::Vk.PrimitiveTopology
+  viewports::Vector{Vk.Viewport}
+  scissors::Vector{Vk.Rect2D}
+  logic_op::Vk.LogicOp
+  depth_compare_op::Vk.CompareOp
+  stencil_op::Vk.StencilOp
+  enable_primitive_restart::Bool
+  color_write::Vk.ColorComponentFlag
+end
+
+# PipelineState(;
+#   depth_bias::Optional{DepthBias} = nothing,
+#   blending_mode = nothing,
+#   enable_depth_testing::Bool = false,
+#   enable_depth_clamp::Bool = false,
+#   cull_mode::Vk.CullModeFlag = Vk.CULL_MODE_BACK_BIT,
+#   triangle_orientation::Vk.FrontFace = Vk.FRONT_FACE_CLOCKWISE,
+#   primitive_topology::Vk.PrimitiveTopology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+#   viewports::Vector{Vk.Viewport},
+#   scissors::Vector{Vk.Rect2D},
+#   logic_op::Vk.LogicOp,
+#   depth_compare_op::Vk.CompareOp,
+#   stencil_op::Vk.StencilOp,
+#   enable_primitive_restart::Bool = false,
+#   color_write::Vk.ColorComponentFlag,
+# )
+
+"""
+Pipeline-specific information.
+
+This is different from draw or program state in that multiple `PipelineInfo` always require multiple pipelines.
+"""
+struct PipelineInfo
+  polygon_mode::Vk.PolygonMode
+  multisample_state::Vk.PipelineMultisampleStateCreateInfo
+  blend_enable::Bool
+  blend_op::Vk.BlendOp
+  descriptor_set_layouts::Vector{Vk.DescriptorSetLayout}
+  push_constant_ranges::Vector{Vk.PushConstantRange}
+  attachments::Vector{Vk.PipelineColorBlendAttachmentState}
+  rendering_info::Vk.PipelineRenderingCreateInfoKHR
+end

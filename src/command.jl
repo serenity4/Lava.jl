@@ -28,15 +28,15 @@ Record that compacts action commands according to their state before flushing.
 This allows to group e.g. draw calls that use the exact same rendering state.
 """
 struct CompactRecord <: CommandRecord
-  programs::Dictionary{Program,Dictionary{DrawState,Vector{Pair{DrawCommand,TargetAttachments}}}}
+  programs::Dictionary{Program,Dictionary{DrawState,Vector{Pair{DrawCommand,RenderTargets}}}}
   other_ops::Vector{LazyOperation}
   state::Ref{DrawState}
   program::Ref{Program}
-  fg::FrameGraph
-  pass::Int
+  gd::GlobalData
+  node::RenderNode
 end
 
-CompactRecord(fg::FrameGraph, pass::Int) = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}(), fg, pass)
+CompactRecord(gd::GlobalData, node::RenderNode) = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}(), gd, node)
 
 Base.show(io::IO, record::CompactRecord) = print(
   io,
@@ -50,7 +50,7 @@ function set_program(record::CompactRecord, program::Program)
 end
 
 function set_material(record::CompactRecord, @nospecialize(args...); alignment = 16)
-  (; gd) = record.fg.frame
+  (; gd) = record
 
   # replace resource specifications with indices
   for (i, arg) in enumerate(args)
@@ -72,8 +72,8 @@ end
 
 draw_state(record::CompactRecord) = record.state[]
 
-function draw(record::CompactRecord, targets::TargetAttachments, vdata, idata; alignment = 16)
-  (; gd) = record.fg.frame
+function draw(record::CompactRecord, targets::RenderTargets, vdata, idata; alignment = 16)
+  (; gd) = record
   state = record.state[]
 
   # vertex data
@@ -161,13 +161,12 @@ function apply(cb::CommandBuffer, draw::DrawIndexedIndirect)
   Vk.cmd_draw_indexed_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end
 
-function submit_pipelines!(device::Device, pass::RenderPass, record::CompactRecord)
+function submit_pipelines!(device::Device, pass::RenderNode, record::CompactRecord)
   pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        rp = pass_attribute(record.fg.resource_graph, record.pass, :render_pass_handle)
-        hash = submit_pipeline!(device, pass, program, state.render_state, state.program_state, record.fg.frame.gd.resources, targets, rp)
+        hash = submit_pipeline!(device, pass, program, state.render_state, state.program_state, record.gd.resources, targets)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
     end
@@ -182,19 +181,20 @@ A hash is returned to serve as the key to get the corresponding pipeline from th
 """
 function submit_pipeline!(
   device::Device,
-  pass::RenderPass,
+  pass::RenderNode,
   program::Program,
   state::RenderState,
   invocation_state::ProgramInvocationState,
   resources::ResourceDescriptors,
-  targets::TargetAttachments,
-  rp::Vk.RenderPass,
+  targets::RenderTargets,
 )
-  shader_stages = Vk.PipelineShaderStageCreateInfo.(collect(program.shaders))
-  # bindless: no vertex data
+  shader_stages = [Vk.PipelineShaderStageCreateInfo(shader) for shader in program.shaders]
+  # Vertex data is retrieved from an address provided in the push constant.
   vertex_input_state = Vk.PipelineVertexInputStateCreateInfo([], [])
-  attachments = map(1:length(targets.color)) do attachment
+  rendering_state = Vk.PipelineRenderingCreateInfoKHR(0, format.(targets.color), format(targets.depth), format(targets.stencil))
+  attachments = map(targets.color) do _
     if isnothing(state.blending_mode)
+      #TODO: Allow specifying blending mode for color attachments.
       Vk.PipelineColorBlendAttachmentState(
         true,
         Vk.BLEND_FACTOR_SRC_ALPHA,
@@ -210,36 +210,48 @@ function submit_pipeline!(
     end
   end
   input_assembly_state = Vk.PipelineInputAssemblyStateCreateInfo(invocation_state.primitive_topology, false)
-  (; x, y) = pass.area.offset
-  (; width, height) = pass.area.extent
-  viewport_state = Vk.PipelineViewportStateCreateInfo(viewports = [Vk.Viewport(x, y, width, height, 0, 1)], scissors = [pass.area])
+  (; render_area::Vk.Rect2D) = pass
+  (; x, y) = render_area.offset
+  (; width, height) = render_area.extent
+  viewport_state = Vk.PipelineViewportStateCreateInfo(viewports = [Vk.Viewport(x, height - y, width, -height, 0, 1)], scissors = [render_area])
+
+  (; depth_bias) = state
+  use_depth_bias = !isnothing(depth_bias)
+  depth_bias_constant_factor = depth_bias_clamp = depth_bias_slope_factor = 0.0f0
+  if use_depth_bias
+    depth_bias_constant_factor = depth_bias.constant_factor
+    depth_bias_clamp = depth_bias.clamp
+    depth_bias_slope_factor = depth_bias.slope
+  end
+
   rasterizer = Vk.PipelineRasterizationStateCreateInfo(
     false,
     false,
     invocation_state.polygon_mode,
     invocation_state.triangle_orientation,
-    state.enable_depth_bias,
-    1.0,
-    0.0,
-    0.0,
-    1.0,
-    cull_mode = invocation_state.face_culling,
+    use_depth_bias,
+    depth_bias_constant_factor,
+    depth_bias_clamp,
+    depth_bias_slope_factor,
+    cull_mode = invocation_state.cull_mode,
   )
-  multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(pass.samples), false, 1.0, false, false)
+  nsamples = samples(first(targets.color))
+  any(≠(nsamples) ∘ samples, targets.color) && error("Incoherent number of samples detected: $(samples.(targets.color))")
+  multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), false, 1.0, false, false)
   color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1.0f0), 4))
   layout = pipeline_layout(device, resources)
   info = Vk.GraphicsPipelineCreateInfo(
     shader_stages,
     rasterizer,
-    layout.handle,
+    layout,
     0,
     0;
+    next = rendering_state,
+    input_assembly_state,
     vertex_input_state,
+    viewport_state,
     multisample_state,
     color_blend_state,
-    input_assembly_state,
-    viewport_state,
-    render_pass = rp,
   )
   push!(device.pending_pipelines, info)
   hash(info)
@@ -264,9 +276,8 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
   binding_state
 end
 
-function initialize(cb::CommandBuffer, device::Device, gd::GlobalData, first_pipeline::Pipeline)
+function initialize(cb::CommandBuffer, device::Device, gd::GlobalData)
   allocate_index_buffer(gd, device)
   Vk.cmd_bind_index_buffer(cb, gd.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
   populate_descriptor_sets!(gd)
-  Vk.cmd_bind_descriptor_sets(cb, Vk.PipelineBindPoint(first_pipeline.type), first_pipeline.layout, 0, [gd.resources.gset.set], [])
 end

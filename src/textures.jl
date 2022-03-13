@@ -37,13 +37,12 @@ end
 const DEFAULT_SAMPLING = Sampling()
 
 """
-Texture identified by name with sampling parameters.
+Texture identified by UUID with sampling parameters.
 
 This texture is to be transformed into a texture index (to index into an array of sampled images or combined image-samplers depending on whether sampling parameters are provided) to be included as a material parameter in push constant data.
 """
 struct Texture
-  name::Symbol
+  image::UUID
   sampling::Union{Nothing,Sampling}
+  Texture(image::UUID, sampling::Sampling = DEFAULT_SAMPLING) = new(image, sampling)
 end
-
-Texture(name::Symbol) = Texture(name, nothing)

@@ -53,6 +53,7 @@ function Base.wait(execs::AbstractVector{ExecutionState}, timeout = typemax(UInt
   fences = map(Base.Fix2(getproperty, :fence), execs)::Vector{Fence}
   _wait(fences, timeout) && all(finalize!, execs)
 end
+Base.wait((x, exec)::Tuple{<:Any,ExecutionState}) = wait(exec) && return x
 
 function submit(dispatch::QueueDispatch, queue_family_index, submit_infos;
   signal_fence = false,

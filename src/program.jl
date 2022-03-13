@@ -28,11 +28,19 @@ struct ProgramInterface
   push_constants::Dictionary{Vk.PushConstantRange,Any}
 end
 
+@auto_hash_equals struct RenderTargets
+  color::Vector{PhysicalAttachment}
+  depth::Optional{PhysicalAttachment}
+  stencil::Optional{PhysicalAttachment}
+end
+
+RenderTargets(color; depth = nothing, stencil = nothing) = RenderTargets(color, depth, stencil)
+
 """
 Program to be compiled into a pipeline with a specific state.
 """
 @auto_hash_equals struct ProgramInstance
   program::Program
   state::DrawState
-  targets::TargetAttachments
+  targets::RenderTargets
 end

@@ -2,7 +2,7 @@
 Remap a value from `(low1, high1)` to `(low2, high2)`.
 """
 function remap(value, low1, high1, low2, high2)
-    low2 + (value - low1) * (high2 - low2) / (high1 - low1)
+  low2 + (value - low1) * (high2 - low2) / (high1 - low1)
 end
 
 remap(value, from, to) = remap(value, from..., to...)
@@ -19,7 +19,7 @@ function program_3(device, positions, ppm)
   font = OpenTypeFont(font_file("juliamono-regular.ttf"))
   curves = map(OpenType.curves(font['A'])) do curve
     Point{3,Point{2,Float32}}(map(curve) do point
-      remapped = map(remap(0., 1., -0.9, 0.9), point)
+      remapped = map(remap(0.0, 1.0, -0.9, 0.9), point)
       Point(remapped[1], -remapped[2])
     end)
   end
@@ -37,13 +37,13 @@ function program_3(device, positions, ppm)
       ppm, # pixel per em
       alignment = 8,
     )
-    draw(rec, TargetAttachments([:color]), vdata, collect(1:4); alignment = 8)
+    draw(rec, RenderTargets([:color]), vdata, collect(1:4); alignment = 8)
   end
 
-  usage = @resource_usages begin
+  usage = @resource_dependencies begin
     color::Color = main()
   end
-  add_resource_usage!(fg, usage)
+  add_resource_dependencies!(fg, usage)
   clear_attachments(fg, :main, [:color => (0.08, 0.05, 0.1, 1.0)])
   fg
 end

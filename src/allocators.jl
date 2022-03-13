@@ -10,9 +10,8 @@ available_size(la::LinearAllocator, alignment = 0) = size(la) - get_offset(la, a
 device(la::LinearAllocator) = device(la.buffer)
 
 function LinearAllocator(device, size)
-  buffer = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-  allocate!(buffer, MEMORY_DOMAIN_DEVICE_HOST)
-  LinearAllocator(buffer, 0, map(memory(buffer)))
+  b = buffer(device; size, usage = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, memory_domain = MEMORY_DOMAIN_DEVICE_HOST)
+  LinearAllocator(b, 0, map(memory(b)))
 end
 
 device_address(la::LinearAllocator) = device_address(la.buffer)

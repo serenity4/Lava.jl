@@ -45,13 +45,13 @@ function program_1(device, vdata)
     set_program(rec, prog)
     ds = draw_state(rec)
     set_draw_state(rec, @set ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
-    draw(rec, TargetAttachments([:color]), vdata, collect(1:4); alignment = 4)
+    draw(rec, RenderTargets([:color]), vdata, collect(1:4); alignment = 4)
   end
 
-  usage = @resource_usages begin
+  usage = @resource_dependencies begin
     color::Color = main()
   end
-  add_resource_usage!(fg, usage)
+  add_resource_dependencies!(fg, usage)
   clear_attachments(fg, :main, [:color => (0.08, 0.05, 0.1, 1.0)])
   fg
 end

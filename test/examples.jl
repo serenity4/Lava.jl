@@ -9,7 +9,7 @@ end
 function add_color_attachment(fg::FrameGraph)
   color_attachm = color_attachment(fg.device)
   register(fg.frame, :color, color_attachm)
-  add_resource!(fg, :color, AttachmentResourceInfo(Lava.format(color_attachm)))
+  add_resource!(fg, :color, LogicalAttachment(Lava.format(color_attachm)))
 end
 
 function save_test_render(filename, data, h::UInt; tmp = false, clamp = false)
