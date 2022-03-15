@@ -120,7 +120,7 @@ new_node!(rg::RenderGraph, args...; kwargs...) = add_node!(rg, RenderNode(args..
 
 function add_node!(rg::RenderGraph, node::RenderNode)
   (; uuid) = node
-  !haskey(rg.nodes, uuid) || error("Node '$uuid' was already added to the frame graph. Passes can only be provided once.")
+  !haskey(rg.nodes, uuid) || error("Node '$uuid' was already added to the render graph. Passes can only be provided once.")
   insert!(rg.nodes, uuid, node)
   g = rg.resource_graph
   add_vertex!(g)
@@ -286,12 +286,13 @@ function extract_resource_spec(ex::Expr)
   end
 end
 
-function clear_attachments(rg::RenderGraph, pass::UUID, color_clears, depth_clears = [], stencil_clears = [])
-  clears = Dictionary{Symbol,Vk.ClearValue}()
+function clear_attachments(rg::RenderGraph, pass::UUID, color_clears, depth_clear = nothing, stencil_clear = nothing)
+  clears = Dictionary{ResourceUUID,Vk.ClearValue}()
   for (resource, color) in color_clears
     clear_value = Vk.ClearValue(Vk.ClearColorValue(convert(NTuple{4,Float32}, color)))
     insert!(clears, resource, clear_value)
   end
+  !isnothing(depth_clear)
   for (resource, depth) in depth_clears
     clear_value = Vk.ClearValue(Vk.ClearDepthStencilValue(depth, 0))
     insert!(clears, resource, clear_value)
@@ -342,143 +343,11 @@ function render(rg::RenderGraph; semaphore = nothing, command_buffer = request_c
   Lava.submit(device, command_buffer.queue_family_index, [submit_info]; signal_fence = true, release_after_completion = [Ref(rg)])
 end
 
-function analyze!(rg::RenderGraph)
-  resolve_attributes!(rg)
-  create_physical_resources!(rg)
-end
-
 function sort_nodes(rg::RenderGraph)
   indices = topological_sort_by_dfs(execution_graph(rg))
-  node_uuids = collect(keys(rg.node_indices))[indices]
-  map(node_uuids) do uuid
-    rg.nodes[uuid]
+  map(indices) do index
+    rg.nodes[rg.node_indices_inv[index]]
   end
-end
-
-"""
-Build barriers for all resources that require it.
-
-Requires the extension `VK_KHR_synchronization2`.
-"""
-function synchronize_before(cb, rg::RenderGraph, pass::Integer)
-  g = rg.resource_graph
-  deps = Vk.DependencyInfoKHR([], [], [])
-  for resource in neighbors(g, pass)
-    type = resource_type(g, pass, resource)
-    class = resource_class(g, resource)
-    (req_access, req_stages) = access(g, pass, resource) => stages(g, pass)
-    # if the resource was not written to recently, no synchronization is required
-    if has_prop(g, resource, :last_write)
-      (r_access, p_stages) = last_write(g, resource)
-      req_access_bits = access_bits(type, req_access, req_stages)
-      sync_state = synchronization_state(g, resource)
-      synced_stages = Vk.PipelineStageFlag(0)
-      barrier_needed = true
-      for (access, stages) in pairs(sync_state)
-        if covers(access, req_access_bits)
-          synced_stages |= (stages & req_stages)
-        end
-        if synced_stages == req_stages
-          barrier_needed = false
-          break
-        else
-          # keep only stages that haven't been synced
-          req_stages &= ~synced_stages
-        end
-      end
-      if barrier_needed
-        @switch class begin
-          @case &RESOURCE_CLASS_BUFFER
-          buff = buffer(g, resource)
-          barrier = Vk.BufferMemoryBarrier2KHR(
-            0, 0, handle(buff), offset(buff), size(buff);
-            src_stage_mask = p_stages,
-            src_access_mask = r_access,
-            dst_stage_mask = req_stages,
-            dst_access_mask = req_access_bits,
-          )
-          push!(deps.buffer_memory_barriers, barrier)
-          @case &RESOURCE_CLASS_IMAGE || &RESOURCE_CLASS_ATTACHMENT
-          view = if class == RESOURCE_CLASS_IMAGE
-            View(image(g, resource))
-          else
-            attachment(g, resource).view
-          end
-          new_layout = image_layout(g, pass, resource)
-          range = subresource_range(view)
-          barrier = Vk.ImageMemoryBarrier2KHR(
-            current_layout(g, resource), new_layout, 0, 0, handle(view.image), range;
-            src_stage_mask = p_stages,
-            src_access_mask = r_access,
-            dst_stage_mask = req_stages,
-            dst_access_mask = req_access_bits,
-          )
-          push!(deps.image_memory_barriers, barrier)
-          set_prop!(g, resource, :current_layout, new_layout)
-          view.image.layout[] = new_layout
-        end
-        set!(sync_state, req_access_bits, req_stages)
-      end
-    elseif class in (RESOURCE_CLASS_IMAGE, RESOURCE_CLASS_ATTACHMENT) && current_layout(g, resource) ≠ image_layout(g, pass, resource)
-      # perform the required layout transition without further synchronization
-      view = if class == RESOURCE_CLASS_IMAGE
-        View(image(g, resource))
-      else
-        attachment(g, resource).view
-      end
-      new_layout = image_layout(g, pass, resource)
-      barrier = Vk.ImageMemoryBarrier2KHR(current_layout(g, resource), new_layout, 0, 0, handle(view.image), subresource_range(view))
-      push!(deps.image_memory_barriers, barrier)
-      set_prop!(g, resource, :current_layout, new_layout)
-      view.image.layout[] = new_layout
-    end
-    if WRITE in req_access
-      set_prop!(g, resource, :last_write, access_bits(resource_type(g, pass, resource), req_access, req_stages) => req_stages)
-      set_prop!(g, resource, :synchronization_state, Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}())
-    end
-  end
-  (!isempty(deps.memory_barriers) || !isempty(deps.image_memory_barriers) || !isempty(deps.buffer_memory_barriers)) &&
-    Vk.cmd_pipeline_barrier_2_khr(cb, deps)
-end
-
-function rendering_info(rg::RenderGraph, node::RenderNode)
-  color_attachments = Vk.RenderingAttachmentInfo[]
-  depth_attachment = C_NULL
-  stencil_attachment = C_NULL
-
-  for (uuid, attachment_usage) in rg.uses[node.uuid].attachments
-    attachment = rg.physical_resources[uuid]
-    (; aspect) = usage
-    info = rendering_info(attachment, attachment_usage)
-    if Vk.IMAGE_ASPECT_COLOR_BIT in aspect
-      push!(color_attachments, info)
-    elseif Vk.IMAGE_ASPECT_DEPTH_BIT in aspect
-      depth_attachment == C_NULL || error("Multiple depth attachments detected (node: $(node.uuid))")
-      depth_attachment = info
-    elseif Vk.IMAGE_ASPECT_STENCIL_BIT in aspect
-      stencil_attachment == C_NULL || error("Multiple stencil attachments detected (node: $(node.uuid))")
-      stencil_attachment = info
-    else
-      error("Attachment is not a depth, color or stencil attachment as per its aspect value $aspect (node: $(node.uuid))")
-    end
-  end
-  info = Vk.RenderingInfo(
-    node.render_area,
-    0,
-    0,
-    color_attachments;
-    depth_attachment,
-    stencil_attachment,
-  )
-end
-
-function begin_render_node(cb, rg::RenderGraph, node::RenderNode)
-  isnothing(node.render_pass) && return
-  Vk.cmd_begin_rendering(cb, rendering_info(rg, node))
-end
-
-function synchronize_after(cb, rg, node)
-  nothing
 end
 
 """
@@ -615,7 +484,7 @@ function ResourceUses(rg::RenderGraph)
             type = usage.type | node_usage.type,
             access = usage.access | node_usage.access,
             stages = usage.stages | node.stages,
-            layout = usage.layout,
+            usage.layout,
           ),
         )
       elseif usage isa AttachmentUsage
@@ -640,9 +509,9 @@ function ResourceUses(rg::RenderGraph)
 end
 
 function materialize_logical_resources(rg::RenderGraph)
-  res = PhysicalResources()
   uses = ResourceUses(rg)
   check_physical_resources(rg, uses)
+  res = PhysicalResources()
   for info in rg.logical_resources.buffers
     usage = uses[info]
     insert!(res, info.uuid, buffer(rg.device; info.size, usage.usage))
@@ -695,75 +564,6 @@ function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
     usage.aspect in attachment.aspect ||
       error("An existing attachment with aspect $(attachment.aspect) was provided, but is used with an aspect of $(usage.aspect).")
   end
-end
-
-"""
-Return whether `x` covers accesses of type `y`; that is, whether guarantees about memory access operations in `x` induce guarantees about memory access operations in `y`.
-
-```jldoctest
-julia> covers(Vk.ACCESS_MEMORY_WRITE_BIT, Vk.ACCESS_SHADER_WRITE_BIT)
-true
-
-julia> covers(Vk.ACCESS_SHADER_READ_BIT, Vk.ACCESS_UNIFORM_READ_BIT)
-true
-
-julia> covers(Vk.ACCESS_SHADER_WRITE_BIT, Vk.ACCESS_MEMORY_WRITE_BIT)
-false
-```
-
-"""
-function covers(x::Vk.AccessFlag, y::Vk.AccessFlag)
-  y in x && return true
-  if Vk.ACCESS_MEMORY_READ_BIT in x
-    if Vk.ACCESS_MEMORY_READ_BIT ∉ y
-      x &= ~Vk.ACCESS_MEMORY_READ_BIT
-    end
-    x |= |(
-      Vk.ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
-      Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT,
-      Vk.ACCESS_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT,
-      Vk.ACCESS_COMMAND_PREPROCESS_READ_BIT_NV,
-      Vk.ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT,
-      Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-      Vk.ACCESS_FRAGMENT_DENSITY_MAP_READ_BIT_EXT,
-      Vk.ACCESS_HOST_READ_BIT,
-      Vk.ACCESS_INDEX_READ_BIT,
-      Vk.ACCESS_INDIRECT_COMMAND_READ_BIT,
-      Vk.ACCESS_INPUT_ATTACHMENT_READ_BIT,
-      Vk.ACCESS_SHADER_READ_BIT,
-      Vk.ACCESS_SHADING_RATE_IMAGE_READ_BIT_NV,
-      Vk.ACCESS_TRANSFER_READ_BIT,
-      Vk.ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT,
-      Vk.ACCESS_UNIFORM_READ_BIT,
-      Vk.ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
-    )
-    y in x && return true
-  end
-  if Vk.ACCESS_MEMORY_WRITE_BIT in x
-    if Vk.ACCESS_MEMORY_WRITE_BIT ∉ y
-      x &= ~Vk.ACCESS_MEMORY_WRITE_BIT
-    end
-    x |= |(
-      Vk.ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
-      Vk.ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-      Vk.ACCESS_COMMAND_PREPROCESS_WRITE_BIT_NV,
-      Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-      Vk.ACCESS_HOST_WRITE_BIT,
-      Vk.ACCESS_SHADER_WRITE_BIT,
-      Vk.ACCESS_TRANSFER_WRITE_BIT,
-      Vk.ACCESS_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT,
-      Vk.ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT,
-    )
-    y in x && return true
-  end
-  if Vk.ACCESS_SHADER_READ_BIT in x
-    if Vk.ACCESS_SHADER_READ_BIT ∉ y
-      x &= ~Vk.ACCESS_SHADER_READ_BIT
-    end
-    x |= Vk.ACCESS_UNIFORM_READ_BIT
-    y in x && return true
-  end
-  false
 end
 
 function ResourceClass(type::ResourceType)

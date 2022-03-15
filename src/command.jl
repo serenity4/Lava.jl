@@ -161,12 +161,13 @@ function apply(cb::CommandBuffer, draw::DrawIndexedIndirect)
   Vk.cmd_draw_indexed_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end
 
-function submit_pipelines!(device::Device, pass::RenderNode, record::CompactRecord)
+function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        hash = submit_pipeline!(device, pass, program, state.render_state, state.program_state, record.gd.resources, targets)
+        info = pipeline_info(device, pass, program, state.render_state, state.program_state, baked.global_data.resources, targets)
+        hash = request_pipeline(device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
     end
@@ -179,7 +180,7 @@ Submit a pipeline create info for creation in the next batch.
 
 A hash is returned to serve as the key to get the corresponding pipeline from the hash table.
 """
-function submit_pipeline!(
+function pipeline_info(
   device::Device,
   pass::RenderNode,
   program::Program,
@@ -240,7 +241,7 @@ function submit_pipeline!(
   multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), false, 1.0, false, false)
   color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1.0f0), 4))
   layout = pipeline_layout(device, resources)
-  info = Vk.GraphicsPipelineCreateInfo(
+  Vk.GraphicsPipelineCreateInfo(
     shader_stages,
     rasterizer,
     layout,
@@ -253,6 +254,9 @@ function submit_pipeline!(
     multisample_state,
     color_blend_state,
   )
+end
+
+function request_pipeline(device::Device, info::Vk.GraphicsPipelineCreateInfo)
   push!(device.pending_pipelines, info)
   hash(info)
 end

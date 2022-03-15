@@ -5,11 +5,23 @@ struct PhysicalBuffer <: PhysicalResource
   buffer::Vk.Buffer
   memory::Vk.DeviceMemory
   usage::Vk.BufferUsageFlag
+  offset::Int
+  stride::Int
+  size::Int
   info::LogicalBuffer
 end
 
 PhysicalBuffer(uuid::ResourceUUID, buffer::Buffer) =
-  PhysicalBuffer(uuid, handle(buffer), handle(memory(buffer)), usage(buffer), LogicalBuffer(uuid, buffer))
+  PhysicalBuffer(
+    uuid,
+    handle(buffer),
+    handle(memory(buffer)),
+    usage(buffer),
+    offset(buffer),
+    stride(buffer),
+    size(buffer),
+    LogicalBuffer(uuid, buffer),
+  )
 
 struct PhysicalImage <: PhysicalResource
   uuid::ResourceUUID

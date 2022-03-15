@@ -64,16 +64,51 @@ queue_family_indices(device::Device) = queue_family_indices(device.queues)
 
 submit(device, args...; kwargs...) = submit(device.queues, args...; kwargs...)
 
-function create_pipelines!(device::Device)
-  batch_create!(device.pipeline_ht, device.pending_pipelines) do infos
-    (handles, _) = unwrap(Vk.create_graphics_pipelines(device, infos))
-    map(zip(handles, infos)) do (handle, info)
-      Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_GRAPHICS), pipeline_layout(device, info.layout))
+"Split a vector in `n` equivalent chunks."
+function split_vec(vec, n)
+  nv = length(vec)
+  tsize = cld(n, nv)
+  ranges = [(1 + tsize * i):(min(1 + tsize * (i + 1), nv)) for i in 0:(n - 1)]
+  [vec[range] for range in ranges]
+end
+
+function pmap(f, collection, init)
+  tasks = Task[]
+  # Initialize a per-thread storage for results.
+  res = fill(init, length(collection))
+  # Spawn all the tasks.
+  for (i, el) in enumerate(collection)
+    t = Threads.@spawn begin
+      res[i] = f(el)
     end
+    push!(tasks, t)
+  end
+  # Wait for completion.
+  for t in tasks
+    wait(t)
+  end
+  res
+end
+
+function create_pipelines(device::Device, infos)
+  # Assume that each available thread will be able to create a set of pipelines in batch mode.
+  # We don't create individual pipelines for performance reasons as the implementation is
+  # likely to setup internal mutexes for each batch which allow pipeline creation to be concurrent.
+  infos_vec = split_vec(infos, Threads.nthreads())
+  handles_vec = pmap(infos_vec, Vk.Pipeline[]) do infos
+    isempty(infos) && return Vk.Pipeline[]
+    first(unwrap(Vk.create_graphics_pipelines(device, infos)))
+  end
+  map(zip(reduce(vcat, handles_vec), infos)) do (handle, info)
+    Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_GRAPHICS), pipeline_layout(device, info.layout))
   end
 end
 
-function pipeline_layout(device::Device, resources)
+function create_pipelines(device::Device)
+  batch_create!(Base.Fix1(create_pipelines, device), device.pipeline_ht, device.pending_pipelines)
+end
+
+function pipeline_layout(device::Device, resources::ResourceDescriptors)
   info = Vk.PipelineLayoutCreateInfo(
     [resources.gset.set.layout],
     [Vk.PushConstantRange(Vk.SHADER_STAGE_ALL, 0, sizeof(PushConstantData))],
