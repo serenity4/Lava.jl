@@ -83,6 +83,7 @@ Pipeline-specific information.
 This is different from draw or program state in that multiple `PipelineInfo` always require multiple pipelines.
 """
 struct PipelineInfo
+  program::Program
   polygon_mode::Vk.PolygonMode
   multisample_state::Vk.PipelineMultisampleStateCreateInfo
   blend_enable::Bool
@@ -91,4 +92,8 @@ struct PipelineInfo
   push_constant_ranges::Vector{Vk.PushConstantRange}
   attachments::Vector{Vk.PipelineColorBlendAttachmentState}
   rendering_info::Vk.PipelineRenderingCreateInfoKHR
+end
+
+function Vk.GraphicsPipelineCreateInfo(info::PipelineInfo)
+  
 end

@@ -18,16 +18,6 @@ function Program(device, shaders...)
   Program(device.shader_cache, shaders...)
 end
 
-"""
-Set of data required to call a program.
-"""
-struct ProgramInterface
-  vbuffer::Buffer
-  ibuffer::Optional{Buffer}
-  descriptors::Vector{DescriptorSet}
-  push_constants::Dictionary{Vk.PushConstantRange,Any}
-end
-
 @auto_hash_equals struct RenderTargets
   color::Vector{PhysicalAttachment}
   depth::Optional{PhysicalAttachment}

@@ -43,6 +43,10 @@ end
 
 const Resource_T = Union{BufferResource_T,ImageResource_T,AttachmentResource_T}
 
+usage(::BufferAny_T, dep::ResourceDependency) = BufferUsage(; dep.type, dep.access)
+usage(::ImageAny_T, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access)
+usage(::AttachmentAny_T, dep::ResourceDependency) = AttachmentUsage(; dep.type, dep.access, dep.clear_value, Vk.SampleCountFlag(dep.samples))
+
 storage_dict(x, resource) = storage_dict(x, typeof(resource))
 storage_dict(x, ::Type{<:BufferAny_T}) = x.buffers
 storage_dict(x, ::Type{<:ImageAny_T}) = x.images

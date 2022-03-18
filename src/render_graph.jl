@@ -1,8 +1,10 @@
 struct ResourceDependency
-  uuid::ResourceUUID
   type::ResourceType
   access::MemoryAccess
+  clear_value::Optional{NTuple{4,Float32}}
+  samples::Int
 end
+ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceDependency(type, access, clear_value, samples)
 
 function Base.merge(x::ResourceDependency, y::ResourceDependency)
   @assert x.uuid === y.uuid
@@ -116,9 +118,9 @@ current_layout(g, idx) = resource_attribute(g, idx, :current_layout)::Vk.ImageLa
 last_write(g, idx) = resource_attribute(g, idx, :last_write)::Pair{Vk.AccessFlag,Vk.PipelineStageFlag}
 synchronization_state(g, idx) = resource_attribute(g, idx, :synchronization_state)::Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}
 
-new_node!(rg::RenderGraph, args...; kwargs...) = add_node!(rg, RenderNode(args...; kwargs...))
+new_node!(rg::RenderGraph, args...; kwargs...) = add_node(rg, RenderNode(args...; kwargs...))
 
-function add_node!(rg::RenderGraph, node::RenderNode)
+function add_node(rg::RenderGraph, node::RenderNode)
   (; uuid) = node
   !haskey(rg.nodes, uuid) || error("Node '$uuid' was already added to the render graph. Passes can only be provided once.")
   insert!(rg.nodes, uuid, node)
@@ -164,42 +166,30 @@ function add_resource(rg::RenderGraph, uuid::ResourceUUID)
   uuid
 end
 
-function add_resource_dependencies(rg::RenderGraph, resource_dependencies::ResourceDependencies)
-  for (node_uuid, dependencies) in pairs(resource_dependencies)
-    add_resource_dependencies!(rg, rg.nodes[node_uuid], dependencies)
-  end
-end
-
-function add_resource_dependencies(rg::RenderGraph, node::RenderNode, uses::Dictionary{ResourceUUID,ResourceDependency})
-  for dependency in uses
-    add_resource_dependency!(rg, node, dependency)
-  end
-end
-
-function add_resource_dependency(rg::RenderGraph, node::RenderNode, dependency::ResourceDependency)
+function add_resource_dependency(rg::RenderGraph, node::RenderNode, resource, dependency::ResourceDependency)
+  resource_uuid = add_resource(rg, resource)
   node_uuid = node.uuid
-  haskey(rg.nodes, node_uuid) || add_node!(rg, node)
+
+  # Add edge.
+  haskey(rg.nodes, node_uuid) || add_node(rg, node)
   v = rg.node_indices[node_uuid]
   g = rg.resource_graph
-  resource_uuid = dependency.uuid
   haskey(rg.resource_indices, resource_uuid) || add_resource(rg, resource_uuid)
   i = rg.resource_indices[resource_uuid]
   add_edge!(g, i, v)
-  node_deps = get!(Dictionary, rg.resource_dependencies.node, node_uuid)
-  prev_dependency = get(node_deps, resource_uuid, ResourceDependency(resource_uuid, ResourceType(0), MemoryAccess(0)))
-  set!(node_deps, resource_uuid, merge(dependency, prev_dependency))
-  nothing
+
+  # Add usage.
+  uses = rg.uses[node_uuid]
+  resource_usage = usage(resource, dependency)
+  resource_usage = (@set resource_usage.stages = node.stages)
+  insert!(uses, resource_uuid, resource_usage)
 end
 
 macro add_resource_dependencies(rg, ex)
   add_resource_dependencies(rg, ex)
 end
 
-macro add_resource_dependencies(rg, resource_scope, pass_scope, ex)
-  add_resource_dependencies(rg, ex, resource_scope, pass_scope)
-end
-
-function add_resource_dependencies(rg, ex::Expr, resource_scope = nothing, node_scope = nothing)
+function add_resource_dependencies(rg, ex::Expr)
   rg = esc(rg)
   lines = @match ex begin
     Expr(:block, _...) => ex.args
@@ -207,8 +197,7 @@ function add_resource_dependencies(rg, ex::Expr, resource_scope = nothing, node_
   end
 
   dependency_exs = Dictionary{Union{Expr,Symbol},Dictionary{Union{Expr,Symbol},Pair{ResourceType,MemoryAccess}}}()
-  node_exs = Set(Union{Expr,Symbol}[])
-  resource_exs = Set(Union{Expr,Symbol}[])
+  node_exs = []
 
   for line in lines
     line isa LineNumberNode && continue
@@ -217,54 +206,56 @@ function add_resource_dependencies(rg, ex::Expr, resource_scope = nothing, node_
       _ => error("Malformed expression, expected :(a, b = f(c, d)), got $line")
     end
 
-    if !isnothing(resource_scope)
-      for (i, w) in enumerate(writes)
-        w isa Symbol && (writes[i] = :($resource_scope.$w))
-      end
-      for (i, r) in enumerate(reads)
-        r isa Symbol && (reads[i] = :($resource_scope.$r))
-      end
-    end
     !isnothing(node_scope) && isa(f, Symbol) && (f = :($node_scope.$f))
     !in(f, node_exs) || error("Node '$f' is specified more than once")
     push!(node_exs, f)
 
-    node_dependencies = Dictionary{Any,Pair{ResourceType,MemoryAccess}}()
+    node_dependencies = Dictionary{Any,Any}()
 
-    for (expr, type) in extract_resource_spec.(reads)
+    for r in reads
+      r, clear_value, samples = extract_special_usage(r)
+      isnothing(clear_value) || error("Specifying a clear value for a read attachment is illegal.")
+      expr, type = extract_resource_spec(r)
       !haskey(node_dependencies, expr) || error("Resource $expr for node $f specified multiple times in read access")
-      insert!(node_dependencies, expr, type => READ)
-      push!(resource_exs, expr)
+      insert!(node_dependencies, expr, (type, READ, clear_value, samples))
     end
-    for (expr, type) in extract_resource_spec.(writes)
-      dep = if haskey(node_dependencies, expr)
-        WRITE ∉ node_dependencies[expr].second || error("Resource $expr for node $f specified multiple times in write access")
-        (type | node_dependencies[expr].first) => (WRITE | READ)
-      else
-        type => WRITE
+    for w in writes
+      w, clear_value, samples = extract_special_usage(w)
+      expr, type = extract_resource_spec(w)
+      if haskey(node_dependencies, expr)
+        read_deps = node_dependencies[expr]
+        WRITE ∉ read_deps[2] || error("Resource $expr for node $f specified multiple times in write access")
+        type |= read_deps[1]
+        access |= read_deps[2]
+        samples = max(samples, read_deps[4])
       end
-      set!(node_dependencies, expr, dep)
-      push!(resource_exs, expr)
+      set!(node_dependencies, expr, (type, access, clear_value, samples))
     end
 
     insert!(dependency_exs, f, node_dependencies)
   end
 
-  declarations_map = Dictionary{Any,Symbol}()
-  resource_declarations = Expr[]
-  for expr in resource_exs
-    uuid_var = gensym(:resource)
-    push!(resource_declarations, :($uuid_var = add_resource($rg, $(esc(expr)))))
-    insert!(declarations_map, expr, uuid_var)
-  end
   add_dependency_exs = Expr[]
   for (node_expr, node_dependencies) in pairs(dependency_exs)
     for (expr, dependency) in pairs(node_dependencies)
-      uuid_var = declarations_map[expr]
-      push!(add_dependency_exs, :(add_resource_dependency($rg, $(esc(node_expr)), ResourceDependency($uuid_var, $(dependency...)))))
+      push!(add_dependency_exs, :(add_resource_dependency($rg, $(esc(node_expr)), $(esc(expr)), ResourceDependency($(dependency...)))))
     end
   end
-  Expr(:block, resource_declarations..., add_dependency_exs...)
+  Expr(:block, add_dependency_exs...)
+end
+
+function extract_special_usage(ex::Expr)
+  clear_value = nothing
+  samples = 1
+  if Meta.isexpr(ex, :call) && ex.args[1] == :(=>)
+    clear_value = ex.args[3]
+    ex = ex.args[2]
+  end
+  if Meta.isexpr(ex, :call) && ex.args[¡] == :(*)
+    samples = ex.args[3]
+    ex = ex.args[2]
+  end
+  ex, clear_value, samples
 end
 
 function extract_resource_spec(ex::Expr)
@@ -309,13 +300,13 @@ end
 function execution_graph(rg::RenderGraph)
   g = rg.resource_graph
   eg = SimpleDiGraph(length(rg.nodes))
-  for pass in rg.node_indices
-    resources = neighbors(g, pass)
-    for resource in resources
-      WRITE in access(g, pass, resource) || continue
-      for dependent_pass in neighbors(g, resource)
-        dependent_pass == pass && continue
-        add_edge!(eg, dependent_pass, pass)
+  for node in rg.nodes
+    dst = rg.node_indices[node.uuid]
+    for (uuid, usage) in rg.uses[node.uuid]
+      WRITE in usage.access || continue
+      for src in neighbors(g, rg.resource_indices[uuid])
+        src == dst && continue
+        add_edge!(eg, src, dst)
       end
     end
   end
@@ -344,7 +335,9 @@ function render(rg::RenderGraph; semaphore = nothing, command_buffer = request_c
 end
 
 function sort_nodes(rg::RenderGraph)
-  indices = topological_sort_by_dfs(execution_graph(rg))
+  eg = execution_graph(rg)
+  !is_cyclic(eg) || error("The render graph is cyclical, cannot determine an execution order.")
+  indices = topological_sort_by_dfs(eg)
   map(indices) do index
     rg.nodes[rg.node_indices_inv[index]]
   end
@@ -455,19 +448,15 @@ function ResourceUses(rg::RenderGraph)
   for (resource_uuid, i) in pairs(rg.resource_indices)
     resource = resource_uuid in rg.logical_resources ? rg.logical_resources[resource_uuid] : nothing
     isnothing(resource) && (resource = rg.physical_resources[resource_uuid])
-    usage = if resource isa BufferResource_T
-      BufferUsage()
-    elseif resource isa ImageResource_T
-      ImageUsage()
-    elseif resource isa AttachmentResource_T
-      AttachmentUsage()
-    else
-      error("Unknown logical resource $resource")
-    end
+    usage = nothing
     for j in neighbors(rg.resource_graph, i)
       node_uuid = rg.node_indices_inv[j]
       node = rg.nodes[node_uuid]
-      node_usage = rg.resource_dependencies[node_uuid][resource_uuid]
+      node_usage = rg.uses[node_uuid][resource]
+      if isnothing(usage)
+        usage = node_usage
+        continue
+      end
       if usage isa BufferUsage
         usage = setproperties(
           usage,
@@ -495,7 +484,7 @@ function ResourceUses(rg::RenderGraph)
             access = usage.access | node_usage.access,
             stages = usage.stages | node.stages,
             aspect = usage.aspect | aspect_bits(node_usage.type),
-            # samples = usage.samples | Vk.SampleCountFlag(node_usage.samples),
+            samples = usage.samples | node_usage.samples,
           ),
         )
       end
@@ -508,9 +497,7 @@ function ResourceUses(rg::RenderGraph)
   uses
 end
 
-function materialize_logical_resources(rg::RenderGraph)
-  uses = ResourceUses(rg)
-  check_physical_resources(rg, uses)
+function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
   res = PhysicalResources()
   for info in rg.logical_resources.buffers
     usage = uses[info]

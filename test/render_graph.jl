@@ -69,6 +69,6 @@ using Graphs: nv, ne
   set!(uses2.buffers, ibuffer_uuid, @set ibuffer_usage.usage = Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
   @test_throws ErrorException Lava.check_physical_resources(rg, uses2)
 
-  resources = Lava.materialize_logical_resources(rg)
+  resources = Lava.materialize_logical_resources(rg, uses)
   @test resources isa Lava.PhysicalResources
 end

@@ -22,7 +22,10 @@ Base.@kwdef struct AttachmentUsage <: ResourceUsage
   aspect::Vk.ImageAspectFlag = Vk.ImageAspectFlag(0) # can be deduced
   samples::Vk.SampleCountFlag = Vk.SampleCountFlag(0)
   resolve_layout::Optional{Vk.ImageLayout} = nothing # can be deduced
+  clear_value::Optional{NTuple{4,Float32}}
 end
+
+const DEFAULT_CLEAR_VALUE = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
 
 function rendering_info(attachment::PhysicalAttachment, usage::AttachmentUsage)
   clear = !isnothing(usage.clear_value)
@@ -45,15 +48,3 @@ struct ResourceUses
 end
 
 ResourceUses() = ResourceUses(Dictionary(), Dictionary(), Dictionary())
-
-const DEFAULT_CLEAR_VALUE = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
-
-# Punctual use
-struct ResourceUse
-  type::ResourceType
-  access::MemoryAccess
-  samples::Int
-  clear_value::Optional{Tuple{4,Float32}}
-end
-ResourceUse(type::ResourceType, access::MemoryAccess; samples = 1, clear_value = DEFAULT_CLEAR_VALUE) =
-  ResourceUse(type, access, samples, clear_value)

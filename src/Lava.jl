@@ -117,7 +117,7 @@ export
   SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
 
   # program
-  Program, ProgramInterface, ProgramInvocationState,
+  Program, ProgramInvocationState,
 
   # shaders
   ShaderSource, @shader,
