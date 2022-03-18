@@ -87,7 +87,7 @@ function rendering_info(rg::BakedRenderGraph, node::RenderNode)
 end
 
 struct ResourceSynchronizationState
-  accesses::Dictionary{Vk.AccessFlags2, Vk.PipelineStageFlag2}
+  accesses::Dictionary{Vk.AccessFlag2, Vk.PipelineStageFlag2}
   current_layout::Ref{Vk.ImageLayout}
 end
 

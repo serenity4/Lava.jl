@@ -40,15 +40,25 @@ using Graphs: nv, ne
   combine = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
 
   @add_resource_dependencies rg begin
-    emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
+    (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
     color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
     average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, bloom_downsample_3::Texture)
-    output::Color = combine(color::Color, average_luminance::Texture)
+    output::Color = combine((color * 4)::Color, average_luminance::Texture)
   end
 
   @test nv(rg.resource_graph) == 4 + 13
   @test ne(rg.resource_graph) == 6 + 8 + 3 + 3
 
+  # Per-node resource usage.
+  usage = rg.uses[combine.uuid][color]
+  @test usage.type == RESOURCE_TYPE_COLOR_ATTACHMENT
+  @test usage.samples == Vk.SAMPLE_COUNT_4_BIT
+
+  usage = rg.uses[gbuffer.uuid][emissive]
+  @test usage.type == RESOURCE_TYPE_COLOR_ATTACHMENT
+  @test usage.clear_value == (0f0, 0f0, 0f0, 1f0)
+
+  # Combined resource usage.
   uses = Lava.ResourceUses(rg)
 
   usage = uses[color]
@@ -56,6 +66,7 @@ using Graphs: nv, ne
   @test usage.access == WRITE | READ
   @test usage.stages == Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT
   @test usage.aspect == Vk.IMAGE_ASPECT_COLOR_BIT
+  @test usage.samples == Vk.SAMPLE_COUNT_1_BIT | Vk.SAMPLE_COUNT_4_BIT
 
   usage = uses[depth]
   @test usage.type == RESOURCE_TYPE_DEPTH_ATTACHMENT

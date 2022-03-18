@@ -36,16 +36,14 @@ for R in [:Buffer, :Image, :Attachment]
   r = Symbol(lowercase(string(R)))
   for S in [:Logical, :Physical]
     @eval $r(x::$(Symbol(S, :Resources)), args...; kwargs...) = new!(x, $(Symbol(S, R))(uuid(), args...; kwargs...))
-    @eval AbstractResourceType(::Type{$(Symbol(S, :Resources))}) = $(Symbol(S, :Resource))
     @eval $(Symbol(S, :Resource))(uuid::ResourceUUID, data::$R) = $(Symbol(S, R))(uuid, data)
   end
 end
+for S in [:Logical, :Physical]
+  @eval AbstractResourceType(::Type{$(Symbol(S, :Resources))}) = $(Symbol(S, :Resource))
+end
 
 const Resource_T = Union{BufferResource_T,ImageResource_T,AttachmentResource_T}
-
-usage(::BufferAny_T, dep::ResourceDependency) = BufferUsage(; dep.type, dep.access)
-usage(::ImageAny_T, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access)
-usage(::AttachmentAny_T, dep::ResourceDependency) = AttachmentUsage(; dep.type, dep.access, dep.clear_value, Vk.SampleCountFlag(dep.samples))
 
 storage_dict(x, resource) = storage_dict(x, typeof(resource))
 storage_dict(x, ::Type{<:BufferAny_T}) = x.buffers
@@ -62,9 +60,12 @@ Base.merge(x::T, y::T) where {T<:ResourceStorage} = T((merge(storage_dict(x, T),
 Base.getindex(x::ResourceStorage, data::Resource_T) = storage_dict(x, data)[data.uuid]
 Base.in(data::Resource_T, x::ResourceStorage) = haskey(storage_dict(x, data), data.uuid)
 Base.delete!(x::ResourceStorage, data::Resource_T) = delete!(storage_dict(x, data), data.uuid)
-Base.insert!(x::ResourceStorage, uuid::ResourceUUID, data::Resource_T) = insert!(storage_dict(x, data), uuid, data)
-Base.insert!(x::ResourceStorage, uuid::ResourceUUID, data::ResourceData_T) =
-  insert!(storage_dict(x, data), uuid, AbstractResourceType(typeof(x))(uuid, data))
+
+for f in [:(Base.insert!), :(Dictionaries.set!)]
+  @eval $f(x::ResourceStorage, uuid::ResourceUUID, data::Resource_T) = $f(storage_dict(x, data), uuid, data)
+  @eval $f(x::ResourceStorage, uuid::ResourceUUID, data::ResourceData_T) =
+    $f(storage_dict(x, data), uuid, AbstractResourceType(typeof(x))(uuid, data))
+end
 
 for f in [:getindex, :delete!]
   @eval function Base.$f(x::ResourceStorage, uuid::ResourceUUID)

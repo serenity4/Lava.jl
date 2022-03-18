@@ -31,6 +31,10 @@ function RenderNode(render; stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_
   RenderNode(uuid(), render, stages, isnothing(render_area) ? nothing : render_area.rect)
 end
 
+usage(::BufferAny_T, node::RenderNode, dep::ResourceDependency) = BufferUsage(; dep.type, dep.access, node.stages, usage = buffer_usage_bits(dep.type, dep.access))
+usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access))
+usage(::AttachmentAny_T, node::RenderNode, dep::ResourceDependency) = AttachmentUsage(; dep.type, dep.access, dep.clear_value, samples = Vk.SampleCountFlag(dep.samples), node.stages, usage = image_usage_bits(dep.type, dep.access), aspect = aspect_bits(dep.type))
+
 struct ResourceDependencies
   node::Dictionary{NodeUUID,Dictionary{ResourceUUID,ResourceDependency}}
 end
@@ -179,10 +183,10 @@ function add_resource_dependency(rg::RenderGraph, node::RenderNode, resource, de
   add_edge!(g, i, v)
 
   # Add usage.
-  uses = rg.uses[node_uuid]
-  resource_usage = usage(resource, dependency)
-  resource_usage = (@set resource_usage.stages = node.stages)
-  insert!(uses, resource_uuid, resource_usage)
+  uses = get!(ResourceUses, rg.uses, node_uuid)
+  resource_usage = usage(resource, node, dependency)
+  set!(uses, resource_uuid, resource_usage)
+  nothing
 end
 
 macro add_resource_dependencies(rg, ex)
@@ -196,7 +200,7 @@ function add_resource_dependencies(rg, ex::Expr)
     _ => [ex]
   end
 
-  dependency_exs = Dictionary{Union{Expr,Symbol},Dictionary{Union{Expr,Symbol},Pair{ResourceType,MemoryAccess}}}()
+  dependency_exs = Dictionary()
   node_exs = []
 
   for line in lines
@@ -206,22 +210,22 @@ function add_resource_dependencies(rg, ex::Expr)
       _ => error("Malformed expression, expected :(a, b = f(c, d)), got $line")
     end
 
-    !isnothing(node_scope) && isa(f, Symbol) && (f = :($node_scope.$f))
     !in(f, node_exs) || error("Node '$f' is specified more than once")
     push!(node_exs, f)
 
-    node_dependencies = Dictionary{Any,Any}()
+    node_dependencies = Dictionary()
 
     for r in reads
-      r, clear_value, samples = extract_special_usage(r)
-      isnothing(clear_value) || error("Specifying a clear value for a read attachment is illegal.")
       expr, type = extract_resource_spec(r)
+      expr, clear_value, samples = extract_special_usage(expr)
+      isnothing(clear_value) || error("Specifying a clear value for a read attachment is illegal.")
       !haskey(node_dependencies, expr) || error("Resource $expr for node $f specified multiple times in read access")
       insert!(node_dependencies, expr, (type, READ, clear_value, samples))
     end
     for w in writes
-      w, clear_value, samples = extract_special_usage(w)
       expr, type = extract_resource_spec(w)
+      expr, clear_value, samples = extract_special_usage(expr)
+      access = WRITE
       if haskey(node_dependencies, expr)
         read_deps = node_dependencies[expr]
         WRITE ∉ read_deps[2] || error("Resource $expr for node $f specified multiple times in write access")
@@ -244,14 +248,14 @@ function add_resource_dependencies(rg, ex::Expr)
   Expr(:block, add_dependency_exs...)
 end
 
-function extract_special_usage(ex::Expr)
+function extract_special_usage(ex)
   clear_value = nothing
   samples = 1
   if Meta.isexpr(ex, :call) && ex.args[1] == :(=>)
     clear_value = ex.args[3]
     ex = ex.args[2]
   end
-  if Meta.isexpr(ex, :call) && ex.args[¡] == :(*)
+  if Meta.isexpr(ex, :call) && ex.args[1] == :(*)
     samples = ex.args[3]
     ex = ex.args[2]
   end
@@ -444,57 +448,7 @@ function descriptor_type(type::ResourceType, access::MemoryAccess)
 end
 
 function ResourceUses(rg::RenderGraph)
-  uses = ResourceUses()
-  for (resource_uuid, i) in pairs(rg.resource_indices)
-    resource = resource_uuid in rg.logical_resources ? rg.logical_resources[resource_uuid] : nothing
-    isnothing(resource) && (resource = rg.physical_resources[resource_uuid])
-    usage = nothing
-    for j in neighbors(rg.resource_graph, i)
-      node_uuid = rg.node_indices_inv[j]
-      node = rg.nodes[node_uuid]
-      node_usage = rg.uses[node_uuid][resource]
-      if isnothing(usage)
-        usage = node_usage
-        continue
-      end
-      if usage isa BufferUsage
-        usage = setproperties(
-          usage,
-          (;
-            type = usage.type | node_usage.type,
-            access = usage.access | node_usage.access,
-            stages = usage.stages | node.stages,
-          ),
-        )
-      elseif usage isa ImageUsage
-        usage = setproperties(
-          usage,
-          (;
-            type = usage.type | node_usage.type,
-            access = usage.access | node_usage.access,
-            stages = usage.stages | node.stages,
-            usage.layout,
-          ),
-        )
-      elseif usage isa AttachmentUsage
-        usage = setproperties(
-          usage,
-          (;
-            type = usage.type | node_usage.type,
-            access = usage.access | node_usage.access,
-            stages = usage.stages | node.stages,
-            aspect = usage.aspect | aspect_bits(node_usage.type),
-            samples = usage.samples | node_usage.samples,
-          ),
-        )
-      end
-    end
-    usage isa ImageUsage && (usage = (@set usage.usage = image_usage_bits(usage.type, usage.access)))
-    usage isa BufferUsage && (usage = (@set usage.usage = buffer_usage_bits(usage.type, usage.access)))
-    insert!(uses, resource_uuid, usage)
-    resource = nothing
-  end
-  uses
+  merge(values(rg.uses)...)
 end
 
 function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
@@ -515,7 +469,7 @@ function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
       # Try to inherit image dimensions from a render area in which the node is used.
       for node in rg.nodes
         !isnothing(node.render_area) || continue
-        if info.uuid in keys(rg.resource_dependencies[node.uuid])
+        if haskey(rg.uses[node.uuid].attachments, info.uuid)
           ext = node.render_area.extent
           dims = (ext.width, ext.height)
           break
