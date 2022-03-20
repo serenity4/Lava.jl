@@ -30,8 +30,8 @@ This allows to group e.g. draw calls that use the exact same rendering state.
 struct CompactRecord <: CommandRecord
   programs::Dictionary{Program,Dictionary{DrawState,Vector{Pair{DrawCommand,RenderTargets}}}}
   other_ops::Vector{LazyOperation}
-  state::Ref{DrawState}
-  program::Ref{Program}
+  state::RefValue{DrawState}
+  program::RefValue{Program}
   gd::GlobalData
   node::RenderNode
 end

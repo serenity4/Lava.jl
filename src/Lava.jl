@@ -24,6 +24,7 @@ const to = TimerOutput()
 const Optional{T} = Union{T,Nothing}
 
 using UUIDs: UUID, uuid1
+using Base: RefValue
 
 """
 Abstraction defined in the scope of this package.

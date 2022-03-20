@@ -22,8 +22,8 @@ struct MemoryBlock <: DenseMemory
   size::Int
   properties::Vk.MemoryPropertyFlag
   domain::MemoryDomain
-  is_bound::Ref{Bool}
-  ptr::Ref{Ptr{Cvoid}}
+  is_bound::RefValue{Bool}
+  ptr::RefValue{Ptr{Cvoid}}
 end
 
 vk_handle_type(::Type{MemoryBlock}) = Vk.DeviceMemory

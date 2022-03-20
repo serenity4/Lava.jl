@@ -12,7 +12,7 @@ struct GlobalData
   allocator::LinearAllocator
   resources::ResourceDescriptors
   index_list::Vector{UInt32}
-  index_buffer::Ref{BufferBlock{MemoryBlock}}
+  index_buffer::RefValue{BufferBlock{MemoryBlock}}
 end
 
 GlobalData(device) = GlobalData(
@@ -67,10 +67,10 @@ FrameSynchronization(device) = FrameSynchronization(Vk.Semaphore(device), Vk.Sem
 
 struct FrameState
     device::Device
-    swapchain::Ref{Swapchain}
+    swapchain::RefValue{Swapchain}
     frames::Vector{Frame}
-    current_frame::Ref{Frame}
-    frame_count::Ref{Int}
+    current_frame::RefValue{Frame}
+    frame_count::RefValue{Int}
     syncs::Dictionary{Frame,FrameSynchronization}
 end
 

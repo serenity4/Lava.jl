@@ -30,8 +30,8 @@ struct ImageBlock{N,M} <: Image{N,M}
   queue_family_indices::Vector{Int8}
   sharing_mode::Vk.SharingMode
   is_linear::Bool
-  layout::Ref{Vk.ImageLayout}
-  memory::Ref{M}
+  layout::RefValue{Vk.ImageLayout}
+  memory::RefValue{M}
 end
 
 dims(image::ImageBlock) = image.dims

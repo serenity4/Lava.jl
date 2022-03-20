@@ -96,7 +96,7 @@ SyncRequirements(usage::ResourceUsage) = SyncRequirements(access_bits(usage), us
 struct ResourceState
   sync_reqs::SyncRequirements
   last_accesses::Dictionary{Vk.AccessFlag2, Vk.PipelineStageFlag2}
-  current_layout::Ref{Vk.ImageLayout}
+  current_layout::RefValue{Vk.ImageLayout}
 end
 
 ResourceState(usage::BufferUsage) = ResourceState(SyncRequirements(usage), Dictionary(), Ref{Vk.ImageLayout}())

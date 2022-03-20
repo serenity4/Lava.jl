@@ -41,7 +41,7 @@ struct BufferBlock{M<:DenseMemory} <: DenseBuffer{M}
   usage::Vk.BufferUsageFlag
   queue_family_indices::Vector{Int8}
   sharing_mode::Vk.SharingMode
-  memory::Ref{M}
+  memory::RefValue{M}
 end
 
 Base.size(buffer::BufferBlock) = buffer.size
