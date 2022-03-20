@@ -28,10 +28,11 @@ struct PhysicalImage <: PhysicalResource
   image::Vk.Image
   memory::Vk.DeviceMemory
   usage::Vk.ImageUsageFlag
+  layout::Base.RefValue{Vk.ImageLayout}
   info::LogicalImage
 end
 
-PhysicalImage(uuid::ResourceUUID, image::Image) = PhysicalImage(uuid, handle(image), handle(memory(image)), usage(image), LogicalImage(uuid, image))
+PhysicalImage(uuid::ResourceUUID, image::Image) = PhysicalImage(uuid, handle(image), handle(memory(image)), usage(image), image.layout, LogicalImage(uuid, image))
 
 struct PhysicalAttachment <: PhysicalResource
   uuid::ResourceUUID
@@ -39,6 +40,7 @@ struct PhysicalAttachment <: PhysicalResource
   image::Vk.Image
   memory::Vk.DeviceMemory
   usage::Vk.ImageUsageFlag
+  layout::Base.RefValue{Vk.ImageLayout}
   aspect::Vk.ImageAspectFlag
   resolve_image_view::Optional{Vk.ImageView}
   resolve_image::Optional{Vk.Image}
@@ -60,6 +62,7 @@ function PhysicalAttachment(uuid::ResourceUUID, attachment::Attachment)
     image,
     memory(image),
     usage(image),
+    image.layout,
     aspect(attachment),
     resolve_image_view,
     resolve_image,

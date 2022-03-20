@@ -1,4 +1,29 @@
+using Lava, Accessors, Dictionaries
+using Test
 using Graphs: nv, ne
+instance, device = init(; with_validation = true)
+
+# using Vulkan
+# using ProfileView
+# using SnoopCompile
+
+# instance = Instance([], [])
+# pdevice = first(unwrap(enumerate_physical_devices(instance)))
+# device = Device(pdevice, [DeviceQueueCreateInfo(0, [1.0])], [], [])
+# # @snoopi_deep Device(pdevice, [DeviceQueueCreateInfo(0, [1.0])], [], [])
+
+# tinf = @snoopi_deep instance, device = init(; with_validation = false)
+# tinf = @snoopi_deep get_physical_device_properties_2(device.physical_device, PhysicalDeviceProtectedMemoryProperties, PhysicalDeviceCooperativeMatrixPropertiesNV)
+
+# # tinf = @snoopi_deep instance, device = init(; with_validation = false)
+# # tinf = @snoopi_deep Vk.initialize(Vk.PhysicalDeviceFeatures2, Vk.PhysicalDeviceVulkan12Features, Vk.PhysicalDeviceVulkanMemoryModelFeatures, Vk.PhysicalDevice16BitStorageFeatures, Vk.PhysicalDeviceAccelerationStructureFeaturesKHR, Vk.PhysicalDeviceVulkan11Features)
+
+# flatten(tinf)
+# itrigs = inference_triggers(tinf)
+# mtrigs = accumulate_by_source(Method, itrigs)
+# fg = flamegraph(tinf)
+# ProfileView.view(fg)
+
 
 @testset "Building a render graph" begin
   rg = RenderGraph(device)
@@ -82,4 +107,52 @@ using Graphs: nv, ne
 
   resources = Lava.materialize_logical_resources(rg, uses)
   @test resources isa Lava.PhysicalResources
+end
+
+@testset "Baking a render graph" begin
+  rg = RenderGraph(device)
+
+  vbuffer = buffer(rg, 1024)
+  ibuffer = wait(buffer(device, collect(1:100); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT))
+  average_luminance = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+  emissive = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+  albedo = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+  normal = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+  pbr = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+  color = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT; samples = 4)
+  output = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+  depth = attachment(rg, Vk.FORMAT_D32_SFLOAT)
+  shadow_main = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
+  shadow_near = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
+  bloom_downsample_3 = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+
+  transfer = RenderNode(identity) # unused
+  gbuffer = RenderNode(
+    identity;
+    render_area = RenderArea(1920, 1080),
+    stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+  )
+  lighting = RenderNode(identity; render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
+  adapt_luminance = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+  combine = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+
+  @add_resource_dependencies rg begin
+    (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
+    color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
+    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, bloom_downsample_3::Texture)
+    output::Color = combine((color * 4)::Color, average_luminance::Texture)
+  end
+
+  baked = Lava.bake(rg)
+  info = Lava.rendering_info(baked, combine)
+  @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(1920, 1080))
+  color_info, output_info = info.color_attachments
+  @test output_info.image_layout == Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+  @test output_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
+  @test output_info.store_op == Vk.ATTACHMENT_STORE_OP_STORE
+
+  @test color_info.image_layout == Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+  @test color_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
+  @test color_info.store_op == Vk.ATTACHMENT_STORE_OP_DONT_CARE
+  @test convert(Ptr{Cvoid}, color_info.resolve_image_view) ≠ C_NULL
 end

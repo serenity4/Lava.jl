@@ -164,13 +164,14 @@ function image(
   optimal_tiling = true,
   usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
   dims = nothing,
+  samples = Vk.SAMPLE_COUNT_1_BIT,
   kwargs...,
 )
   isnothing(data) && isnothing(dims) && error("Image dimensions must be specified if no data is provided.")
   isnothing(dims) && (dims = size(data))
   upload_usage = usage | Vk.IMAGE_USAGE_TRANSFER_DST_BIT
   optimal_tiling && (upload_usage |= Vk.IMAGE_USAGE_TRANSFER_SRC_BIT)
-  img = ImageBlock(device, dims, format, isnothing(data) ? usage : upload_usage; is_linear = !optimal_tiling)
+  img = ImageBlock(device, dims, format, isnothing(data) ? usage : upload_usage; is_linear = !optimal_tiling, samples, kwargs...)
   allocate!(img, memory_domain)
   isnothing(data) && return img
 
@@ -193,7 +194,7 @@ function attachment(
   dims = nothing,
   access::MemoryAccess = READ | WRITE,
   samples = Vk.SAMPLE_COUNT_1_BIT,
-  aspect = DEFAULT_ASPECT,
+  aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
 )
 
   if isnothing(data)
@@ -203,5 +204,30 @@ function attachment(
     img, state = image(device, data; format, usage, samples, dims)
     attachment = Attachment(View(img; aspect), access)
     attachment, state
+  end
+end
+
+# # Memory
+
+function Base.collect(memory::MemoryBlock, size::Integer, device::Optional{Device} = nothing)
+  Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory) && return collect(memory, size)
+  device::Device
+  src = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+  bind!(src, memory)
+
+  reqs = Vk.get_buffer_memory_requirements(device, src)
+  @assert reqs.size ≤ memory.size
+  dst = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
+  allocate!(dst, MEMORY_DOMAIN_HOST)
+  wait(transfer(device, src, dst; signal_fence = true, free_src = true))
+  collect(dst)
+end
+
+function Base.collect(memory::MemoryBlock, size::Integer = size(memory))
+  @assert Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory)
+  map(memory) do mapped
+    ptr = Libc.malloc(size)
+    @ccall memmove(ptr::Ptr{Cvoid}, mapped::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
+    Base.unsafe_wrap(Array, Ptr{UInt8}(ptr), (size,); own = true)
   end
 end

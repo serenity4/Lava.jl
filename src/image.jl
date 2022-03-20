@@ -35,14 +35,19 @@ struct ImageBlock{N,M} <: Image{N,M}
 end
 
 dims(image::ImageBlock) = image.dims
-format(image::ImageBlock) = image.format
 image_layout(image::ImageBlock) = image.layout[]
 image(image::ImageBlock) = image
 memory(image::ImageBlock) = image.memory[]
 isallocated(image::ImageBlock) = isdefined(image.memory, 1)
-samples(image::ImageBlock) = image.samples
-is_multisampled(x) = samples(x) ≠ Vk.SAMPLE_COUNT_1_BIT
-usage(image::ImageBlock) = image.usage
+format(x) = x.format
+mip_levels(x) = x.mip_levels
+layers(x) = x.layers
+samples(x) = x.samples
+is_multisampled(x) = is_multisampled(samples(x))
+is_multisampled(x::Integer) = x ≠ 1
+is_multisampled(x::Vk.SampleCountFlag) = x ≠ Vk.SAMPLE_COUNT_1_BIT
+
+usage(x) = x.usage
 
 function Vk.Extent3D(image::Image)
   d = dims(image)
@@ -142,7 +147,11 @@ View of a resource, such as an image or buffer.
 """
 abstract type View{O<:LavaAbstraction} <: LavaAbstraction end
 
-aspect(view) = view.aspect
+aspect(x) = x.aspect
+mip_range(x) = x.mip_range
+layer_range(x) = x.layer_range
+mip_range(image::Image) = 0:(mip_levels(image))
+layer_range(image::Image) = 1:(layers(image))
 
 struct ImageView{I<:Image} <: View{I}
   handle::Vk.ImageView
@@ -164,7 +173,7 @@ dim(T::Type{<:ImageView}) = dim(image_type(T))
 memory_type(T::Type{<:ImageView}) = memory_type(image_type(T))
 format(view::ImageView) = view.format
 
-@forward ImageView.image samples, dims, image_layout, usage, Vk.Offset3D, Vk.Extent3D, isallocated, image
+@forward ImageView.image (samples, dims, image_layout, usage, Vk.Offset3D, Vk.Extent3D, isallocated, image)
 
 function flag(T::Type{<:Image})
   @match dim(T) begin
@@ -184,11 +193,6 @@ end
 
 View(image::Image, args...; kwargs...) = ImageView(image, args...; kwargs...)
 
-const DEFAULT_ASPECT = Vk.IMAGE_ASPECT_COLOR_BIT
-
-default_mip_range(image) = 0:(image.mip_levels)
-default_layer_range(image) = 1:(image.layers)
-
 function ImageView(
   image::I;
   view_type = flag(ImageView{I}),
@@ -199,9 +203,9 @@ function ImageView(
     Vk.COMPONENT_SWIZZLE_IDENTITY,
     Vk.COMPONENT_SWIZZLE_IDENTITY,
   ),
-  aspect = DEFAULT_ASPECT,
-  mip_range = default_mip_range(image),
-  layer_range = default_layer_range(image),
+  aspect = aspect(image),
+  mip_range = mip_range(image),
+  layer_range = layer_range(image),
 ) where {I<:Image}
 
   info = Vk.ImageViewCreateInfo(
@@ -217,13 +221,11 @@ end
 
 subresource_range(aspect::Vk.ImageAspectFlag, mip_range::UnitRange, layer_range::UnitRange) =
   Vk.ImageSubresourceRange(aspect, mip_range.start, mip_range.stop - mip_range.start, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
-subresource_range(view::ImageView) = subresource_range(view.aspect, view.mip_range, view.layer_range)
-subresource_range(image::Image) = subresource_range(DEFAULT_ASPECT, default_mip_range(image), default_layer_range(image))
+subresource_range(x) = subresource_range(aspect(x), mip_range(x), layer_range(x))
 
-subresource_layers(aspect::Vk.ImageAspectFlag = DEFAULT_ASPECT, mip_range::Integer = 0, layer_range::UnitRange = DEFAULT_LAYER_RANGE) =
+subresource_layers(aspect::Vk.ImageAspectFlag, mip_range::Integer, layer_range::UnitRange) =
   Vk.ImageSubresourceLayers(aspect, mip_range, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
-subresource_layers(view::ImageView) = subresource_layers(view.aspect, first(view.mip_range), view.layer_range)
-subresource_layers(image::Image) = subresource_layers(DEFAULT_ASPECT, first(default_mip_range(image)), default_layer_range(image))
+subresource_layers(x) = subresource_layers(aspect(x), first(mip_range(x)), layer_range(x))
 
 """
 Opaque image that comes from the Window System Integration (WSI) as returned by `Vk.get_swapchain_images_khr`.

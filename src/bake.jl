@@ -4,24 +4,22 @@ struct BakedRenderGraph
   nodes::Vector{RenderNode}
   resources::PhysicalResources
   uses::Dictionary{NodeUUID,ResourceUses}
-  image_layouts::Dictionary{UUID,Vk.ImageLayout}
 end
 
-function BakedRenderGraph(device, nodes)
-  gd = GlobalData(device)
-  records, pipeline_hashes = record_commands!(baked, nodes)
+function BakedRenderGraph(device, nodes, resources, uses)
+  BakedRenderGraph(device, GlobalData(device), nodes, resources, uses)
 end
 
-function bake(rg::RenderGraph, uses)
-  gd = GlobalData(rg.device)
+function bake(rg::RenderGraph)
   uses = ResourceUses(rg)
   check_physical_resources(rg, uses)
-  resources = merge(materialize_logical_resources(rg), rg.physical_resources)
-  BakedRenderGraph(rg.device, gd, sort_nodes(rg), resources, uses, Dictionary())
+  resources = merge(materialize_logical_resources(rg, uses), rg.physical_resources)
+  BakedRenderGraph(rg.device, sort_nodes(rg), resources, rg.uses)
 end
 
 function render(baked::BakedRenderGraph, command_buffer::CommandBuffer)
   create_pipelines!(device)
+  records, pipeline_hashes = record_commands!(baked, nodes)
 
   # Fill command buffer with synchronization commands & recorded commands.
   initialize(command_buffer, device, baked.global_data)
@@ -46,12 +44,13 @@ end
 
 function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, nodes, records, pipeline_hashes)
   binding_state = BindState()
+  state = SynchronizationState()
   for (node, record) in zip(nodes, records)
-    synchronize_before(cb, baked, node)
+    synchronize_before!(state, cb, baked, node)
     begin_render_node(cb, baked, node)
     binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes)
     end_render_node(node, cb)
-    synchronize_after(cb, baked, node)
+    synchronize_after!(state, cb, baked, node)
   end
 end
 
@@ -60,9 +59,9 @@ function rendering_info(rg::BakedRenderGraph, node::RenderNode)
   depth_attachment = C_NULL
   stencil_attachment = C_NULL
 
-  for (uuid, attachment_usage) in rg.uses[node.uuid].attachments
-    attachment = rg.physical_resources[uuid]
-    (; aspect) = usage
+  for (uuid, attachment_usage) in pairs(rg.uses[node.uuid].attachments)
+    attachment = rg.resources.attachments[uuid]
+    (; aspect) = attachment_usage
     info = rendering_info(attachment, attachment_usage)
     if Vk.IMAGE_ASPECT_COLOR_BIT in aspect
       push!(color_attachments, info)
@@ -86,111 +85,91 @@ function rendering_info(rg::BakedRenderGraph, node::RenderNode)
   )
 end
 
-struct ResourceSynchronizationState
-  accesses::Dictionary{Vk.AccessFlag2, Vk.PipelineStageFlag2}
+struct SyncRequirements
+  access::Vk.AccessFlag2
+  stages::Vk.PipelineStageFlag2
+end
+
+SyncRequirements() = SyncRequirements(0, 0)
+SyncRequirements(usage::ResourceUsage) = SyncRequirements(access_bits(usage), usage.stages)
+
+struct ResourceState
+  sync_reqs::SyncRequirements
+  last_accesses::Dictionary{Vk.AccessFlag2, Vk.PipelineStageFlag2}
   current_layout::Ref{Vk.ImageLayout}
 end
 
-ResourceSynchronizationState() = ResourceSynchronizationState(Dictionary(), Ref{Vk.ImageLayout}())
+ResourceState(usage::BufferUsage) = ResourceState(SyncRequirements(usage), Dictionary(), Ref{Vk.ImageLayout}())
+ResourceState(usage::ResourceUsage, layout) = ResourceState(SyncRequirements(usage), Dictionary(), layout)
+ResourceState(layout::Ref{Vk.ImageLayout} = Ref{Vk.ImageLayout}()) = ResourceState(SyncRequirements(), Dictionary(), layout)
 
 struct SynchronizationState
-  node::RenderNode
-  resources::Dictionary{ResourceUUID, ResourceSynchronizationState}
+  resources::Dictionary{ResourceUUID, ResourceState}
 end
 
-SynchronizationState(node::RenderNode) = SynchronizationState(node, Dictionary())
+SynchronizationState() = SynchronizationState(Dictionary())
 
-function synchronize(state::SynchronizationState, deps::ResourceDependency, resource::PhysicalResource)
-  rstate = get!(SynchronizationState, state.resources, resource.uuid)
-  
+must_synchronize(reqs::SyncRequirements, usage) = WRITE in usage.access || !iszero(reqs.stages)
+must_synchronize(reqs::SyncRequirements, usage, from_layout, to_layout) = must_synchronize(reqs, usage) || from_layout ≠ to_layout
+
+function synchronize!(state::SynchronizationState, resource::PhysicalBuffer, usage::BufferUsage)
+  rstate = get!(ResourceState, state.resources, resource.uuid)
+  reqs = restrict_sync_requirements(last_accesses, SyncRequirements(usage))
+  must_synchronize(reqs, usage) || return
+  WRITE in usage.access && (state.resources[resource.uuid] = ResourceState(usage))
+  Vk.BufferMemoryBarrier2(0, 0, resource.buffer, resource.offset, resource.size; src_access_mask = rstate.sync_reqs.access, dst_access_mask = sync_reqs.access, src_stage_mask = rstate.sync_reqs.stages, dst_stage_mask = sync_reqs.stages)
 end
 
-function dependency_info(baked::BakedRenderGraph, node::RenderNode)
-  info = Vk.DependencyInfoKHR([], [], [])
-  for resource in neighbors(g, pass)
-    (req_access, req_stages) = access(g, pass, resource) => stages(g, pass)
-    # if the resource was not written to recently, no synchronization is required
-    if has_prop(g, resource, :last_write)
-      (r_access, p_stages) = last_write(g, resource)
-      req_access_bits = access_bits(type, req_access, req_stages)
-      sync_state = synchronization_state(g, resource)
-      synced_stages = Vk.PipelineStageFlag(0)
-      barrier_needed = true
-      for (access, stages) in pairs(sync_state)
-        if covers(access, req_access_bits)
-          synced_stages |= (stages & req_stages)
-        end
-        if synced_stages == req_stages
-          barrier_needed = false
-          break
-        else
-          # keep only stages that haven't been synced
-          req_stages &= ~synced_stages
-        end
-      end
-      if barrier_needed
-        @switch class begin
-          @case &RESOURCE_CLASS_BUFFER
-          buff = buffer(g, resource)
-          barrier = Vk.BufferMemoryBarrier2KHR(
-            0, 0, handle(buff), offset(buff), size(buff);
-            src_stage_mask = p_stages,
-            src_access_mask = r_access,
-            dst_stage_mask = req_stages,
-            dst_access_mask = req_access_bits,
-          )
-          push!(info.buffer_memory_barriers, barrier)
-          @case &RESOURCE_CLASS_IMAGE || &RESOURCE_CLASS_ATTACHMENT
-          view = if class == RESOURCE_CLASS_IMAGE
-            View(image(g, resource))
-          else
-            attachment(g, resource).view
-          end
-          new_layout = image_layout(g, pass, resource)
-          range = subresource_range(view)
-          barrier = Vk.ImageMemoryBarrier2KHR(
-            current_layout(g, resource), new_layout, 0, 0, handle(view.image), range;
-            src_stage_mask = p_stages,
-            src_access_mask = r_access,
-            dst_stage_mask = req_stages,
-            dst_access_mask = req_access_bits,
-          )
-          push!(info.image_memory_barriers, barrier)
-          set_prop!(g, resource, :current_layout, new_layout)
-          view.image.layout[] = new_layout
-        end
-        set!(sync_state, req_access_bits, req_stages)
-      end
-    elseif class in (RESOURCE_CLASS_IMAGE, RESOURCE_CLASS_ATTACHMENT) && current_layout(g, resource) ≠ image_layout(g, pass, resource)
-      # perform the required layout transition without further synchronization
-      view = if class == RESOURCE_CLASS_IMAGE
-        View(image(g, resource))
-      else
-        attachment(g, resource).view
-      end
-      new_layout = image_layout(g, pass, resource)
-      barrier = Vk.ImageMemoryBarrier2KHR(current_layout(g, resource), new_layout, 0, 0, handle(view.image), subresource_range(view))
-      push!(info.image_memory_barriers, barrier)
-      set_prop!(g, resource, :current_layout, new_layout)
-      view.image.layout[] = new_layout
+function restrict_sync_requirements(last_accesses, sync_reqs)
+  remaining_sync_stages = sync_reqs.stages
+  for (access, stages) in pairs(last_accesses)
+    if covers(access, sync_reqs.access)
+      remaining_sync_stages &= ~stages
     end
-    if WRITE in req_access
-      set_prop!(g, resource, :last_write, access_bits(resource_type(g, pass, resource), req_access, req_stages) => req_stages)
-      set_prop!(g, resource, :synchronization_state, Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}())
-    end
+    iszero(remaining_sync_stages) && break
   end
-  info, state
+  remaining_sync_stages
+end
+
+function synchronize!(state::SynchronizationState, resource::PhysicalResource, usage::ResourceUsage)
+  rstate = get!(() -> ResourceState(resource.layout), state.resources, resource.uuid)
+  sync_reqs = restrict_sync_requirements(rstate.last_accesses, rstate.sync_reqs)
+  from_layout = rstate.current_layout[]
+  to_layout = image_layout(usage)
+  must_synchronize(sync_reqs, usage, from_layout, to_layout) || return
+  rstate.current_layout[] = to_layout
+  WRITE in usage.access && (state.resources[resource.uuid] = ResourceState(usage, resource.layout))
+  Vk.ImageMemoryBarrier2(from_layout, to_layout, 0, 0, resource.image, subresource_range(resource); src_access_mask = rstate.sync_reqs.access, dst_access_mask = sync_reqs.access, src_stage_mask = rstate.sync_reqs.stages, dst_stage_mask = sync_reqs.stages)
+end
+
+add_barrier!(info::Vk.DependencyInfoKHR, barrier::Vk.BufferMemoryBarrier2) = push!(info.buffer_memory_barriers, barrier)
+add_barrier!(info::Vk.DependencyInfoKHR, barrier::Vk.ImageMemoryBarrier2) = push!(info.image_memory_barriers, barrier)
+
+function dependency_info!(state::SynchronizationState, baked::BakedRenderGraph, node::RenderNode)
+  info = Vk.DependencyInfoKHR([], [], [])
+  uses = baked.uses[node.uuid]
+  for (resource_uuid, usage) in pairs(uses.buffers)
+    barrier = synchronize!(state, baked.resources.buffers[resource_uuid], usage)
+    !isnothing(barrier) && add_barrier!(info, barrier)
+  end
+  for (resource_uuid, usage) in pairs(uses.images)
+    barrier = synchronize!(state, baked.resources.images[resource_uuid], usage)
+    !isnothing(barrier) && add_barrier!(info, barrier)
+  end
+  for (resource_uuid, usage) in pairs(uses.attachments)
+    barrier = synchronize!(state, baked.resources.attachments[resource_uuid], usage)
+    !isnothing(barrier) && add_barrier!(info, barrier)
+  end
 end
 
 """
 Build barriers for all resources that require it.
 """
-function synchronize_before(cb, baked::BakedRenderGraph, node::RenderNode, state::SynchronizationState)
-  state, info = dependency_info(baked, node, state)
+function synchronize_before!(state::SynchronizationState, cb, baked::BakedRenderGraph, node::RenderNode)
+  info = dependency_info!(state, baked, node)
   if !isempty(info.image_memory_barriers) || !isempty(info.buffer_memory_barriers)
     Vk.cmd_pipeline_barrier_2_khr(cb, info)
   end
-  state
 end
 
 function begin_render_node(cb, rg::RenderGraph, node::RenderNode)
@@ -204,9 +183,10 @@ function end_render_node(cb, node)
   end
 end
 
-function synchronize_after(cb, rg, node)
+function synchronize_after!(state::SynchronizationState, cb, rg, node)
   nothing
 end
+
 
 """
 Return whether `x` covers accesses of type `y`; that is, whether guarantees about memory access operations in `x` induce guarantees about memory access operations in `y`.

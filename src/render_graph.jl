@@ -32,7 +32,7 @@ function RenderNode(render; stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_
 end
 
 usage(::BufferAny_T, node::RenderNode, dep::ResourceDependency) = BufferUsage(; dep.type, dep.access, node.stages, usage = buffer_usage_bits(dep.type, dep.access))
-usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access))
+usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access), samples = Vk.SampleCountFlag(dep.samples))
 usage(::AttachmentAny_T, node::RenderNode, dep::ResourceDependency) = AttachmentUsage(; dep.type, dep.access, dep.clear_value, samples = Vk.SampleCountFlag(dep.samples), node.stages, usage = image_usage_bits(dep.type, dep.access), aspect = aspect_bits(dep.type))
 
 struct ResourceDependencies
@@ -99,21 +99,16 @@ struct RenderGraph
   node_indices::Dictionary{NodeUUID,Int}
   node_indices_inv::Dictionary{Int,NodeUUID}
   resource_indices::Dictionary{ResourceUUID,Int}
-  "Combined use of render graph resources."
+  "Resource uses per node."
   uses::Dictionary{NodeUUID,ResourceUses}
-  "Per-node resource dependencies."
-  resource_dependencies::ResourceDependencies
   logical_resources::LogicalResources
   physical_resources::PhysicalResources
   "Temporary resources meant to be thrown away after execution."
   temporary::Vector{UUID}
-  "Execution dependencies that must be preserved during execution."
-  dependencies::Vector{Any}
 end
 
 function RenderGraph(device::Device)
-  RenderGraph(device, MetaGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(),
-    ResourceDependencies(), LogicalResources(), PhysicalResources(), [], [])
+  RenderGraph(device, MetaGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), [])
 end
 
 device(rg::RenderGraph) = rg.device
@@ -306,11 +301,14 @@ function execution_graph(rg::RenderGraph)
   eg = SimpleDiGraph(length(rg.nodes))
   for node in rg.nodes
     dst = rg.node_indices[node.uuid]
-    for (uuid, usage) in rg.uses[node.uuid]
-      WRITE in usage.access || continue
-      for src in neighbors(g, rg.resource_indices[uuid])
-        src == dst && continue
-        add_edge!(eg, src, dst)
+    uses = rg.uses[node.uuid]
+    for collection in (uses.buffers, uses.images, uses.attachments)
+      for (uuid, usage) in pairs(collection)
+        WRITE in usage.access || continue
+        for src in neighbors(g, rg.resource_indices[uuid])
+          src == dst && continue
+          add_edge!(eg, src, dst)
+        end
       end
     end
   end
@@ -342,114 +340,10 @@ function sort_nodes(rg::RenderGraph)
   eg = execution_graph(rg)
   !is_cyclic(eg) || error("The render graph is cyclical, cannot determine an execution order.")
   indices = topological_sort_by_dfs(eg)
-  map(indices) do index
-    rg.nodes[rg.node_indices_inv[index]]
-  end
+  collect(rg.nodes)[indices]
 end
 
-"""
-Deduce the Vulkan usage, layout and access flags form a resource given its type, stage and access.
-
-The idea is to reconstruct information like `Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT` and `Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` from a more decoupled description.
-"""
-function image_layout(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag)
-  @match (type, access) begin
-    (&RESOURCE_TYPE_COLOR_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    (&RESOURCE_TYPE_COLOR_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    (&RESOURCE_TYPE_COLOR_ATTACHMENT || &RESOURCE_TYPE_IMAGE || RESOURCE_TYPE_TEXTURE, &(READ | WRITE)) => Vk.IMAGE_LAYOUT_GENERAL
-    (&RESOURCE_TYPE_DEPTH_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
-    (&RESOURCE_TYPE_DEPTH_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
-    (&RESOURCE_TYPE_STENCIL_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL
-    (&RESOURCE_TYPE_STENCIL_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL
-    (&(RESOURCE_TYPE_DEPTH_ATTACHMENT | RESOURCE_TYPE_STENCIL_ATTACHMENT), &READ) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-    (&(RESOURCE_TYPE_DEPTH_ATTACHMENT | RESOURCE_TYPE_STENCIL_ATTACHMENT), &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    (&RESOURCE_TYPE_INPUT_ATTACHMENT || &RESOURCE_TYPE_TEXTURE || &RESOURCE_TYPE_IMAGE, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    _ => error("Unsupported combination of type $type and access $access")
-  end
-end
-
-function buffer_usage_bits(type::ResourceType, access::MemoryAccess)
-  bits = Vk.BufferUsageFlag(0)
-
-  RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_STORAGE in type && (bits |= Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
-  RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT)
-  RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
-  RESOURCE_TYPE_BUFFER in type && access == READ && (bits |= Vk.BUFFER_USAGE_UNIFORM_BUFFER_BIT)
-
-  bits
-end
-
-function image_usage_bits(type::ResourceType, access::MemoryAccess)
-  bits = Vk.ImageUsageFlag(0)
-
-  RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-  (RESOURCE_TYPE_DEPTH_ATTACHMENT in type || RESOURCE_TYPE_STENCIL_ATTACHMENT in type) && (bits |= Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-  RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-  RESOURCE_TYPE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
-  RESOURCE_TYPE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
-
-  bits
-end
-
-const SHADER_STAGES = |(
-  Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR,
-  Vk.PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT_KHR,
-  Vk.PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT_KHR,
-  Vk.PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT_KHR,
-  Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR,
-  Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-)
-
-function access_bits(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag2)
-  bits = Vk.AccessFlag(0)
-  RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_VERTEX_ATTRIBUTE_READ_BIT)
-  RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_INDEX_READ_BIT)
-  if RESOURCE_TYPE_COLOR_ATTACHMENT in type
-    READ in access && (bits |= Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT)
-    WRITE in access && (bits |= Vk.ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
-  end
-  if (RESOURCE_TYPE_DEPTH_ATTACHMENT in type || RESOURCE_TYPE_STENCIL_ATTACHMENT in type)
-    #TODO: support mixed access modes (depth write, stencil read and vice-versa)
-    READ in access && (bits |= Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT)
-    WRITE in access && (bits |= Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
-  end
-  RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.ACCESS_INPUT_ATTACHMENT_READ_BIT)
-  if RESOURCE_TYPE_BUFFER in type && !iszero(stage & SHADER_STAGES)
-    access == READ && (bits |= Vk.ACCESS_UNIFORM_READ_BIT)
-    WRITE in access && (bits |= Vk.ACCESS_SHADER_WRITE_BIT)
-  end
-  RESOURCE_TYPE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_SHADER_READ_BIT)
-  RESOURCE_TYPE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_SHADER_WRITE_BIT)
-  bits
-end
-
-function aspect_bits(type::ResourceType)
-  bits = Vk.ImageAspectFlag(0)
-  RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_COLOR_BIT)
-  RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_DEPTH_BIT)
-  RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_STENCIL_BIT)
-  bits
-end
-
-function descriptor_type(type::ResourceType, access::MemoryAccess)
-  @match access, type begin
-    &(RESOURCE_TYPE_IMAGE | RESOURCE_TYPE_STORAGE) => Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE
-    &(RESOURCE_TYPE_TEXEL | RESOURCE_TYPE_BUFFER) => Vk.DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER
-    &(RESOURCE_TYPE_UNIFORM | RESOURCE_TYPE_BUFFER) => Vk.DESCRIPTOR_TYPE_UNIFORM_BUFFER
-    &(RESOURCE_TYPE_UNIFORM | RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_DYNAMIC) => Vk.DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
-    &(RESOURCE_TYPE_UNIFORM | RESOURCE_TYPE_TEXEL | RESOURCE_TYPE_BUFFER) => Vk.DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
-    &(RESOURCE_TYPE_STORAGE | RESOURCE_TYPE_BUFFER) => Vk.DESCRIPTOR_TYPE_STORAGE_BUFFER
-    &(RESOURCE_TYPE_STORAGE | RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_DYNAMIC) => Vk.DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
-    &RESOURCE_TYPE_TEXTURE => Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE
-    &(RESOURCE_TYPE_TEXTURE | ESOURCE_TYPE_SAMPLER) => Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-    &RESOURCE_TYPE_SAMPLER => Vk.DESCRIPTOR_TYPE_SAMPLER
-    _ => error("Unsupported combination of type $type and access $access")
-  end
-end
-
-function ResourceUses(rg::RenderGraph)
-  merge(values(rg.uses)...)
-end
+ResourceUses(rg::RenderGraph) = merge(values(rg.uses)...)
 
 function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
   res = PhysicalResources()
@@ -505,17 +399,4 @@ function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
     usage.aspect in attachment.aspect ||
       error("An existing attachment with aspect $(attachment.aspect) was provided, but is used with an aspect of $(usage.aspect).")
   end
-end
-
-function ResourceClass(type::ResourceType)
-  RESOURCE_TYPE_TEXTURE in type && return RESOURCE_CLASS_IMAGE
-  RESOURCE_TYPE_IMAGE in type && return RESOURCE_CLASS_IMAGE
-  RESOURCE_TYPE_INPUT_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
-  RESOURCE_TYPE_COLOR_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
-  RESOURCE_TYPE_DEPTH_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
-  RESOURCE_TYPE_STENCIL_ATTACHMENT in type && return RESOURCE_CLASS_ATTACHMENT
-  RESOURCE_TYPE_BUFFER in type && return RESOURCE_CLASS_BUFFER
-  RESOURCE_TYPE_VERTEX_BUFFER in type && return RESOURCE_CLASS_BUFFER
-  RESOURCE_TYPE_INDEX_BUFFER in type && return RESOURCE_CLASS_BUFFER
-  error("Resource type '$type' does not belong to any resource class.")
 end

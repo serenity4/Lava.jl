@@ -65,7 +65,7 @@ end
 
 MemoryBlock(device, size::Integer, type::Integer, domain::MemoryDomain) = unwrap(memory_block(device, size, type, domain))
 
-function memory_block(device, size, type, domain)
+function memory_block(device, size, type, domain)::ResultTypes.Result{MemoryBlock, Vk.VulkanError}
   prop, i = find_memory_type(physical_device(device), type, domain)
   next = Vk.MemoryAllocateFlagsInfo(0; flags = Vk.MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT)
   @propagate_errors memory = create(MemoryBlock, device, Vk.MemoryAllocateInfo(size, i; next))
@@ -143,29 +143,6 @@ Base.lastindex(memory::Memory) = size(memory)
 
 "Memory that can't be accessed by the renderer."
 struct OpaqueMemory <: Memory end
-
-function Base.collect(memory::MemoryBlock, size::Integer, device)
-  Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory) && return collect(memory, size)
-  device::Device
-  src = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-  bind!(src, memory)
-
-  reqs = Vk.get_buffer_memory_requirements(device, src)
-  @assert reqs.size ≤ memory.size
-  dst = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
-  allocate!(dst, MEMORY_DOMAIN_HOST)
-  wait(transfer(device, src, dst; signal_fence = true, free_src = true))
-  collect(dst)
-end
-
-function Base.collect(memory::MemoryBlock, size::Integer = size(memory))
-  @assert Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory)
-  map(memory) do mapped
-    ptr = Libc.malloc(size)
-    @ccall memmove(ptr::Ptr{Cvoid}, mapped::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
-    Base.unsafe_wrap(Array, Ptr{UInt8}(ptr), (size,); own = true)
-  end
-end
 
 function Base.show(io::IO, block::MemoryBlock)
   print(io, MemoryBlock, "($(Base.format_bytes(size(block))), $(block.domain))")
