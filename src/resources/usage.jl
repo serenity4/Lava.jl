@@ -118,25 +118,25 @@ const SHADER_STAGES = |(
 )
 
 function access_bits(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag2)
-  bits = Vk.AccessFlag(0)
-  RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_VERTEX_ATTRIBUTE_READ_BIT)
-  RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_INDEX_READ_BIT)
+  bits = Vk.AccessFlag2(0)
+  RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT)
+  RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_2_INDEX_READ_BIT)
   if RESOURCE_TYPE_COLOR_ATTACHMENT in type
-    READ in access && (bits |= Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT)
-    WRITE in access && (bits |= Vk.ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+    READ in access && (bits |= Vk.ACCESS_2_COLOR_ATTACHMENT_READ_BIT)
+    WRITE in access && (bits |= Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
   end
   if (RESOURCE_TYPE_DEPTH_ATTACHMENT in type || RESOURCE_TYPE_STENCIL_ATTACHMENT in type)
     #TODO: support mixed access modes (depth write, stencil read and vice-versa)
-    READ in access && (bits |= Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT)
-    WRITE in access && (bits |= Vk.ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
+    READ in access && (bits |= Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)
+    WRITE in access && (bits |= Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
   end
-  RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.ACCESS_INPUT_ATTACHMENT_READ_BIT)
+  RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.ACCESS_2_INPUT_ATTACHMENT_READ_BIT)
   if RESOURCE_TYPE_BUFFER in type && !iszero(stage & SHADER_STAGES)
-    access == READ && (bits |= Vk.ACCESS_UNIFORM_READ_BIT)
-    WRITE in access && (bits |= Vk.ACCESS_SHADER_WRITE_BIT)
+    access == READ && (bits |= Vk.ACCESS_2_UNIFORM_READ_BIT)
+    WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
   end
-  RESOURCE_TYPE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_SHADER_READ_BIT)
-  RESOURCE_TYPE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_SHADER_WRITE_BIT)
+  RESOURCE_TYPE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_2_SHADER_READ_BIT)
+  RESOURCE_TYPE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
   bits
 end
 

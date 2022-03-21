@@ -148,8 +148,6 @@ abstract type View{O<:LavaAbstraction} <: LavaAbstraction end
 aspect(x) = x.aspect
 mip_range(x) = x.mip_range
 layer_range(x) = x.layer_range
-mip_range(image::Image) = 0:(mip_levels(image))
-layer_range(image::Image) = 1:(layers(image))
 
 struct ImageView{I<:Image} <: View{I}
   handle::Vk.ImageView

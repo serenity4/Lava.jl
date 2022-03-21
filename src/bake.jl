@@ -109,13 +109,13 @@ end
 
 SynchronizationState() = SynchronizationState(Dictionary())
 
-must_synchronize(reqs::SyncRequirements, usage) = WRITE in usage.access || !iszero(reqs.stages)
-must_synchronize(reqs::SyncRequirements, usage, from_layout, to_layout) = must_synchronize(reqs, usage) || from_layout ≠ to_layout
+must_synchronize(sync_reqs::SyncRequirements, usage) = WRITE in usage.access || iszero(sync_reqs.stages)
+must_synchronize(sync_reqs::SyncRequirements, usage, from_layout, to_layout) = must_synchronize(sync_reqs, usage) || from_layout ≠ to_layout
 
 function synchronize!(state::SynchronizationState, resource::PhysicalBuffer, usage::BufferUsage)
   rstate = get!(ResourceState, state.resources, resource.uuid)
-  reqs = restrict_sync_requirements(last_accesses, SyncRequirements(usage))
-  must_synchronize(reqs, usage) || return
+  sync_reqs = restrict_sync_requirements(rstate.last_accesses, SyncRequirements(usage))
+  must_synchronize(sync_reqs, usage) || return
   WRITE in usage.access && (state.resources[resource.uuid] = ResourceState(usage))
   Vk.BufferMemoryBarrier2(0, 0, resource.buffer, resource.offset, resource.size; src_access_mask = rstate.sync_reqs.access, dst_access_mask = sync_reqs.access, src_stage_mask = rstate.sync_reqs.stages, dst_stage_mask = sync_reqs.stages)
 end
@@ -128,7 +128,7 @@ function restrict_sync_requirements(last_accesses, sync_reqs)
     end
     iszero(remaining_sync_stages) && break
   end
-  remaining_sync_stages
+  @set sync_reqs.stages = remaining_sync_stages
 end
 
 function synchronize!(state::SynchronizationState, resource::PhysicalResource, usage::ResourceUsage)
@@ -160,6 +160,7 @@ function dependency_info!(state::SynchronizationState, baked::BakedRenderGraph, 
     barrier = synchronize!(state, baked.resources.attachments[resource_uuid], usage)
     !isnothing(barrier) && add_barrier!(info, barrier)
   end
+  info
 end
 
 """

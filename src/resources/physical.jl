@@ -32,6 +32,12 @@ struct PhysicalImage <: PhysicalResource
   info::LogicalImage
 end
 
+@forward PhysicalImage.info (format, dims, mip_levels, layers)
+
+mip_range(image::Union{Image, PhysicalImage}) = 0:(mip_levels(image))
+aspect(image::Union{Image, PhysicalImage}) = Vk.IMAGE_ASPECT_COLOR_BIT
+layer_range(image::Union{Image, PhysicalImage}) = 1:(layers(image))
+
 PhysicalImage(uuid::ResourceUUID, image::Image) = PhysicalImage(uuid, handle(image), handle(memory(image)), usage(image), image.layout, LogicalImage(uuid, image))
 
 struct PhysicalAttachment <: PhysicalResource
@@ -47,6 +53,8 @@ struct PhysicalAttachment <: PhysicalResource
   resolve_image_memory::Optional{Vk.DeviceMemory}
   info::LogicalAttachment
 end
+
+@forward PhysicalAttachment.info (samples, mip_range, layer_range, format, dims)
 
 function PhysicalAttachment(uuid::ResourceUUID, attachment::Attachment)
   (; image) = attachment.view

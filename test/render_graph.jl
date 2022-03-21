@@ -156,4 +156,16 @@ end
   @test color_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
   @test color_info.store_op == Vk.ATTACHMENT_STORE_OP_DONT_CARE
   @test convert(Ptr{Cvoid}, color_info.resolve_image_view) == C_NULL
+
+  state = Lava.SynchronizationState()
+  info = Lava.dependency_info!(state, baked, gbuffer)
+  # No synchronization required for first use.
+  @test length(info.buffer_memory_barriers) == 0
+  # Except for image layout transitions.
+  @test length(info.image_memory_barriers) == 5
+  @test all(barrier.old_layout ≠ barrier.new_layout for barrier in info.image_memory_barriers)
+
+  info = Lava.dependency_info!(state, baked, lighting)
+  @test length(info.buffer_memory_barriers) == 0
+  @test length(info.image_memory_barriers) == 8
 end
