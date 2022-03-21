@@ -124,7 +124,7 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
       @test v isa ImageView
 
       img = image(device; dims = (512, 512), format = Vk.FORMAT_R32G32B32A32_SFLOAT)
-      @test img isa Image
+      @test img isa Lava.Image
       img = wait(image(device, rand(RGBA{Float32}, 512, 512); format = Vk.FORMAT_R32G32B32A32_SFLOAT))
       @test isallocated(img)
     end
@@ -161,7 +161,7 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
   end
 
   @testset "Render Graph" begin
-    include("frame_graph.jl")
+    include("render_graph.jl")
   end
 
   @testset "Examples" begin

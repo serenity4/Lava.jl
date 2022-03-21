@@ -60,7 +60,8 @@ function transfer(
   end
 end
 
-Base.collect(buffer::Buffer, device::Optional{Device} = nothing) = collect(memory(buffer), size(buffer), device)
+Base.collect(buffer::Buffer) = collect(memory(buffer), size(buffer))
+Base.collect(buffer::Buffer, device::Device) = collect(memory(buffer), size(buffer), device)
 Base.collect(::Type{T}, buffer::Buffer, device::Optional{Device} = nothing) where {T} = reinterpret(T, collect(buffer, device))
 
 # # Images

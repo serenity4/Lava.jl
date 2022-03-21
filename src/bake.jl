@@ -18,8 +18,8 @@ function bake(rg::RenderGraph)
 end
 
 function render(baked::BakedRenderGraph, command_buffer::CommandBuffer)
+  records, pipeline_hashes = record_commands!(baked)
   create_pipelines!(device)
-  records, pipeline_hashes = record_commands!(baked, nodes)
 
   # Fill command buffer with synchronization commands & recorded commands.
   initialize(command_buffer, device, baked.global_data)
@@ -33,7 +33,7 @@ function record_commands!(baked::BakedRenderGraph)
 
   # record commands and submit pipelines for creation
   for node in baked.nodes
-    record = CompactRecord(baked.device, baked.global_data, node)
+    record = CompactRecord(baked.global_data, node)
     node.render(record)
     push!(records, record)
     merge!(pipeline_hashes, request_pipelines(baked, record))
@@ -49,7 +49,7 @@ function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, nodes, records, 
     synchronize_before!(state, cb, baked, node)
     begin_render_node(cb, baked, node)
     binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes)
-    end_render_node(node, cb)
+    end_render_node(cb, baked, node)
     synchronize_after!(state, cb, baked, node)
   end
 end
@@ -178,7 +178,7 @@ function begin_render_node(cb, rg::RenderGraph, node::RenderNode)
   Vk.cmd_begin_rendering(cb, rendering_info(rg, node))
 end
 
-function end_render_node(cb, node)
+function end_render_node(cb, baked, node::RenderNode)
   if !isnothing(node.render_pass)
     Vk.cmd_end_rendering(cb)
   end

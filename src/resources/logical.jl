@@ -30,7 +30,7 @@ end
 LogicalAttachment(uuid, format, dims::Tuple, args...) = LogicalAttachment(uuid, format, collect(dims), args...)
 
 function LogicalAttachment(
-  uuid::ResourceUUID,
+  uuid,
   format,
   dims = nothing;
   mip_range = 0:0,

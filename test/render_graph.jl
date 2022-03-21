@@ -24,53 +24,51 @@ instance, device = init(; with_validation = true)
 # fg = flamegraph(tinf)
 # ProfileView.view(fg)
 
+rg = RenderGraph(device)
+
+# Specify resources used for the rendering process.
+# Resources can either be physical (e.g. be allocated from a `device` and be bound to GPU memory)
+# or logical (the resource will be created lazily, enabling optimizations such as aliasing or
+# non-allocation of unused resources).
+
+# Logical resource.
+vbuffer = buffer(rg, 1024)
+@test vbuffer isa LogicalBuffer
+# Regular `BufferBlock`.
+ibuffer = wait(buffer(device, collect(1:100); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT))
+@test ibuffer isa BufferBlock
+
+# Logical resources all the way.
+average_luminance = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+emissive = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+albedo = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+normal = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+pbr = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+color = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT; samples = 4)
+output = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+depth = attachment(rg, Vk.FORMAT_D32_SFLOAT)
+shadow_main = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
+shadow_near = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
+bloom_downsample_3 = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+
+# No rendering done here, doesn't matter what function is passed. We pass in `identity`.
+gbuffer = RenderNode(
+  identity;
+  render_area = RenderArea(1920, 1080),
+  stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+)
+lighting = RenderNode(identity; render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
+adapt_luminance = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+combine = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+
+@add_resource_dependencies rg begin
+  (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
+  color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
+  average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, (bloom_downsample_3 * 4)::Texture)
+  output::Color = combine(color::Color, average_luminance::Texture)
+end
 
 @testset "Building a render graph" begin
-  rg = RenderGraph(device)
-
-  # Specify resources used for the rendering process.
-  # Resources can either be physical (e.g. be allocated from a `device` and be bound to GPU memory)
-  # or logical (the resource will be created lazily, enabling optimizations such as aliasing or
-  # non-allocation of unused resources).
-
-  # Logical resource.
-  vbuffer = buffer(rg, 1024)
-  @test vbuffer isa LogicalBuffer
-  # Regular `BufferBlock`.
-  ibuffer = wait(buffer(device, collect(1:100); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT))
-  @test ibuffer isa BufferBlock
-
-  # Logical resources all the way.
-  average_luminance = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
-  emissive = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  albedo = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  normal = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  pbr = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  color = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT; samples = 4)
-  output = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  depth = attachment(rg, Vk.FORMAT_D32_SFLOAT)
-  shadow_main = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
-  shadow_near = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
-  bloom_downsample_3 = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
-
-  # No rendering done here, doesn't matter what function is passed. We pass in `identity`.
-  transfer = RenderNode(identity) # unused
-  gbuffer = RenderNode(
-    identity;
-    render_area = RenderArea(1920, 1080),
-    stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-  )
-  lighting = RenderNode(identity; render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
-  adapt_luminance = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
-  combine = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
-
-  @add_resource_dependencies rg begin
-    (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
-    color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
-    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, (bloom_downsample_3 * 4)::Texture)
-    output::Color = combine(color::Color, average_luminance::Texture)
-  end
-
   @test nv(rg.resource_graph) == 4 + 13
   @test ne(rg.resource_graph) == 6 + 8 + 3 + 3
 
@@ -110,39 +108,6 @@ instance, device = init(; with_validation = true)
 end
 
 @testset "Baking a render graph" begin
-  rg = RenderGraph(device)
-
-  vbuffer = buffer(rg, 1024)
-  ibuffer = wait(buffer(device, collect(1:100); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT))
-  average_luminance = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
-  emissive = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  albedo = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  normal = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  pbr = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  color = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT; samples = 4)
-  output = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
-  depth = attachment(rg, Vk.FORMAT_D32_SFLOAT)
-  shadow_main = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
-  shadow_near = image(rg, Vk.FORMAT_D32_SFLOAT, (16, 16))
-  bloom_downsample_3 = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
-
-  transfer = RenderNode(identity) # unused
-  gbuffer = RenderNode(
-    identity;
-    render_area = RenderArea(1920, 1080),
-    stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-  )
-  lighting = RenderNode(identity; render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
-  adapt_luminance = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
-  combine = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
-
-  @add_resource_dependencies rg begin
-    (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
-    color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
-    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, (bloom_downsample_3 * 4)::Texture)
-    output::Color = combine(color::Color, average_luminance::Texture)
-  end
-
   baked = Lava.bake(rg)
   info = Lava.rendering_info(baked, combine)
   @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(1920, 1080))
@@ -168,4 +133,11 @@ end
   info = Lava.dependency_info!(state, baked, lighting)
   @test length(info.buffer_memory_barriers) == 0
   @test length(info.image_memory_barriers) == 8
+end
+
+@testset "Rendering" begin
+  baked = Lava.bake(rg)
+  empty!(device.pipeline_ht)
+  records, pipeline_hashes = Lava.record_commands!(baked)
+  Lava.create_pipelines(device)
 end
