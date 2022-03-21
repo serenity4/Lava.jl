@@ -37,7 +37,7 @@ memory(buffer::DenseBuffer) = buffer.memory[]
 
 struct BufferBlock{M<:DenseMemory} <: DenseBuffer{M}
   handle::Vk.Buffer
-  size::Int
+  size::Int64
   usage::Vk.BufferUsageFlag
   queue_family_indices::Vector{Int8}
   sharing_mode::Vk.SharingMode
@@ -102,9 +102,9 @@ end
 
 struct SubBuffer{B<:DenseBuffer} <: Buffer{SubMemory}
   buffer::B
-  offset::Int
-  stride::Int
-  size::Int
+  offset::Int64
+  stride::Int64
+  size::Int64
 end
 
 @forward SubBuffer.buffer handle

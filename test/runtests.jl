@@ -132,14 +132,14 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
     @testset "Data transfer" begin
       b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
       b2 = buffer(device; size = 8000, usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-      @test reinterpret(Int, collect(b1)) == collect(1:1000)
+      @test reinterpret(Int64, collect(b1)) == collect(1:1000)
       t = transfer(device, b1, b2; signal_fence = true)
       @test t isa ExecutionState
       @test wait(t)
-      @test reinterpret(Int, collect(b2, device)) == collect(1:1000)
+      @test reinterpret(Int64, collect(b2, device)) == collect(1:1000)
 
       b3 = wait(buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT))
-      @test reinterpret(Int, collect(b3, device)) == collect(1:1000)
+      @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)
 
       data = rand(RGBA{Float16}, 100, 100)
       usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT

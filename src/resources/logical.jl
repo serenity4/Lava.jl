@@ -2,16 +2,16 @@ abstract type LogicalResource end
 
 struct LogicalBuffer <: LogicalResource
   uuid::ResourceUUID
-  size::Int
+  size::Int64
 end
 LogicalBuffer(uuid::ResourceUUID, buffer::Buffer) = LogicalBuffer(uuid, size(buffer))
 
 struct LogicalImage <: LogicalResource
   uuid::ResourceUUID
   format::Vk.Format
-  dims::Vector{Int}
-  mip_levels::Int
-  layers::Int
+  dims::Vector{Int64}
+  mip_levels::Int64
+  layers::Int64
 end
 LogicalImage(uuid::ResourceUUID, format::Vk.Format, dims::Tuple, args...) = LogicalImage(uuid, format, collect(dims), args...)
 LogicalImage(uuid::ResourceUUID, image::Image) = LogicalImage(uuid, format(image), dims(image), mip_levels(image), layers(image))
@@ -21,10 +21,10 @@ struct LogicalAttachment <: LogicalResource
   uuid::ResourceUUID
   format::Vk.Format
   # If `nothing`, will inherit dimensions from the rendered area.
-  dims::Optional{Vector{Int}}
-  mip_range::UnitRange{Int}
-  layer_range::UnitRange{Int}
-  samples::Int
+  dims::Optional{Vector{Int64}}
+  mip_range::UnitRange{Int64}
+  layer_range::UnitRange{Int64}
+  samples::Int64
   resolve_mode::Vk.ResolveModeFlag
 end
 LogicalAttachment(uuid, format, dims::Tuple, args...) = LogicalAttachment(uuid, format, collect(dims), args...)

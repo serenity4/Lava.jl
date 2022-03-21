@@ -1,8 +1,8 @@
 Base.@kwdef struct LinearAllocatorPool
   device::Vk.Device
   allocators::Vector{LinearAllocator}
-  n_allocated::Int = 10
-  size_multiplier::Int = 2
+  n_allocated::Int64 = 10
+  size_multiplier::Int64 = 2
 end
 
 function allocate!(pool::LinearAllocatorPool, delta::Vector{UInt8}, start = 1)

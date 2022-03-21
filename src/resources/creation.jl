@@ -164,7 +164,7 @@ function image(
   optimal_tiling = true,
   usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
   dims = nothing,
-  samples = Vk.SAMPLE_COUNT_1_BIT,
+  samples = 1,
   kwargs...,
 )
   isnothing(data) && isnothing(dims) && error("Image dimensions must be specified if no data is provided.")
@@ -193,7 +193,7 @@ function attachment(
   usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
   dims = nothing,
   access::MemoryAccess = READ | WRITE,
-  samples = Vk.SAMPLE_COUNT_1_BIT,
+  samples = 1,
   aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
 )
 
@@ -209,7 +209,7 @@ end
 
 # # Memory
 
-function Base.collect(memory::MemoryBlock, size::Integer, device::Optional{Device} = nothing)
+function Base.collect(memory::MemoryBlock, size::Integer, device::Device)
   Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory) && return collect(memory, size)
   device::Device
   src = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)

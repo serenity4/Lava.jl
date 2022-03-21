@@ -1,14 +1,14 @@
 struct Queue <: LavaAbstraction
   handle::Vk.Queue
   capabilities::Vk.QueueFlag
-  index::Int
-  family::Int
+  index::Int64
+  family::Int64
 end
 
 vk_handle_type(::Type{Queue}) = Vk.Queue
 
 struct QueueDispatch
-  queues::Dictionary{Int,Vector{Queue}}
+  queues::Dictionary{Int64,Vector{Queue}}
   present_queue::Optional{Queue}
   """
   Build a `QueueDispatch` structure from a given device and configuration.
@@ -48,7 +48,7 @@ end
 
 function queue_infos(::Type{QueueDispatch}, physical_device::Vk.PhysicalDevice, config)
   # queue family index => count
-  families = Dictionary{Int,Int}()
+  families = Dictionary{Int64,Int64}()
   props::Vector{Union{Nothing,Vk.QueueFamilyProperties}} = Vk.get_physical_device_queue_family_properties(physical_device)
   config = deepcopy(config)
 

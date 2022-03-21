@@ -70,7 +70,7 @@ struct FrameState
     swapchain::RefValue{Swapchain}
     frames::Vector{Frame}
     current_frame::RefValue{Frame}
-    frame_count::RefValue{Int}
+    frame_count::RefValue{Int64}
     syncs::Dictionary{Frame,FrameSynchronization}
 end
 
@@ -86,7 +86,7 @@ function Vk.SurfaceCapabilitiesKHR(fs::FrameState)
     unwrap(get_physical_device_surface_capabilities_khr(device(fs).physical_device, info(fs.swapchain[]).surface))
 end
 
-function recreate_swapchain!(fs::FrameState, new_extent::NTuple{2,Int})
+function recreate_swapchain!(fs::FrameState, new_extent::NTuple{2,Int64})
     swapchain = fs.swapchain[]
     swapchain_info = setproperties(info(swapchain), old_swapchain = handle(swapchain), image_extent = Vk.Extent2D(new_extent...))
     swapchain_handle = unwrap(create_swapchain_khr(device(fs), swapchain_info))

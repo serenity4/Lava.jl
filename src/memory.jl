@@ -19,7 +19,7 @@ end
 
 struct MemoryBlock <: DenseMemory
   handle::Vk.DeviceMemory
-  size::Int
+  size::Int64
   properties::Vk.MemoryPropertyFlag
   domain::MemoryDomain
   is_bound::RefValue{Bool}
@@ -115,8 +115,8 @@ end
 
 struct SubMemory{M<:DenseMemory} <: DenseMemory
   memory::M
-  offset::Int
-  size::Int
+  offset::Int64
+  size::Int64
 end
 
 function SubMemory(memory, size; offset = 0)

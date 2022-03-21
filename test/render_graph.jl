@@ -67,17 +67,17 @@ instance, device = init(; with_validation = true)
   @add_resource_dependencies rg begin
     (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
     color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
-    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, bloom_downsample_3::Texture)
-    output::Color = combine((color * 4)::Color, average_luminance::Texture)
+    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, (bloom_downsample_3 * 4)::Texture)
+    output::Color = combine(color::Color, average_luminance::Texture)
   end
 
   @test nv(rg.resource_graph) == 4 + 13
   @test ne(rg.resource_graph) == 6 + 8 + 3 + 3
 
   # Per-node resource usage.
-  usage = rg.uses[combine.uuid][color]
-  @test usage.type == RESOURCE_TYPE_COLOR_ATTACHMENT
-  @test usage.samples == Vk.SAMPLE_COUNT_4_BIT
+  usage = rg.uses[adapt_luminance.uuid][bloom_downsample_3]
+  @test usage.type == RESOURCE_TYPE_TEXTURE
+  @test usage.samples == 4
 
   usage = rg.uses[gbuffer.uuid][emissive]
   @test usage.type == RESOURCE_TYPE_COLOR_ATTACHMENT
@@ -91,7 +91,7 @@ instance, device = init(; with_validation = true)
   @test usage.access == WRITE | READ
   @test usage.stages == Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT
   @test usage.aspect == Vk.IMAGE_ASPECT_COLOR_BIT
-  @test usage.samples == Vk.SAMPLE_COUNT_1_BIT | Vk.SAMPLE_COUNT_4_BIT
+  @test usage.samples == 1
 
   usage = uses[depth]
   @test usage.type == RESOURCE_TYPE_DEPTH_ATTACHMENT
@@ -139,8 +139,8 @@ end
   @add_resource_dependencies rg begin
     (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
     color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
-    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, bloom_downsample_3::Texture)
-    output::Color = combine((color * 4)::Color, average_luminance::Texture)
+    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, (bloom_downsample_3 * 4)::Texture)
+    output::Color = combine(color::Color, average_luminance::Texture)
   end
 
   baked = Lava.bake(rg)
@@ -150,9 +150,10 @@ end
   @test output_info.image_layout == Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
   @test output_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
   @test output_info.store_op == Vk.ATTACHMENT_STORE_OP_STORE
+  @test convert(Ptr{Cvoid}, output_info.resolve_image_view) == C_NULL
 
   @test color_info.image_layout == Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
   @test color_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
   @test color_info.store_op == Vk.ATTACHMENT_STORE_OP_DONT_CARE
-  @test convert(Ptr{Cvoid}, color_info.resolve_image_view) ≠ C_NULL
+  @test convert(Ptr{Cvoid}, color_info.resolve_image_view) == C_NULL
 end

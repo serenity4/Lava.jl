@@ -2,7 +2,7 @@ struct ResourceDependency
   type::ResourceType
   access::MemoryAccess
   clear_value::Optional{NTuple{4,Float32}}
-  samples::Int
+  samples::Int64
 end
 ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceDependency(type, access, clear_value, samples)
 
@@ -32,8 +32,8 @@ function RenderNode(render; stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_
 end
 
 usage(::BufferAny_T, node::RenderNode, dep::ResourceDependency) = BufferUsage(; dep.type, dep.access, node.stages, usage = buffer_usage_bits(dep.type, dep.access))
-usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access), samples = Vk.SampleCountFlag(dep.samples))
-usage(::AttachmentAny_T, node::RenderNode, dep::ResourceDependency) = AttachmentUsage(; dep.type, dep.access, dep.clear_value, samples = Vk.SampleCountFlag(dep.samples), node.stages, usage = image_usage_bits(dep.type, dep.access), aspect = aspect_bits(dep.type))
+usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access), dep.samples)
+usage(::AttachmentAny_T, node::RenderNode, dep::ResourceDependency) = AttachmentUsage(; dep.type, dep.access, dep.clear_value, dep.samples, node.stages, usage = image_usage_bits(dep.type, dep.access), aspect = aspect_bits(dep.type))
 
 struct ResourceDependencies
   node::Dictionary{NodeUUID,Dictionary{ResourceUUID,ResourceDependency}}
@@ -94,11 +94,11 @@ This graph is generated just-in-time, to convert the resource graph into a linea
 """
 struct RenderGraph
   device::Device
-  resource_graph::MetaGraph{Int}
+  resource_graph::MetaGraph{Int64}
   nodes::Dictionary{NodeUUID,RenderNode}
-  node_indices::Dictionary{NodeUUID,Int}
-  node_indices_inv::Dictionary{Int,NodeUUID}
-  resource_indices::Dictionary{ResourceUUID,Int}
+  node_indices::Dictionary{NodeUUID,Int64}
+  node_indices_inv::Dictionary{Int64,NodeUUID}
+  resource_indices::Dictionary{ResourceUUID,Int64}
   "Resource uses per node."
   uses::Dictionary{NodeUUID,ResourceUses}
   logical_resources::LogicalResources
@@ -392,9 +392,9 @@ function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
     usage = uses[attachment]
     usage.usage in attachment.usage ||
       error("An existing attachment with usage $(attachment.usage) was provided, but a usage of $(usage.usage) is required.")
-    usage.samples in attachment.samples ||
+    usage.samples == attachment.samples ||
       error(
-        "An existing attachment compatible with multisampling settings $(attachment.samples) samples was provided, but is used with a multisampling of $(usage.samples).",
+        "An existing attachment with a multisampling setting of $(attachment.samples) samples was provided, but is used with $(usage.samples) samples.",
       )
     usage.aspect in attachment.aspect ||
       error("An existing attachment with aspect $(attachment.aspect) was provided, but is used with an aspect of $(usage.aspect).")

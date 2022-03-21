@@ -4,9 +4,9 @@ struct DescriptorSet <: LavaAbstraction
 end
 
 Base.@kwdef struct GlobalDescriptorsConfig
-  textures::Int = 2048
-  storage_images::Int = 512
-  samplers::Int = 2048
+  textures::Int64 = 2048
+  storage_images::Int64 = 512
+  samplers::Int64 = 2048
 end
 
 struct DescriptorSetBindingState{T}

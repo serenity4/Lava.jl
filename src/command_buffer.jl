@@ -4,7 +4,7 @@ vk_handle_type(::Type{<:CommandBuffer}) = Vk.CommandBuffer
 
 struct SimpleCommandBuffer <: CommandBuffer
   handle::Vk.CommandBuffer
-  queue_family_index::Int
+  queue_family_index::Int64
 end
 
 function Vk.CommandBufferSubmitInfoKHR(cb::CommandBuffer)
@@ -17,7 +17,7 @@ end_recording(cb) = unwrap(Vk.end_command_buffer(cb))
 
 struct CommandPools
   device::Vk.Device
-  available::Dictionary{Int,Vk.CommandPool}
+  available::Dictionary{Int64,Vk.CommandPool}
 end
 
 CommandPools(device) = CommandPools(device, Dictionary())

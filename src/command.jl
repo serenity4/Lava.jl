@@ -109,8 +109,8 @@ function align_blocks(data::AbstractArray, alignment)
 end
 
 struct Draw <: DrawCommand
-  vertices::UnitRange{Int}
-  instances::UnitRange{Int}
+  vertices::UnitRange{Int64}
+  instances::UnitRange{Int64}
 end
 
 function apply(cb::CommandBuffer, draw::Draw)
@@ -126,7 +126,7 @@ end
 
 struct DrawIndirect{B<:Buffer} <: DrawCommand
   parameters::B
-  count::Int
+  count::Int64
 end
 
 function apply(cb::CommandBuffer, draw::DrawIndirect)
@@ -135,9 +135,9 @@ function apply(cb::CommandBuffer, draw::DrawIndirect)
 end
 
 struct DrawIndexed <: DrawCommand
-  vertex_offset::Int
-  indices::UnitRange{Int}
-  instances::UnitRange{Int}
+  vertex_offset::Int64
+  indices::UnitRange{Int64}
+  instances::UnitRange{Int64}
 end
 
 function apply(cb::CommandBuffer, draw::DrawIndexed)
@@ -153,7 +153,7 @@ end
 
 struct DrawIndexedIndirect{B<:Buffer} <: DrawCommand
   parameters::B
-  count::Int
+  count::Int64
 end
 
 function apply(cb::CommandBuffer, draw::DrawIndexedIndirect)
@@ -237,7 +237,7 @@ function pipeline_info(
     cull_mode = invocation_state.cull_mode,
   )
   nsamples = samples(first(targets.color))
-  any(≠(nsamples) ∘ samples, targets.color) && error("Incoherent number of samples detected: $(samples.(targets.color))")
+  all(==(nsamples) ∘ samples, targets.color) || error("Incoherent number of samples detected: $(samples.(targets.color))")
   multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), false, 1.0, false, false)
   color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1.0f0), 4))
   layout = pipeline_layout(device, resources)

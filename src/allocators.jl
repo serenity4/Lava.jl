@@ -1,6 +1,6 @@
 mutable struct LinearAllocator
   buffer::BufferBlock{MemoryBlock}
-  last_offset::Int
+  last_offset::Int64
   base_ptr::Ptr{Cvoid}
 end
 

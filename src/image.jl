@@ -4,11 +4,11 @@ Image with dimension `N` and memory type `M`.
 abstract type Image{N,M<:Memory} <: LavaAbstraction end
 
 struct ImageMetaData
-  dims::Vector{Int}
+  dims::Vector{Int64}
   format::Vk.Format
-  samples::Vk.SampleCountFlag
-  mip_levels::Int
-  layers::Int
+  samples::Int64
+  mip_levels::Int64
+  layers::Int64
   usage::Vk.ImageUsageFlag
 end
 
@@ -21,11 +21,11 @@ Vk.bind_image_memory(image::Image, memory::Memory) = Vk.bind_image_memory(device
 
 struct ImageBlock{N,M} <: Image{N,M}
   handle::Vk.Image
-  dims::NTuple{N,Int}
+  dims::NTuple{N,Int64}
   format::Vk.Format
-  samples::Vk.SampleCountFlag
-  mip_levels::Int
-  layers::Int
+  samples::Int64
+  mip_levels::Int64
+  layers::Int64
   usage::Vk.ImageUsageFlag
   queue_family_indices::Vector{Int8}
   sharing_mode::Vk.SharingMode
@@ -43,9 +43,7 @@ format(x) = x.format
 mip_levels(x) = x.mip_levels
 layers(x) = x.layers
 samples(x) = x.samples
-is_multisampled(x) = is_multisampled(samples(x))
-is_multisampled(x::Integer) = x ≠ 1
-is_multisampled(x::Vk.SampleCountFlag) = x ≠ Vk.SAMPLE_COUNT_1_BIT
+is_multisampled(x) = samples(x) > 1
 
 usage(x) = x.usage
 
@@ -66,10 +64,10 @@ function ImageBlock(device, dims, format, usage;
   preinitialized = false,
   mip_levels = 1,
   array_layers = 1,
-  samples = Vk.SAMPLE_COUNT_1_BIT)
+  samples = 1)
   N = length(dims)
   initial_layout = preinitialized ? Vk.IMAGE_LAYOUT_PREINITIALIZED : Vk.IMAGE_LAYOUT_UNDEFINED
-  extent_dims = ones(Int, 3)
+  extent_dims = ones(Int64, 3)
   extent_dims[1:N] .= dims
   info = Vk.ImageCreateInfo(
     flag(ImageBlock{N,memory_type}),
@@ -77,7 +75,7 @@ function ImageBlock(device, dims, format, usage;
     Vk.Extent3D(extent_dims...),
     mip_levels,
     array_layers,
-    samples,
+    Vk.SampleCountFlag(samples),
     is_linear ? Vk.IMAGE_TILING_LINEAR : Vk.IMAGE_TILING_OPTIMAL,
     usage,
     sharing_mode,

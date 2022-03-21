@@ -5,9 +5,9 @@ struct PhysicalBuffer <: PhysicalResource
   buffer::Vk.Buffer
   memory::Vk.DeviceMemory
   usage::Vk.BufferUsageFlag
-  offset::Int
-  stride::Int
-  size::Int
+  offset::Int64
+  stride::Int64
+  size::Int64
   info::LogicalBuffer
 end
 

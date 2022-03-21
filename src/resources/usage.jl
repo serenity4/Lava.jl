@@ -12,7 +12,7 @@ Base.@kwdef struct ImageUsage <: ResourceUsage
   access::MemoryAccess = MemoryAccess(0)
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
-  samples::Vk.SampleCountFlag = Vk.SampleCountFlag(0)
+  samples::Int64 = 1
 end
 
 Base.merge(x::T, y::T) where {T <: Union{BufferUsage, ImageUsage}} = T(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage | y.usage, x.samples | y.samples)
@@ -23,7 +23,7 @@ Base.@kwdef struct AttachmentUsage <: ResourceUsage
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
   aspect::Vk.ImageAspectFlag = Vk.ImageAspectFlag(0) # can be deduced
-  samples::Vk.SampleCountFlag = Vk.SampleCountFlag(0)
+  samples::Int64 = 1
   resolve_layout::Optional{Vk.ImageLayout} = nothing # can be deduced
   clear_value::Optional{NTuple{4,Float32}}
 end
