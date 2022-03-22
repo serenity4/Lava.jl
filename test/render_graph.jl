@@ -3,27 +3,6 @@ using Test
 using Graphs: nv, ne
 instance, device = init(; with_validation = true)
 
-# using Vulkan
-# using ProfileView
-# using SnoopCompile
-
-# instance = Instance([], [])
-# pdevice = first(unwrap(enumerate_physical_devices(instance)))
-# device = Device(pdevice, [DeviceQueueCreateInfo(0, [1.0])], [], [])
-# # @snoopi_deep Device(pdevice, [DeviceQueueCreateInfo(0, [1.0])], [], [])
-
-# tinf = @snoopi_deep instance, device = init(; with_validation = false)
-# tinf = @snoopi_deep get_physical_device_properties_2(device.physical_device, PhysicalDeviceProtectedMemoryProperties, PhysicalDeviceCooperativeMatrixPropertiesNV)
-
-# # tinf = @snoopi_deep instance, device = init(; with_validation = false)
-# # tinf = @snoopi_deep Vk.initialize(Vk.PhysicalDeviceFeatures2, Vk.PhysicalDeviceVulkan12Features, Vk.PhysicalDeviceVulkanMemoryModelFeatures, Vk.PhysicalDevice16BitStorageFeatures, Vk.PhysicalDeviceAccelerationStructureFeaturesKHR, Vk.PhysicalDeviceVulkan11Features)
-
-# flatten(tinf)
-# itrigs = inference_triggers(tinf)
-# mtrigs = accumulate_by_source(Method, itrigs)
-# fg = flamegraph(tinf)
-# ProfileView.view(fg)
-
 rg = RenderGraph(device)
 
 # Specify resources used for the rendering process.
