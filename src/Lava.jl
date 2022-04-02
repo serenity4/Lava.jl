@@ -48,7 +48,6 @@ include("image.jl")
 include("allocators.jl")
 include("dimensions.jl")
 include("attachments.jl")
-include("textures.jl")
 include("descriptors.jl")
 
 include("spirv.jl")
@@ -58,6 +57,7 @@ include("shaders/source.jl")
 include("shaders/vulkan.jl")
 
 include("resources.jl")
+include("textures.jl")
 include("pipeline.jl")
 include("render_state.jl")
 include("program.jl")
@@ -67,9 +67,9 @@ include("binding_state.jl")
 include("frame.jl")
 include("render_graph.jl")
 include("bake.jl")
+include("command.jl")
 include("resources/resolution.jl")
 # include("transition.jl")
-include("command.jl")
 include("debug.jl")
 
 function __init__()
@@ -109,7 +109,7 @@ export
   Image, ImageBlock, View, ImageView,
 
   # textures
-  Texture, DEFAULT_SAMPLING,
+  Texture, Sampling, DEFAULT_SAMPLING,
 
   # attachments
   Attachment, READ, WRITE, RenderTargets,
@@ -141,6 +141,7 @@ export
   CompactRecord, draw,
   DrawCommand, Draw, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
   set_program, draw_state, set_draw_state, set_material,
+  index,
   DrawData,
 
   # render graph

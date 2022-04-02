@@ -31,9 +31,19 @@ function RenderNode(render; stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_
   RenderNode(uuid(), render, stages, isnothing(render_area) ? nothing : render_area.rect)
 end
 
-usage(::BufferAny_T, node::RenderNode, dep::ResourceDependency) = BufferUsage(; dep.type, dep.access, node.stages, usage = buffer_usage_bits(dep.type, dep.access))
-usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) = ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access), dep.samples)
-usage(::AttachmentAny_T, node::RenderNode, dep::ResourceDependency) = AttachmentUsage(; dep.type, dep.access, dep.clear_value, dep.samples, node.stages, usage = image_usage_bits(dep.type, dep.access), aspect = aspect_bits(dep.type))
+usage(::BufferAny_T, node::RenderNode, dep::ResourceDependency) =
+  BufferUsage(; dep.type, dep.access, node.stages, usage = buffer_usage_bits(dep.type, dep.access))
+usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) =
+  ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access), dep.samples)
+usage(::AttachmentAny_T, node::RenderNode, dep::ResourceDependency) = AttachmentUsage(;
+  dep.type,
+  dep.access,
+  dep.clear_value,
+  dep.samples,
+  node.stages,
+  usage = image_usage_bits(dep.type, dep.access),
+  aspect = aspect_bits(dep.type),
+)
 
 struct ResourceDependencies
   node::Dictionary{NodeUUID,Dictionary{ResourceUUID,ResourceDependency}}

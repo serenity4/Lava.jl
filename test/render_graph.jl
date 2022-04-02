@@ -1,7 +1,8 @@
-using Lava, Accessors, Dictionaries
+using Lava, Accessors, Dictionaries, GeometryExperiments
+using SPIRV
 using Test
 using Graphs: nv, ne
-instance, device = init(; with_validation = true)
+instance, device = init(; with_validation = true, device_specific_features = [:shader_int_64, :sampler_anisotropy])
 
 rg = RenderGraph(device)
 
@@ -41,7 +42,8 @@ adapt_luminance = RenderNode(identity, render_area = RenderArea(1920, 1080), sta
 combine = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
 
 @add_resource_dependencies rg begin
-  (emissive => (0., 0., 0., 1.))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
+  (emissive => (0.0, 0.0, 0.0, 1.0))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth =
+    gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
   color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
   average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, (bloom_downsample_3 * 4)::Texture)
   output::Color = combine(color::Color, average_luminance::Texture)
@@ -58,7 +60,7 @@ end
 
   usage = rg.uses[gbuffer.uuid][emissive]
   @test usage.type == RESOURCE_TYPE_COLOR_ATTACHMENT
-  @test usage.clear_value == (0f0, 0f0, 0f0, 1f0)
+  @test usage.clear_value == (0.0f0, 0.0f0, 0.0f0, 1.0f0)
 
   # Combined resource usage.
   uses = Lava.ResourceUses(rg)
@@ -114,9 +116,63 @@ end
   @test length(info.image_memory_barriers) == 8
 end
 
+function test_program_vert(position, index, dd)
+  pos = Pointer{Vector{Point{2,Float32}}}(dd.vertex_data)[index]
+  position[] = Vec(pos[1], pos[2], 0F, 1F)
+end
+
+function test_program_frag(out_color)
+  out_color[] = Vec(1F, 0F, 0F, 0F)
+end
+
+function simple_program(device)
+  vert_interface = ShaderInterface(
+    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
+    variable_decorations = dictionary([
+      1 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
+      2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
+    ]),
+    features = device.spirv_features,
+  )
+
+  frag_interface = ShaderInterface(
+    execution_model = SPIRV.ExecutionModelFragment,
+    storage_classes = [SPIRV.StorageClassOutput],
+    variable_decorations = dictionary([
+      1 => dictionary([SPIRV.DecorationLocation => [0U]]),
+    ]),
+    features = device.spirv_features,
+  )
+
+  vert_shader = @shader vert_interface test_program_vert(::Vec{4,Float32}, ::UInt32, ::DrawData)
+  frag_shader = @shader frag_interface test_program_frag(::Vec{4,Float32})
+  Program(device, vert_shader, frag_shader)
+end
+
+prog = simple_program(device)
+
 @testset "Rendering" begin
+  rg = RenderGraph(device)
+
+  color = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
+  normal = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+  depth = attachment(rg, Vk.FORMAT_D32_SFLOAT)
+  graphics =
+    RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
+      set_program(rec, prog)
+      set_material(rec, index(rec, Texture(rec, normal)))
+      draw(rec, PointSet(HyperCube(1.0f0), Point{2,Float32}).points, collect(1:4), color)
+    end
+
+  @add_resource_dependencies rg begin
+    (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
+  end
+
   baked = Lava.bake(rg)
   empty!(device.pipeline_ht)
+  @test isempty(device.pipeline_ht)
   records, pipeline_hashes = Lava.record_commands!(baked)
+  @test isempty(device.pipeline_ht)
   Lava.create_pipelines(device)
+  @test !isempty(device.pipeline_ht)
 end

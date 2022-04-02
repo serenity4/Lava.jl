@@ -55,3 +55,15 @@ function ResourceDescriptors(device, config::GlobalDescriptorsConfig = GlobalDes
   )
   ResourceDescriptors(pool, gset)
 end
+
+function image_index!(descriptors::ResourceDescriptors, sampler, view, image_layout)
+  combined_image_sampler_state = descriptors.gset.state[Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
+  push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, view, image_layout))
+  length(combined_image_sampler_state) - 1
+end
+
+function sampler_index!(descriptors::ResourceDescriptors, sampler, view)
+  combined_image_sampler_state = descriptors.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLER]
+  push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, view, Vk.IMAGE_LAYOUT_UNDEFINED))
+  length(combined_image_sampler_state) - 1
+end

@@ -164,9 +164,9 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
     include("render_graph.jl")
   end
 
-  @testset "Examples" begin
-    include("examples.jl")
-  end
+  # @testset "Examples" begin
+  #   include("examples.jl")
+  # end
 end
 
 # trigger finalizers

@@ -43,18 +43,6 @@ function allocate_index_buffer(gd::GlobalData, device::Device)
   gd.index_buffer[] = buffer(device, convert(Vector{UInt32}, gd.index_list .- 1); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 end
 
-function add_image_descriptor!(gd::GlobalData, sampler, view, image_layout)
-  combined_image_sampler_state = gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
-  push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, view, image_layout))
-  length(combined_image_sampler_state) - 1
-end
-
-function add_sampler_descriptor!(gd::GlobalData, sampler, view)
-  combined_image_sampler_state = gd.resources.gset.state[Vk.DESCRIPTOR_TYPE_SAMPLER]
-  push!(combined_image_sampler_state, Vk.DescriptorImageInfo(sampler, view, Vk.IMAGE_LAYOUT_UNDEFINED))
-  length(combined_image_sampler_state) - 1
-end
-
 #=
 
 struct FrameSynchronization

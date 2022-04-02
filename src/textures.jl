@@ -42,7 +42,24 @@ Texture identified by UUID with sampling parameters.
 This texture is to be transformed into a texture index (to index into an array of sampled images or combined image-samplers depending on whether sampling parameters are provided) to be included as a material parameter in push constant data.
 """
 struct Texture
-  image::UUID
+  image::PhysicalImage
+  view::Vk.ImageView
   sampling::Union{Nothing,Sampling}
-  Texture(image::UUID, sampling::Sampling = DEFAULT_SAMPLING) = new(image, sampling)
+end
+
+function Texture(image::PhysicalImage, sampling)
+  view = Vk.ImageView(
+    image.image.device,
+    image.image,
+    image_view_type(length(image.info.dims)),
+    format(image),
+    Vk.ComponentMapping(
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+    ),
+    subresource_range(image),
+  )
+  Texture(image, view, sampling)
 end

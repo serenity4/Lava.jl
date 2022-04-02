@@ -28,15 +28,26 @@ Record that compacts action commands according to their state before flushing.
 This allows to group e.g. draw calls that use the exact same rendering state.
 """
 struct CompactRecord <: CommandRecord
+  node::RenderNode
+  image_layouts::Dictionary{UUID,Vk.ImageLayout}
+  gd::GlobalData
+  resources::PhysicalResources
   programs::Dictionary{Program,Dictionary{DrawState,Vector{Pair{DrawCommand,RenderTargets}}}}
   other_ops::Vector{LazyOperation}
   state::RefValue{DrawState}
   program::RefValue{Program}
-  gd::GlobalData
-  node::RenderNode
 end
 
-CompactRecord(gd::GlobalData, node::RenderNode) = CompactRecord(Dictionary(), [], Ref(DrawState()), Ref{Program}(), gd, node)
+function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
+  image_layouts = Dictionary{ResourceUUID,Vk.ImageLayout}()
+  for (uuid, usage) in pairs(baked.uses[node.uuid].images)
+    insert!(image_layouts, uuid, image_layout(usage))
+  end
+  CompactRecord(node, image_layouts, baked.global_data, baked.resources)
+end
+
+CompactRecord(node::RenderNode, image_layouts, gd::GlobalData, resources::PhysicalResources) =
+  CompactRecord(node, image_layouts, gd, resources, Dictionary(), [], Ref(DrawState()), Ref{Program}())
 
 Base.show(io::IO, record::CompactRecord) = print(
   io,
@@ -50,18 +61,14 @@ function set_program(record::CompactRecord, program::Program)
 end
 
 function set_material(record::CompactRecord, @nospecialize(args...); alignment = 16)
-  (; gd) = record
-
   # replace resource specifications with indices
   for (i, arg) in enumerate(args)
-    if arg isa Texture
-      @reset args[i] = texture_id!(record.fg, arg, record.pass)
-    elseif arg isa Sampling
-      @reset args[i] = sampler_id!(record.fg, arg, record.pass)
+    if arg isa Texture || arg isa Sampling
+      @reset args[i] = index(record, arg)
     end
   end
 
-  sub = copyto!(gd.allocator, args, alignment)
+  sub = copyto!(record.gd.allocator, args, alignment)
   state = record.state[]
   record.state[] = @set state.push_data.material_data = device_address(sub)
 end
@@ -72,25 +79,28 @@ end
 
 draw_state(record::CompactRecord) = record.state[]
 
-function draw(record::CompactRecord, targets::RenderTargets, vdata, idata; alignment = 16)
+function draw(record::CompactRecord, vdata, idata, color...; alignment = 16, depth = nothing, stencil = nothing, instances = 1:1)
   (; gd) = record
   state = record.state[]
 
   # vertex data
   sub = copyto!(gd.allocator, align_blocks(vdata, alignment), alignment)
   record.state[] = @set state.push_data.vertex_data = device_address(sub)
-  state = record.state[]
 
   # save draw command with its state
   program_draws = get!(Dictionary, record.programs, record.program[])
-  commands = get!(Vector{DrawCommand}, program_draws, state)
+  commands = get!(Vector{DrawCommand}, program_draws, record.state[])
 
   # index data
   first_index = length(gd.index_list) + 1
   append!(gd.index_list, idata)
 
   # draw call
-  push!(commands, DrawIndexed(0, first_index:(first_index + length(idata) - 1), 1:1) => targets)
+  color = map(collect(color)) do c
+    record.resources.attachments[uuid(c)]
+  end
+  targets = RenderTargets(color, depth, stencil)
+  push!(commands, DrawIndexed(0, first_index:(first_index + length(idata) - 1), instances) => targets)
 end
 
 """
@@ -166,8 +176,8 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info(device, pass, program, state.render_state, state.program_state, baked.global_data.resources, targets)
-        hash = request_pipeline(device, info)
+        info = pipeline_info(baked.device, record.node, program, state.render_state, state.program_state, baked.global_data.resources, targets)
+        hash = request_pipeline(baked.device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
     end
@@ -214,7 +224,11 @@ function pipeline_info(
   (; render_area::Vk.Rect2D) = pass
   (; x, y) = render_area.offset
   (; width, height) = render_area.extent
-  viewport_state = Vk.PipelineViewportStateCreateInfo(viewports = [Vk.Viewport(x, height - y, width, -height, 0, 1)], scissors = [render_area])
+  viewport_state =
+    Vk.PipelineViewportStateCreateInfo(
+      viewports = [Vk.Viewport(x, height - y, float(width), -float(height), 0, 1)],
+      scissors = [render_area],
+    )
 
   (; depth_bias) = state
   use_depth_bias = !isnothing(depth_bias)
@@ -234,6 +248,7 @@ function pipeline_info(
     depth_bias_constant_factor,
     depth_bias_clamp,
     depth_bias_slope_factor,
+    1.0,
     cull_mode = invocation_state.cull_mode,
   )
   nsamples = samples(first(targets.color))
@@ -244,7 +259,7 @@ function pipeline_info(
   Vk.GraphicsPipelineCreateInfo(
     shader_stages,
     rasterizer,
-    layout,
+    handle(layout),
     0,
     0;
     next = rendering_state,
@@ -285,3 +300,8 @@ function initialize(cb::CommandBuffer, device::Device, gd::GlobalData)
   Vk.cmd_bind_index_buffer(cb, gd.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
   populate_descriptor_sets!(gd)
 end
+
+function Texture(rec::CompactRecord, image::UUID, sampling = DEFAULT_SAMPLING)
+  Texture(rec.resources.images[image], sampling)
+end
+Texture(rec::CompactRecord, image, sampling = DEFAULT_SAMPLING) = Texture(rec, uuid(image), sampling)

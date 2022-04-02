@@ -1,22 +1,19 @@
-function texture_id!(resources, gd::GlobalData, device, rg::RenderGraph, tex::Texture, image_layout::Vk.ImageLayout)::UInt32
-  view = View(resource_data(rg.resources[tex.image])::Image)
-  sampler = if !isnothing(tex.sampling)
-    # combined image sampler
-    sampler = Vk.Sampler(device(rg), tex.sampling)
-    # preserve sampler
-    new!(resources, Resource(RESOURCE_CLASS_OTHER, sampler))
+Dictionaries.index(rec::CompactRecord, texture::Texture) = index!(rec.gd.resources, texture, rec.image_layouts[(uuid(texture.image))])
+Dictionaries.index(rec::CompactRecord, sampling::Sampling) = index!(rec.gd.resources, sampling)
+
+function index!(descriptors::ResourceDescriptors, texture::Texture, image_layout::Vk.ImageLayout)::UInt32
+  sampler = if !isnothing(texture.sampling)
+    # Combined image sampler.
+    Vk.Sampler(descriptors.pool.device, texture.sampling)
   else
-    # sampled image
+    # Sampled image (sampler must be explicited in the shader).
     empty_handle(Vk.Sampler)
   end
-  add_image_descriptor!(gd, sampler, view, image_layout)
+  image_index!(descriptors, sampler, texture.view, image_layout)
 end
 
-function sampler_id!(resources, gd::GlobalData, rg::RenderGraph, sampling::Sampling)
+function index!(descriptors::ResourceDescriptors, sampling::Sampling)
   view = empty_handle(Vk.ImageView)
-  sampler = Vk.Sampler(device(rg), sampling)
-  # preserve sampler
-  new!(resources, Resource(RESOURCE_CLASS_OTHER, sampler))
-  register(frame, gensym(:sampler), sampler; persistent = false)
-  add_sampler_descriptor!(gd, sampler, view)
+  sampler = Vk.Sampler(descriptors.pool.device, sampling)
+  sampler_index!(descriptors, sampler, view)
 end

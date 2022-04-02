@@ -94,15 +94,21 @@ function create_pipelines(device::Device, infos)
   # Assume that each available thread will be able to create a set of pipelines in batch mode.
   # We don't create individual pipelines for performance reasons as the implementation is
   # likely to setup internal mutexes for each batch which allow pipeline creation to be concurrent.
-  infos_vec = split_vec(infos, Threads.nthreads())
-  handles_vec = pmap(infos_vec, Vk.Pipeline[]) do infos
-    isempty(infos) && return Vk.Pipeline[]
-    first(unwrap(Vk.create_graphics_pipelines(device, infos)))
-  end
-  map(zip(reduce(vcat, handles_vec), infos)) do (handle, info)
-    Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_GRAPHICS), pipeline_layout(device, info.layout))
-  end
+
+  #FIXME: This segfaults at second try.
+  # infos_vec = split_vec(infos, Threads.nthreads())
+  # handles_vec = pmap(infos_vec, Vk.Pipeline[]) do infos
+  #   isempty(infos) && return Vk.Pipeline[]
+  #   first(unwrap(Vk.create_graphics_pipelines(device, infos)))
+  # end
+  # handles = reduce(vcat, handles_vec)
+  handles = first(unwrap(Vk.create_graphics_pipelines(device, infos)))
+
+  map((x, y) -> graphics_pipeline(device, x, y), handles, infos)
 end
+
+graphics_pipeline(device::Device, handle::Vk.Pipeline, info::Vk.GraphicsPipelineCreateInfo) =
+  Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_GRAPHICS), pipeline_layout(device, info.layout))
 
 function create_pipelines(device::Device)
   batch_create!(Base.Fix1(create_pipelines, device), device.pipeline_ht, device.pending_pipelines)

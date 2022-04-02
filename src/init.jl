@@ -74,11 +74,13 @@ function init(;
 
   instance = Instance(instance_layers, instance_extensions, dbg_info; application_info)
 
-  union!(device_vulkan_features, [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model])
-  synchronization_features = physical_device_features(Vk.PhysicalDeviceSynchronization2FeaturesKHR, [:synchronization2])
-  vulkan_features = physical_device_features(Vk.PhysicalDeviceVulkan12Features, device_vulkan_features)
+  union!(
+    device_vulkan_features,
+    [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :synchronization2, :dynamic_rendering],
+  )
+  vulkan_features = physical_device_features_core(device_vulkan_features)
   device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)
-  enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = Vk.chain(vulkan_features, synchronization_features))
+  enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = vulkan_features)
 
   physical_device = pick_supported_device(unwrap(Vk.enumerate_physical_devices(instance)), enabled_features)
 
@@ -104,10 +106,29 @@ function physical_device_features(@nospecialize(T), features)
   T(fields...)
 end
 
+function physical_device_features_core(features)
+  names = Symbol[]
+  f = C_NULL
+  for T in (Vk.PhysicalDeviceVulkan11Features, Vk.PhysicalDeviceVulkan12Features, Vk.PhysicalDeviceVulkan13Features)
+    version_features = fieldnames(T) ∩ features
+    append!(names, version_features)
+    new_f = physical_device_features(T, version_features)
+    @reset new_f.next = f
+    f = new_f
+  end
+  Set(names) == Set(features) || error("Trying to set unknown features: $(setdiff(features, names))")
+  f
+end
+
 function pick_supported_device(physical_devices, features)
   unsupported = nothing
   for pdevice in physical_devices
-    pdevice_features = Vk.get_physical_device_features_2(pdevice, Vk.PhysicalDeviceVulkan12Features)
+    pdevice_features = Vk.get_physical_device_features_2(
+      pdevice,
+      Vk.PhysicalDeviceVulkan13Features,
+      Vk.PhysicalDeviceVulkan12Features,
+      Vk.PhysicalDeviceVulkan11Features,
+    )
     unsupported = unsupported_features(features, pdevice_features)
     isempty(unsupported) && return pdevice
   end

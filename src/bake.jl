@@ -19,7 +19,7 @@ end
 
 function render(baked::BakedRenderGraph, command_buffer::CommandBuffer)
   records, pipeline_hashes = record_commands!(baked)
-  create_pipelines!(device)
+  create_pipelines(device)
 
   # Fill command buffer with synchronization commands & recorded commands.
   initialize(command_buffer, device, baked.global_data)
@@ -33,7 +33,7 @@ function record_commands!(baked::BakedRenderGraph)
 
   # record commands and submit pipelines for creation
   for node in baked.nodes
-    record = CompactRecord(baked.global_data, node)
+    record = CompactRecord(baked, node)
     node.render(record)
     push!(records, record)
     merge!(pipeline_hashes, request_pipelines(baked, record))
@@ -95,7 +95,7 @@ SyncRequirements(usage::ResourceUsage) = SyncRequirements(access_bits(usage), us
 
 struct ResourceState
   sync_reqs::SyncRequirements
-  last_accesses::Dictionary{Vk.AccessFlag2, Vk.PipelineStageFlag2}
+  last_accesses::Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}
   current_layout::RefValue{Vk.ImageLayout}
 end
 
@@ -104,7 +104,7 @@ ResourceState(usage::ResourceUsage, layout) = ResourceState(SyncRequirements(usa
 ResourceState(layout::Ref{Vk.ImageLayout} = Ref{Vk.ImageLayout}()) = ResourceState(SyncRequirements(), Dictionary(), layout)
 
 struct SynchronizationState
-  resources::Dictionary{ResourceUUID, ResourceState}
+  resources::Dictionary{ResourceUUID,ResourceState}
 end
 
 SynchronizationState() = SynchronizationState(Dictionary())
@@ -117,7 +117,17 @@ function synchronize!(state::SynchronizationState, resource::PhysicalBuffer, usa
   sync_reqs = restrict_sync_requirements(rstate.last_accesses, SyncRequirements(usage))
   must_synchronize(sync_reqs, usage) || return
   WRITE in usage.access && (state.resources[resource.uuid] = ResourceState(usage))
-  Vk.BufferMemoryBarrier2(0, 0, resource.buffer, resource.offset, resource.size; src_access_mask = rstate.sync_reqs.access, dst_access_mask = sync_reqs.access, src_stage_mask = rstate.sync_reqs.stages, dst_stage_mask = sync_reqs.stages)
+  Vk.BufferMemoryBarrier2(
+    0,
+    0,
+    resource.buffer,
+    resource.offset,
+    resource.size;
+    src_access_mask = rstate.sync_reqs.access,
+    dst_access_mask = sync_reqs.access,
+    src_stage_mask = rstate.sync_reqs.stages,
+    dst_stage_mask = sync_reqs.stages,
+  )
 end
 
 function restrict_sync_requirements(last_accesses, sync_reqs)
@@ -139,7 +149,18 @@ function synchronize!(state::SynchronizationState, resource::PhysicalResource, u
   must_synchronize(sync_reqs, usage, from_layout, to_layout) || return
   rstate.current_layout[] = to_layout
   WRITE in usage.access && (state.resources[resource.uuid] = ResourceState(usage, resource.layout))
-  Vk.ImageMemoryBarrier2(from_layout, to_layout, 0, 0, resource.image, subresource_range(resource); src_access_mask = rstate.sync_reqs.access, dst_access_mask = sync_reqs.access, src_stage_mask = rstate.sync_reqs.stages, dst_stage_mask = sync_reqs.stages)
+  Vk.ImageMemoryBarrier2(
+    from_layout,
+    to_layout,
+    0,
+    0,
+    resource.image,
+    subresource_range(resource);
+    src_access_mask = rstate.sync_reqs.access,
+    dst_access_mask = sync_reqs.access,
+    src_stage_mask = rstate.sync_reqs.stages,
+    dst_stage_mask = sync_reqs.stages,
+  )
 end
 
 add_barrier!(info::Vk.DependencyInfoKHR, barrier::Vk.BufferMemoryBarrier2) = push!(info.buffer_memory_barriers, barrier)

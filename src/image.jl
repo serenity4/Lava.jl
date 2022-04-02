@@ -171,21 +171,24 @@ format(view::ImageView) = view.format
 
 @forward ImageView.image (samples, dims, image_layout, usage, Vk.Offset3D, Vk.Extent3D, isallocated, image)
 
-function flag(T::Type{<:Image})
-  @match dim(T) begin
+function image_type(dim)
+  @match dim begin
     1 => Vk.IMAGE_TYPE_1D
     2 => Vk.IMAGE_TYPE_2D
     3 => Vk.IMAGE_TYPE_3D
   end
 end
 
-function flag(T::Type{<:ImageView})
-  @match dim(T) begin
+function image_view_type(dim)
+  @match dim begin
     1 => Vk.IMAGE_VIEW_TYPE_1D
     2 => Vk.IMAGE_VIEW_TYPE_2D
     3 => Vk.IMAGE_VIEW_TYPE_3D
   end
 end
+
+flag(T::Type{<:Image}) = image_type(dim(T))
+flag(T::Type{<:ImageView}) = image_view_type(dim(T))
 
 View(image::Image, args...; kwargs...) = ImageView(image, args...; kwargs...)
 
