@@ -9,10 +9,11 @@ struct Device <: LavaAbstraction
   pipeline_layouts::Dictionary{Vk.PipelineLayout,PipelineLayout}
   pending_pipelines::Vector{Vk.GraphicsPipelineCreateInfo}
   shader_cache::ShaderCache
-  transfer_ops::Vector{Vk.SemaphoreSubmitInfoKHR}
+  transfer_ops::Vector{Vk.SemaphoreSubmitInfo}
   command_pools::CommandPools
   spirv_features::SupportedFeatures
   resources::PhysicalResources
+  fence_pool::FencePool
 end
 
 vk_handle_type(::Type{Device}) = Vk.Device
@@ -48,14 +49,17 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     CommandPools(handle),
     spirv_features(physical_device, api_version, extensions, features),
     PhysicalResources(),
+    FencePool(handle),
   )
 end
 
-function request_command_buffer(device::Device, usage::Vk.QueueFlag)
+const QUEUE_GENERAL_BITS = Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT | Vk.QUEUE_TRANSFER_BIT
+
+function request_command_buffer(device::Device, usage::Vk.QueueFlag = QUEUE_GENERAL_BITS)
   index = get_queue_family(device.queues, usage)
   pool = request_pool!(device.command_pools, index)
   handle = first(unwrap(Vk.allocate_command_buffers(device, Vk.CommandBufferAllocateInfo(pool, Vk.COMMAND_BUFFER_LEVEL_PRIMARY, 1))))
-  cb = SimpleCommandBuffer(handle, index)
+  cb = SimpleCommandBuffer(handle, index, device.queues)
   start_recording(cb)
   cb
 end
@@ -130,6 +134,7 @@ end
 pipeline_layout(device::Device, handle::Vk.PipelineLayout) = device.pipeline_layouts[handle]
 
 @forward Device.resources (new!, Base.delete!)
+@forward Device.fence_pool (fence,)
 
 function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")

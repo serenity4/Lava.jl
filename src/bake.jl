@@ -23,7 +23,7 @@ function render(baked::BakedRenderGraph, command_buffer::CommandBuffer)
 
   # Fill command buffer with synchronization commands & recorded commands.
   initialize(command_buffer, device, baked.global_data)
-  flush(command_buffer, baked, nodes, records, pipeline_hashes)
+  flush(command_buffer, baked, records, pipeline_hashes)
   baked
 end
 
@@ -42,10 +42,10 @@ function record_commands!(baked::BakedRenderGraph)
   records, pipeline_hashes
 end
 
-function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, nodes, records, pipeline_hashes)
+function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipeline_hashes)
   binding_state = BindState()
   state = SynchronizationState()
-  for (node, record) in zip(nodes, records)
+  for (node, record) in zip(baked.nodes, records)
     synchronize_before!(state, cb, baked, node)
     begin_render_node(cb, baked, node)
     binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes)
@@ -77,7 +77,7 @@ function rendering_info(rg::BakedRenderGraph, node::RenderNode)
   end
   info = Vk.RenderingInfo(
     node.render_area,
-    0,
+    1,
     0,
     color_attachments;
     depth_attachment,
@@ -163,11 +163,11 @@ function synchronize!(state::SynchronizationState, resource::PhysicalResource, u
   )
 end
 
-add_barrier!(info::Vk.DependencyInfoKHR, barrier::Vk.BufferMemoryBarrier2) = push!(info.buffer_memory_barriers, barrier)
-add_barrier!(info::Vk.DependencyInfoKHR, barrier::Vk.ImageMemoryBarrier2) = push!(info.image_memory_barriers, barrier)
+add_barrier!(info::Vk.DependencyInfo, barrier::Vk.BufferMemoryBarrier2) = push!(info.buffer_memory_barriers, barrier)
+add_barrier!(info::Vk.DependencyInfo, barrier::Vk.ImageMemoryBarrier2) = push!(info.image_memory_barriers, barrier)
 
 function dependency_info!(state::SynchronizationState, baked::BakedRenderGraph, node::RenderNode)
-  info = Vk.DependencyInfoKHR([], [], [])
+  info = Vk.DependencyInfo([], [], [])
   uses = baked.uses[node.uuid]
   for (resource_uuid, usage) in pairs(uses.buffers)
     barrier = synchronize!(state, baked.resources.buffers[resource_uuid], usage)
@@ -190,22 +190,22 @@ Build barriers for all resources that require it.
 function synchronize_before!(state::SynchronizationState, cb, baked::BakedRenderGraph, node::RenderNode)
   info = dependency_info!(state, baked, node)
   if !isempty(info.image_memory_barriers) || !isempty(info.buffer_memory_barriers)
-    Vk.cmd_pipeline_barrier_2_khr(cb, info)
+    Vk.cmd_pipeline_barrier_2(cb, info)
   end
 end
 
-function begin_render_node(cb, rg::RenderGraph, node::RenderNode)
-  isnothing(node.render_pass) && return
-  Vk.cmd_begin_rendering(cb, rendering_info(rg, node))
+function begin_render_node(cb, baked::BakedRenderGraph, node::RenderNode)
+  isnothing(node.render_area) && return
+  Vk.cmd_begin_rendering(cb, rendering_info(baked, node))
 end
 
-function end_render_node(cb, baked, node::RenderNode)
-  if !isnothing(node.render_pass)
+function end_render_node(cb, baked::BakedRenderGraph, node::RenderNode)
+  if !isnothing(node.render_area)
     Vk.cmd_end_rendering(cb)
   end
 end
 
-function synchronize_after!(state::SynchronizationState, cb, rg, node)
+function synchronize_after!(state::SynchronizationState, cb, baked::BakedRenderGraph, node::RenderNode)
   nothing
 end
 

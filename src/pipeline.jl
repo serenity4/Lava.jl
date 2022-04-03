@@ -91,7 +91,7 @@ struct PipelineInfo
   descriptor_set_layouts::Vector{Vk.DescriptorSetLayout}
   push_constant_ranges::Vector{Vk.PushConstantRange}
   attachments::Vector{Vk.PipelineColorBlendAttachmentState}
-  rendering_info::Vk.PipelineRenderingCreateInfoKHR
+  rendering_info::Vk.PipelineRenderingCreateInfo
 end
 
 function Vk.GraphicsPipelineCreateInfo(info::PipelineInfo) end

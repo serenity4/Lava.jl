@@ -1,5 +1,4 @@
 using Lava, Accessors, Dictionaries, GeometryExperiments
-using SPIRV
 using Test
 using Graphs: nv, ne
 instance, device = init(; with_validation = true, device_specific_features = [:shader_int_64, :sampler_anisotropy])
@@ -86,6 +85,7 @@ end
 
   resources = Lava.materialize_logical_resources(rg, uses)
   @test resources isa Lava.PhysicalResources
+  @test resources[color].usage == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
 end
 
 @testset "Baking a render graph" begin
@@ -116,39 +116,7 @@ end
   @test length(info.image_memory_barriers) == 8
 end
 
-function test_program_vert(position, index, dd)
-  pos = Pointer{Vector{Point{2,Float32}}}(dd.vertex_data)[index]
-  position[] = Vec(pos[1], pos[2], 0F, 1F)
-end
-
-function test_program_frag(out_color)
-  out_color[] = Vec(1F, 0F, 0F, 0F)
-end
-
-function simple_program(device)
-  vert_interface = ShaderInterface(
-    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
-    variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
-      2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
-    ]),
-    features = device.spirv_features,
-  )
-
-  frag_interface = ShaderInterface(
-    execution_model = SPIRV.ExecutionModelFragment,
-    storage_classes = [SPIRV.StorageClassOutput],
-    variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationLocation => [0U]]),
-    ]),
-    features = device.spirv_features,
-  )
-
-  vert_shader = @shader vert_interface test_program_vert(::Vec{4,Float32}, ::UInt32, ::DrawData)
-  frag_shader = @shader frag_interface test_program_frag(::Vec{4,Float32})
-  Program(device, vert_shader, frag_shader)
-end
-
+include("simple_program.jl")
 prog = simple_program(device)
 
 @testset "Rendering" begin
@@ -175,4 +143,8 @@ prog = simple_program(device)
   @test isempty(device.pipeline_ht)
   Lava.create_pipelines(device)
   @test !isempty(device.pipeline_ht)
+  command_buffer = Lava.request_command_buffer(device)
+  # command_buffer = Lava.SnoopCommandBuffer()
+  Lava.initialize(command_buffer, device, baked.global_data)
+  flush(command_buffer, baked, records, pipeline_hashes)
 end

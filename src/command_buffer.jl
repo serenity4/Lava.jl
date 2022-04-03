@@ -5,15 +5,27 @@ vk_handle_type(::Type{<:CommandBuffer}) = Vk.CommandBuffer
 struct SimpleCommandBuffer <: CommandBuffer
   handle::Vk.CommandBuffer
   queue_family_index::Int64
+  queues::QueueDispatch
+  to_preserve::Vector{Any}
+  to_free::Vector{Any}
 end
 
-function Vk.CommandBufferSubmitInfoKHR(cb::CommandBuffer)
-  Vk.CommandBufferSubmitInfoKHR(C_NULL, cb, 1)
+SimpleCommandBuffer(handle, queue_family_index, queues) = SimpleCommandBuffer(handle, queue_family_index, queues, [], [])
+
+function Vk.CommandBufferSubmitInfo(cb::CommandBuffer)
+  Vk.CommandBufferSubmitInfo(C_NULL, cb, 1)
 end
 
 start_recording(cb::SimpleCommandBuffer) =
   unwrap(Vk.begin_command_buffer(cb, Vk.CommandBufferBeginInfo(flags = Vk.COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)))
 end_recording(cb) = unwrap(Vk.end_command_buffer(cb))
+
+function submit(command_buffer::SimpleCommandBuffer, info::SubmissionInfo = SubmissionInfo())
+  push!(info.command_buffers, Vk.CommandBufferSubmitInfo(command_buffer))
+  append!(info.release_after_completion, command_buffer.to_preserve)
+  append!(info.free_after_completion, command_buffer.to_free)
+  submit(command_buffer.queues, command_buffer.queue_family_index, info)
+end
 
 struct CommandPools
   device::Vk.Device

@@ -7,26 +7,21 @@ once the execution completes.
 The execution is assumed to be completed when the execution
 state has been waited on (see [`wait`](@ref)), or when an inherited execution state has
 been completed execution.
-
-Execution state can be inherited across submissions, where resource dependencies
-are transfered over to a new execution state bound to a command that **must** include
-the inherited `ExecutionState`'s semaphore as a wait semaphore.
 """
 struct ExecutionState
   queue::Queue
-  semaphore::Optional{Vk.SemaphoreSubmitInfoKHR}
   fence::Optional{Vk.Fence}
-  free_after_completion::Vector{Ref}
-  release_after_completion::Vector{Ref}
+  free_after_completion::Vector{Any}
+  release_after_completion::Vector{Any}
 end
 
-function ExecutionState(queue; semaphore = nothing, fence = nothing, free_after_completion = [], release_after_completion = [])
-  ExecutionState(queue, semaphore, fence, free_after_completion, release_after_completion)
+function ExecutionState(queue; fence = nothing, free_after_completion = [], release_after_completion = [])
+  ExecutionState(queue, fence, free_after_completion, release_after_completion)
 end
 
 function finalize!(exec::ExecutionState)
   for resource in exec.free_after_completion
-    finalize(resource[])
+    finalize(resource)
   end
   empty!(exec.free_after_completion)
   empty!(exec.release_after_completion)
@@ -50,66 +45,31 @@ function Base.wait(exec::ExecutionState, timeout = typemax(UInt32))
 end
 
 function Base.wait(execs::AbstractVector{ExecutionState}, timeout = typemax(UInt32))
-  fences = map(Base.Fix2(getproperty, :fence), execs)::Vector{Fence}
+  fences = map(Base.Fix2(getproperty, :fence), execs)::Vector{Vk.Fence}
   _wait(fences, timeout) && all(finalize!, execs)
 end
 Base.wait((x, exec)::Tuple{<:Any,ExecutionState}) = wait(exec) && return x
 
-function submit(dispatch::QueueDispatch, queue_family_index, submit_infos;
-  signal_fence = false,
-  semaphore = nothing,
-  free_after_completion = [],
-  release_after_completion = [],
-  inherit = nothing,
-  check_inheritance = true,
-)
-  q = queue(dispatch, queue_family_index)
-
-  fence = signal_fence ? Vk.Fence(Vk.device(q)) : nothing
-
-  if inherit isa ExecutionState
-    append!(free_after_completion, inherit.free_after_completion)
-    append!(release_after_completion, inherit.release_after_completion)
-    empty!(inherit.free_after_completion)
-    empty!(inherit.release_after_completion)
-    if check_inheritance && !any(Base.Fix1(in, inherit.semaphore), submit_infos.wait_semaphores)
-      error("No wait semaphore has been registered that
-          matches the inherited state.")
-    end
-  end
-
-  for submit_info in submit_infos
-    for command_buffer_info in submit_info.command_buffer_infos
-      end_recording(command_buffer_info.command_buffer)
-    end
-  end
-
-  unwrap(Vk.queue_submit_2_khr(q, submit_infos; fence = something(fence, C_NULL)))
-  ExecutionState(q; semaphore, fence, free_after_completion, release_after_completion)
+Base.@kwdef struct SubmissionInfo
+  wait_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
+  command_buffers::Vector{Vk.CommandBufferSubmitInfo} = []
+  signal_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
+  signal_fence::Optional{Vk.Fence} = nothing
+  release_after_completion::Vector{Any} = []
+  free_after_completion::Vector{Any} = []
 end
 
-function submit(dispatch::QueueDispatch, queue_family_index, submit_info::Vk.SubmitInfo2KHR;
-  signal_fence = false,
-  semaphore = nothing,
-  free_after_completion = [],
-  release_after_completion = [],
-  inherit = nothing,
-  check_inheritance = true,
-)
-  if !isnothing(semaphore)
-    semaphore in submit_info.signal_semaphore_infos || error("The provided semaphore was not included in the submission structure")
+function submit(dispatch::QueueDispatch, queue_family_index, info::SubmissionInfo)
+  q = queue(dispatch, queue_family_index)
+
+  for cb_info in info.command_buffers
+    end_recording(cb_info.command_buffer)
   end
-  submit(
-    dispatch,
-    queue_family_index,
-    [submit_info];
-    signal_fence,
-    semaphore,
-    free_after_completion,
-    release_after_completion,
-    inherit,
-    check_inheritance,
-  )
+
+  submit_info = Vk.SubmitInfo2(info.wait_semaphores, info.command_buffers, info.signal_semaphores)
+
+  unwrap(Vk.queue_submit_2(q, [submit_info]; fence = something(info.signal_fence, C_NULL)))
+  ExecutionState(q; fence = info.signal_fence, info.free_after_completion, info.release_after_completion)
 end
 
 function Base.show(io::IO, exec::ExecutionState)
@@ -123,4 +83,32 @@ function Base.show(io::IO, exec::ExecutionState)
     end
   end
   print(io, ')')
+end
+
+struct FencePool
+  device::Vk.Device
+  available::Vector{Vk.Fence}
+  pending::Vector{Vk.Fence}
+end
+
+FencePool(device) = FencePool(device, [Vk.Fence(device) for _ in 1:10], [])
+
+function compact!(pool::FencePool)
+  to_reset = Vk.Fence[]
+  filter!(pool.pending) do fence
+    res = unwrap(Vk.get_fence_status(pool.device, fence))
+    res == Vk.NOT_READY && return true
+    push!(to_reset, fence)
+    push!(pool.available, fence)
+    false
+  end
+  !isempty(to_reset) && unwrap(Vk.reset_fences(pool.device, to_reset))
+  nothing
+end
+
+function fence(pool::FencePool)
+  isempty(pool.available) && compact!(pool)
+  fence = isempty(pool.available) ? Vk.Fence(pool.device) : pop!(pool.available)
+  push!(pool.pending, fence)
+  fence
 end

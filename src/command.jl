@@ -202,7 +202,7 @@ function pipeline_info(
   shader_stages = [Vk.PipelineShaderStageCreateInfo(shader) for shader in program.shaders]
   # Vertex data is retrieved from an address provided in the push constant.
   vertex_input_state = Vk.PipelineVertexInputStateCreateInfo([], [])
-  rendering_state = Vk.PipelineRenderingCreateInfoKHR(0, format.(targets.color), format(targets.depth), format(targets.stencil))
+  rendering_state = Vk.PipelineRenderingCreateInfo(0, format.(targets.color), format(targets.depth), format(targets.stencil))
   attachments = map(targets.color) do _
     if isnothing(state.blending_mode)
       #TODO: Allow specifying blending mode for color attachments.
@@ -285,7 +285,7 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
       for (call, targets) in draws
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht[hash]
-        reqs = BindRequirements(pipeline, state.push_data)
+        reqs = BindRequirements(pipeline, state.push_data, record.gd.resources.gset.set)
         bind(cb, reqs, binding_state)
         binding_state = reqs
         apply(cb, call)

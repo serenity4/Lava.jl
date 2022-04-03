@@ -133,7 +133,7 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
       b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
       b2 = buffer(device; size = 8000, usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b1)) == collect(1:1000)
-      t = transfer(device, b1, b2; signal_fence = true)
+      t = transfer(device, b1, b2; submission = SubmissionInfo(signal_fence = Lava.fence(device)))
       @test t isa ExecutionState
       @test wait(t)
       @test reinterpret(Int64, collect(b2, device)) == collect(1:1000)
@@ -142,7 +142,7 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
       @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)
 
       data = rand(RGBA{Float16}, 100, 100)
-      usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
+      usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
       img1 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage))
       @test collect(RGBA{Float16}, img1, device) == data
       img2 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, memory_domain = MEMORY_DOMAIN_HOST, usage))

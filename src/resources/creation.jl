@@ -8,56 +8,46 @@ In this case, a tuple of `(buffer, state)` is returned.
 `state` is an [`ExecutionState`](@ref) whose bound resources **must** be
 preserved until the transfer has been completed. See the related documentation for more details.
 """
-function buffer(device::Device, data = nothing; memory_domain = MEMORY_DOMAIN_DEVICE, usage = Vk.BufferUsageFlag(0), size = nothing, kwargs...)
+function buffer(device::Device, data = nothing; memory_domain = MEMORY_DOMAIN_DEVICE, usage = Vk.BufferUsageFlag(0), size = nothing, submission = SubmissionInfo(signal_fence = fence(device)), kwargs...)
   isnothing(size) && isnothing(data) && error("At least one of data or size must be provided.")
   isnothing(size) && (size = sizeof(data))
-  usage |= Vk.BUFFER_USAGE_TRANSFER_DST_BIT
+
+  memory_domain == MEMORY_DOMAIN_DEVICE && !isnothing(data) && (usage |= Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
   buffer = BufferBlock(device, size; usage, kwargs...)
   allocate!(buffer, memory_domain)
   isnothing(data) && return buffer
-  state = copyto!(buffer, data; device)
+  state = copyto!(buffer, data; device, submission)
   isnothing(state) && return buffer
   (buffer, state)
 end
 
-function Base.copyto!(buffer::BufferBlock, data; device::Optional{Device} = nothing)
+function Base.copyto!(buffer::BufferBlock, data; device::Optional{Device} = nothing, submission = SubmissionInfo())
   mem = memory(buffer)
   if Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in properties(mem)
     device::Device
     tmp = similar(buffer; memory_domain = MEMORY_DOMAIN_HOST, usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
     copyto!(tmp, data)
-    transfer(device, tmp, buffer; semaphore = Vk.SemaphoreSubmitInfoKHR(Vk.Semaphore(device), 0, 0), free_src = true, signal_fence = true)
+    transfer(device, tmp, buffer; submission)
   elseif Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(mem)
-    map(mem) do ptr
-      ptrcopy!(ptr, data)
-    end
-    nothing
+    copyto!(mem, data)
   else
     error("Buffer not visible neither to device nor to host (memory properties: $(properties(mem))).")
   end
 end
 
 function transfer(
-  device::Device,
+  command_buffer::CommandBuffer,
   src::Buffer,
   dst::Buffer;
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT),
-  signal_fence = false,
-  semaphore = nothing,
+  submission::Optional{SubmissionInfo} = nothing,
   free_src = false,
 )
   @assert size(src) == size(dst)
-
   Vk.cmd_copy_buffer(command_buffer, src, dst, [Vk.BufferCopy(offset(src), offset(dst), size(src))])
-
-  signal_semaphores = []
-  !isnothing(semaphore) && push!(signal_semaphores, semaphore)
-  info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(command_buffer)], signal_semaphores)
-  if free_src
-    submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, free_after_completion = [Ref(src)])
-  else
-    submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, release_after_completion = [Ref(src)])
-  end
+  push!(command_buffer.to_preserve, dst)
+  push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, src)
+  isnothing(submission) && return
+  Lava.submit(command_buffer, submission)
 end
 
 Base.collect(buffer::Buffer) = collect(memory(buffer), size(buffer))
@@ -67,17 +57,13 @@ Base.collect(::Type{T}, buffer::Buffer, device::Optional{Device} = nothing) wher
 # # Images
 
 function transfer(
-  device::Device,
+  command_buffer::CommandBuffer,
   src::Union{<:Image,<:ImageView},
   dst::Union{<:Image,<:ImageView};
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT),
-  signal_fence = true,
-  semaphore = nothing,
+  submission::Optional{SubmissionInfo} = nothing,
   free_src = false,
 )
-
   @assert dims(src) == dims(dst)
-
   if image_layout(src) ≠ Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
     transition_layout(command_buffer, src, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
   end
@@ -90,26 +76,29 @@ function transfer(
     image(dst), image_layout(dst),
     [Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src), subresource_layers(dst), Vk.Offset3D(dst), Vk.Extent3D(src))],
   )
-  signal_semaphores = []
-  !isnothing(semaphore) && push!(signal_semaphores, semaphore)
-  info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(command_buffer)], signal_semaphores)
-  if free_src
-    submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, free_after_completion = [Ref(src)])
-  else
-    submit(device, command_buffer.queue_family_index, info; signal_fence, semaphore, release_after_completion = [Ref(src)])
-  end
+
+  push!(command_buffer.to_preserve, dst)
+  push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, src)
+  isnothing(submission) && return
+  Lava.submit(command_buffer, submission)
 end
 
 
 function transition_layout_info(view_or_image::Union{<:Image,<:ImageView}, new_layout)
-  Vk.ImageMemoryBarrier2KHR(image_layout(view_or_image), new_layout, 0, 0, handle(image(view_or_image)), subresource_range(view_or_image))
+  Vk.ImageMemoryBarrier2(image_layout(view_or_image), new_layout, 0, 0, handle(image(view_or_image)), subresource_range(view_or_image))
 end
 
 function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{<:Image,<:ImageView}, new_layout)
-  Vk.cmd_pipeline_barrier_2_khr(command_buffer,
-    Vk.DependencyInfoKHR([], [], [transition_layout_info(view_or_image, new_layout)]),
+  Vk.cmd_pipeline_barrier_2(command_buffer,
+    Vk.DependencyInfo([], [], [transition_layout_info(view_or_image, new_layout)]),
   )
   image(view_or_image).layout[] = new_layout
+end
+
+function transition_layout(device::Device, view_or_image::Union{<:Image,<:ImageView}, new_layout)
+  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
+  transition_layout(command_buffer, view_or_image, new_layout)
+  submit(command_buffer, SubmissionInfo(signal_fence = fence(device)))
 end
 
 function Base.collect(@nospecialize(T), image::ImageBlock, device::Device)
@@ -122,21 +111,27 @@ function Base.collect(@nospecialize(T), image::ImageBlock, device::Device)
     usage = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
     dst = ImageBlock(device, dims(image), format(image), usage; is_linear = true)
     allocate!(dst, MEMORY_DOMAIN_HOST)
-    wait(transfer(device, image, dst))
+    wait(transfer(device, image, dst; submission = SubmissionInfo(signal_fence = fence(device))))
     collect(T, dst, device)
   end
 end
 
-function transfer(device::Device, data::AbstractArray, image::Image; kwargs...)
+function Base.copyto!(image::Image, data::AbstractArray, device::Device; kwargs...)
   b = buffer(device, data; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
   transfer(device, b, image; kwargs...)
 end
 
+function transfer(device::Device, args...; submission = SubmissionInfo(), kwargs...)
+  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
+  state = transfer(command_buffer, args...; submission, kwargs...)
+  something(state, command_buffer)
+end
+
 function transfer(
-  device::Device,
+  command_buffer::CommandBuffer,
   buffer::Buffer,
   view_or_image::Union{<:Image,<:ImageView};
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT),
+  submission::Optional{SubmissionInfo} = nothing,
   free_src = false,
 )
   transition_layout(command_buffer, view_or_image, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
@@ -150,59 +145,58 @@ function transfer(
         Vk.Extent3D(view_or_image),
       ),
     ])
-  info = Vk.SubmitInfo2KHR([], [Vk.CommandBufferSubmitInfoKHR(command_buffer)], [])
-  release_after_completion = Ref[Ref(view_or_image)]
-  free_after_completion = Ref[]
-  push!(free_src ? free_after_completion : release_after_completion, Ref(buffer))
-  submit(device, command_buffer.queue_family_index, info; signal_fence = true, free_after_completion, release_after_completion)
+    push!(command_buffer.to_preserve, view_or_image)
+    push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, buffer)
+    isnothing(submission) && return
+    Lava.submit(command_buffer, submission)
 end
 
 function image(
   device::Device,
+  format::Vk.Format,
   data = nothing;
-  format = Vk.FORMAT_UNDEFINED,
   memory_domain = MEMORY_DOMAIN_DEVICE,
   optimal_tiling = true,
   usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
   dims = nothing,
   samples = 1,
-  kwargs...,
+  layout::Optional{Vk.ImageLayout} = nothing,
+  submission = SubmissionInfo(signal_fence = fence(device)),
+  image_kwargs...,
 )
   isnothing(data) && isnothing(dims) && error("Image dimensions must be specified if no data is provided.")
   isnothing(dims) && (dims = size(data))
-  upload_usage = usage | Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-  optimal_tiling && (upload_usage |= Vk.IMAGE_USAGE_TRANSFER_SRC_BIT)
-  img = ImageBlock(device, dims, format, isnothing(data) ? usage : upload_usage; is_linear = !optimal_tiling, samples, kwargs...)
+  !isnothing(data) && (usage |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+  # If optimal tiling is enabled, we'll need to transfer the image regardless.
+  img = ImageBlock(device, dims, format, usage; is_linear = !optimal_tiling, samples, image_kwargs...)
   allocate!(img, memory_domain)
-  isnothing(data) && return img
-
-  state = transfer(device, data, img; free_src = true)
-  !optimal_tiling && isnothing(state) && return img
-  !optimal_tiling && return (img, state)
-  wait(state)
-
-  dst = similar(img; is_linear = false, usage = usage | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
-  (dst, transfer(device, img, dst; free_src = true))
+  state = if !isnothing(data)
+    copyto!(img, data, device; submission)
+  end
+  !isnothing(layout) && wait(transition_layout(device, img, layout))
+  isnothing(state) && return img
+  (img, state)
 end
 
 # # Attachments
 
 function attachment(
   device::Device,
+  format::Vk.Format,
   data = nothing;
-  format = Vk.FORMAT_UNDEFINED,
   usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
   dims = nothing,
   access::MemoryAccess = READ | WRITE,
   samples = 1,
   aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
+  kwargs...
 )
 
   if isnothing(data)
-    img = image(device, data; format, usage, samples, dims)
+    img = image(device, format, data; usage, samples, dims, kwargs...)
     Attachment(View(img; aspect), access)
   else
-    img, state = image(device, data; format, usage, samples, dims)
+    img, state = image(device, format, data; usage, samples, dims, kwargs...)
     attachment = Attachment(View(img; aspect), access)
     attachment, state
   end
@@ -220,15 +214,21 @@ function Base.collect(memory::MemoryBlock, size::Integer, device::Device)
   @assert reqs.size ≤ memory.size
   dst = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
   allocate!(dst, MEMORY_DOMAIN_HOST)
-  wait(transfer(device, src, dst; signal_fence = true, free_src = true))
+  wait(transfer(device, src, dst; free_src = true, submission = SubmissionInfo(signal_fence = fence(device))))
   collect(dst)
 end
 
 function Base.collect(memory::MemoryBlock, size::Integer = size(memory))
-  @assert Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory)
-  map(memory) do mapped
-    ptr = Libc.malloc(size)
-    @ccall memmove(ptr::Ptr{Cvoid}, mapped::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
-    Base.unsafe_wrap(Array, Ptr{UInt8}(ptr), (size,); own = true)
+  map(memory) do ptr
+    arrptr = Libc.malloc(size)
+    @ccall memmove(arrptr::Ptr{Cvoid}, ptr::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
+    Base.unsafe_wrap(Array, Ptr{UInt8}(arrptr), (size,); own = true)
   end
+end
+
+function Base.copyto!(memory::MemoryBlock, data)
+  map(memory) do ptr
+    ptrcopy!(ptr, data)
+  end
+  nothing
 end

@@ -19,8 +19,7 @@ function Instance(layers, extensions, messenger_info::Optional{Vk.DebugUtilsMess
   Instance(handle, layers, extensions, messenger)
 end
 
-const REQUIRED_DEVICE_EXTENSIONS = [
-  "VK_KHR_synchronization2",
+const REQUIRED_DEVICE_EXTENSIONS = String[
 ]
 
 function init(;
@@ -40,6 +39,7 @@ function init(;
   message_types = Vk.DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | Vk.DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
 )
 
+  vulkan_version ≥ v"1.3" || error("Lava requires Vulkan 1.3 or later.")
   if with_validation && "VK_LAYER_KHRONOS_validation" ∉ instance_layers
     push!(instance_layers, "VK_LAYER_KHRONOS_validation")
   end

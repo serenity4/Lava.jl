@@ -36,6 +36,7 @@ for R in [:Buffer, :Image, :Attachment]
   r = Symbol(lowercase(string(R)))
   for S in [:Logical, :Physical]
     @eval $r(x::$(Symbol(S, :Resources)), args...; kwargs...) = new!(x, $(Symbol(S, R))(uuid(), args...; kwargs...))
+    @eval $(Symbol(S, R))(resource::$R) = $(Symbol(S, R))(uuid(), resource)
     @eval $(Symbol(S, :Resource))(uuid::ResourceUUID, data::$R) = $(Symbol(S, R))(uuid, data)
   end
 end

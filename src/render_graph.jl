@@ -342,7 +342,7 @@ function render(rg::RenderGraph; semaphore = nothing, command_buffer = request_c
   submit || return command_buffer
   wait_semaphores = device.transfer_ops
   !isnothing(semaphore) && push!(wait_semaphores, semaphore)
-  submit_info = Vk.SubmitInfo2KHR(wait_semaphores, [Vk.CommandBufferSubmitInfoKHR(command_buffer)], [])
+  submit_info = Vk.SubmitInfo2(wait_semaphores, [Vk.CommandBufferSubmitInfo(command_buffer)], [])
   Lava.submit(device, command_buffer.queue_family_index, [submit_info]; signal_fence = true, release_after_completion = [Ref(rg)])
 end
 
@@ -364,7 +364,7 @@ function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
   for info in rg.logical_resources.images
     usage = uses[info]
     dims = (info.dims[1], info.dims[2])
-    insert!(res, info.uuid, image(rg.device; info.format, dims, usage.usage))
+    insert!(res, info.uuid, image(rg.device, info.format; dims, usage.usage))
   end
   for info in rg.logical_resources.attachments
     usage = uses[info]
@@ -383,7 +383,7 @@ function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
         "Could not determine the dimensions of the attachment $(info.uuid). You must either provide them or use the attachment with a node that has a render area.",
       )
     end
-    insert!(res, info.uuid, attachment(rg.device; info.format, dims, usage.samples, usage.aspect, usage.access))
+    insert!(res, info.uuid, attachment(rg.device, info.format; dims, usage.samples, usage.aspect, usage.access, usage.usage))
   end
   res
 end

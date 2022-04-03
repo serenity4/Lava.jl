@@ -90,6 +90,7 @@ export
 
   # synchronization
   ExecutionState,
+  SubmissionInfo,
 
   # memory
   Memory, DenseMemory, MemoryBlock, SubMemory,
