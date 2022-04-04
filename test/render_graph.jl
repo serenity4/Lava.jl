@@ -129,7 +129,7 @@ prog = simple_program(device)
     RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
       set_program(rec, prog)
       set_material(rec, index(rec, Texture(rec, normal)))
-      draw(rec, PointSet(HyperCube(1.0f0), Point{2,Float32}).points, collect(1:4), color)
+      draw(rec, PointSet(HyperCube(1.0f0), Point{2,Float32}).points, collect(1:4), color; depth)
     end
 
   @add_resource_dependencies rg begin

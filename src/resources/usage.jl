@@ -41,7 +41,7 @@ function rendering_info(attachment::PhysicalAttachment, usage::AttachmentUsage)
     store_op(usage.access),
     Vk.ClearValue(Vk.ClearColorValue(something(usage.clear_value, DEFAULT_CLEAR_VALUE)));
     image_view = attachment.view,
-    attachment.info.resolve_mode,
+    resolve_mode = isnothing(attachment.resolve_image_view) ? Vk.RESOLVE_MODE_NONE : attachment.info.resolve_mode,
     resolve_image_view = something(attachment.resolve_image_view, C_NULL),
   )
 end

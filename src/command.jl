@@ -99,6 +99,9 @@ function draw(record::CompactRecord, vdata, idata, color...; alignment = 16, dep
   color = map(collect(color)) do c
     record.resources.attachments[uuid(c)]
   end
+  isa(depth, LogicalAttachment) && (depth = record.resources.attachments[uuid(depth)])
+  isa(stencil, LogicalAttachment) && (stencil = record.resources.attachments[uuid(stencil)])
+
   targets = RenderTargets(color, depth, stencil)
   push!(commands, DrawIndexed(0, first_index:(first_index + length(idata) - 1), instances) => targets)
 end
@@ -256,6 +259,20 @@ function pipeline_info(
   multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), false, 1.0, false, false)
   color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1.0f0), 4))
   layout = pipeline_layout(device, resources)
+  depth_stencil_state = C_NULL
+  if !isnothing(targets.depth) || !isnothing(targets.stencil)
+    depth_stencil_state = Vk.PipelineDepthStencilStateCreateInfo(
+      state.enable_depth_testing,
+      true, # depth_write_enable
+      Vk.COMPARE_OP_LESS_OR_EQUAL,
+      false, # depth_bounds_enable
+      false, # stencil test enable
+      Vk.StencilOpState(Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.COMPARE_OP_LESS_OR_EQUAL, 0, 0, 0),
+      Vk.StencilOpState(Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.COMPARE_OP_LESS_OR_EQUAL, 0, 0, 0),
+      0.,
+      0.,
+    )
+  end
   Vk.GraphicsPipelineCreateInfo(
     shader_stages,
     rasterizer,
@@ -268,6 +285,7 @@ function pipeline_info(
     viewport_state,
     multisample_state,
     color_blend_state,
+    depth_stencil_state,
   )
 end
 
