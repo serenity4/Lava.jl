@@ -4,7 +4,8 @@ if is_ci
   ENV["JULIA_VULKAN_LIBNAME"] = basename(SwiftShader_jll.libvulkan)
 end
 
-using Lava, SPIRV, Dictionaries
+using Lava, Dictionaries
+using SPIRV: SPIRV, Pointer, Vec, Mat, Arr, ShaderInterface, U, F
 
 is_ci && Vk.@set_driver :SwiftShader
 using Test
@@ -21,6 +22,17 @@ font_file(filename) = joinpath(@__DIR__, "resources", "fonts", filename)
 render_file(filename; tmp = false) = joinpath(@__DIR__, "examples", "renders", tmp ? "tmp" : "", filename)
 
 instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy])
+
+function test_validation_msg(f, test)
+  mktemp() do path, io
+    redirect_stderr(io) do
+      f()
+      yield()
+    end
+    seekstart(io)
+    test(read(path, String))
+  end
+end
 
 @testset "Lava.jl" begin
   @testset "Initialization" begin
@@ -64,11 +76,10 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
     mem = MemoryBlock(device, 100, 7, MEMORY_DOMAIN_HOST_CACHED)
     submem = @view mem[2:4]
     @test submem isa SubMemory
-    redirect_stderr(devnull) do
+    test_validation_msg(x -> @test startswith(x, "┌ Error: Validation")) do
       too_much = Lava.memory_block(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
       @test iserror(too_much)
       @test unwrap_error(too_much).code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
-      yield()
     end
 
     allocate!(b, MEMORY_DOMAIN_HOST_CACHED)
@@ -123,9 +134,9 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
       v = View(img)
       @test v isa ImageView
 
-      img = image(device; dims = (512, 512), format = Vk.FORMAT_R32G32B32A32_SFLOAT)
+      img = image(device, Vk.FORMAT_R32G32B32A32_SFLOAT; dims = (512, 512))
       @test img isa Lava.Image
-      img = wait(image(device, rand(RGBA{Float32}, 512, 512); format = Vk.FORMAT_R32G32B32A32_SFLOAT))
+      img = wait(image(device, Vk.FORMAT_R32G32B32A32_SFLOAT, rand(RGBA{Float32}, 512, 512)))
       @test isallocated(img)
     end
 
@@ -143,13 +154,13 @@ instance, device = init(; with_validation = !is_ci, device_specific_features = [
 
       data = rand(RGBA{Float16}, 100, 100)
       usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-      img1 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage))
+      img1 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage))
       @test collect(RGBA{Float16}, img1, device) == data
-      img2 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, memory_domain = MEMORY_DOMAIN_HOST, usage))
+      img2 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, usage))
       @test collect(RGBA{Float16}, img2, device) == data
-      img3 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, optimal_tiling = false, usage))
+      img3 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; optimal_tiling = false, usage))
       @test collect(RGBA{Float16}, img3, device) == data
-      img4 = wait(image(device, data; format = Vk.FORMAT_R16G16B16A16_SFLOAT, usage))
+      img4 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; usage))
       @test collect(RGBA{Float16}, img4, device) == data
     end
   end

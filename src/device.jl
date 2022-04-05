@@ -115,7 +115,9 @@ graphics_pipeline(device::Device, handle::Vk.Pipeline, info::Vk.GraphicsPipeline
   Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_GRAPHICS), pipeline_layout(device, info.layout))
 
 function create_pipelines(device::Device)
-  batch_create!(Base.Fix1(create_pipelines, device), device.pipeline_ht, device.pending_pipelines)
+  ret = batch_create!(Base.Fix1(create_pipelines, device), device.pipeline_ht, device.pending_pipelines)
+  empty!(device.pending_pipelines)
+  ret
 end
 
 function pipeline_layout(device::Device, resources::ResourceDescriptors)

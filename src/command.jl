@@ -316,7 +316,7 @@ end
 function initialize(cb::CommandBuffer, device::Device, gd::GlobalData)
   allocate_index_buffer(gd, device)
   Vk.cmd_bind_index_buffer(cb, gd.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
-  populate_descriptor_sets!(gd)
+  write(gd.resources.gset)
 end
 
 function Texture(rec::CompactRecord, image::UUID, sampling = DEFAULT_SAMPLING)

@@ -1,8 +1,4 @@
-using Lava, Accessors, Dictionaries, GeometryExperiments
-using Test
 using Graphs: nv, ne
-instance, device = init(; with_validation = true, device_specific_features = [:shader_int_64, :sampler_anisotropy])
-
 rg = RenderGraph(device)
 
 # Specify resources used for the rendering process.
@@ -137,14 +133,55 @@ prog = simple_program(device)
   end
 
   baked = Lava.bake(rg)
-  empty!(device.pipeline_ht)
-  @test isempty(device.pipeline_ht)
-  records, pipeline_hashes = Lava.record_commands!(baked)
-  @test isempty(device.pipeline_ht)
-  Lava.create_pipelines(device)
-  @test !isempty(device.pipeline_ht)
-  command_buffer = Lava.request_command_buffer(device)
-  # command_buffer = Lava.SnoopCommandBuffer()
-  Lava.initialize(command_buffer, device, baked.global_data)
-  flush(command_buffer, baked, records, pipeline_hashes)
+  dependency_info = Lava.dependency_info!(Lava.SynchronizationState(), deepcopy(baked), graphics)
+  rendering_info = Lava.rendering_info(baked, graphics)
+  color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color].view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue((0f0, 0f0, 0f0, 1f0))))
+  depth_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[depth].view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue(Lava.DEFAULT_CLEAR_VALUE)))
+  @test rendering_info == Vk.RenderingInfo(C_NULL, 0, graphics.render_area, 1, 0, [color_info], depth_info, C_NULL)
+
+  @testset "Barriers for layout transitions" begin
+    normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, 0, 0, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, baked.resources[normal].image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+    color_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, 0, 0, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[color].image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+    depth_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, 0, 0, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[depth].image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
+    @test dependency_info.image_memory_barriers[1] == normal_barrier
+    @test dependency_info.image_memory_barriers[2] == color_barrier
+    @test dependency_info.image_memory_barriers[3] == depth_barrier
+    @test dependency_info == Vk.DependencyInfo(C_NULL, Vk.DependencyFlag(0), [], [], [normal_barrier, color_barrier, depth_barrier])
+  end
+
+  @testset "Recording commands" begin
+    empty!(device.pipeline_ht)
+    empty!(device.pending_pipelines)
+    @test isempty(device.pipeline_ht)
+    records, pipeline_hashes = Lava.record_commands!(baked)
+    @test isempty(device.pipeline_ht)
+    Lava.create_pipelines(device)
+    @test !isempty(device.pipeline_ht)
+    pipeline = device.pipeline_ht[only(pipeline_hashes)]
+
+    command_buffer = Lava.SnoopCommandBuffer()
+    Lava.initialize(command_buffer, device, baked.global_data)
+    flush(command_buffer, baked, records, pipeline_hashes)
+    @test !isempty(command_buffer)
+    @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_draw_indexed, :cmd_end_rendering]
+    _cmd_bind_index_buffer, _cmd_pipeline_barrier_2, _cmd_begin_rendering, _cmd_bind_pipeline, _cmd_bind_descriptor_sets, _cmd_push_constants, _cmd_draw_indexed, _cmd_end_rendering = command_buffer
+
+    @test isallocated(_cmd_bind_index_buffer.args[1])
+    @test _cmd_bind_index_buffer.args == [baked.global_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]
+
+    @test _cmd_pipeline_barrier_2.args == [dependency_info]
+    @test _cmd_begin_rendering.args == [rendering_info]
+    @test _cmd_bind_pipeline.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline]
+    @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [baked.global_data.resources.gset.set], []]
+    @test _cmd_push_constants.args[1:2] == [pipeline.layout, Vk.SHADER_STAGE_ALL]
+    @test _cmd_push_constants.args[4] == sizeof(Lava.DrawData)
+    @test _cmd_draw_indexed.args == [4, 1, 0, 0, 0]
+    @test _cmd_end_rendering.args == []
+
+    test_validation_msg(x -> @test isempty(x)) do
+      command_buffer = Lava.request_command_buffer(device)
+      Lava.initialize(command_buffer, device, baked.global_data)
+      flush(command_buffer, baked, records, pipeline_hashes)
+    end
+  end
 end

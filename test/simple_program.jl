@@ -1,5 +1,3 @@
-using SPIRV: SPIRV, Pointer, Vec, Mat, Arr, ShaderInterface, U, F
-
 function test_program_vert(position, index, dd)
   pos = Pointer{Vector{Point{2,Float32}}}(dd.vertex_data)[index]
   position[] = Vec(pos[1], pos[2], 0F, 1F)

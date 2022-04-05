@@ -22,21 +22,18 @@ GlobalData(device) = GlobalData(
   Ref{BufferBlock{MemoryBlock}}(),
 )
 
-function populate_descriptor_sets!(gd::GlobalData)
-  state = gd.resources.gset.state
+function Base.write(gset::GlobalDescriptorSet)
+  (; state, set) = gset
   types = [Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, Vk.DESCRIPTOR_TYPE_SAMPLER, Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER]
-  writes =
-    types |> Enumerate() |> Map() do (i, type)
-      infos = state[type]
-      !isempty(infos) || return nothing
-      Vk.WriteDescriptorSet(gd.resources.gset.set.handle, i - 1, 0, type, infos, [], [])
-    end |> Filter(!isnothing) |> collect
+  writes = Vk.WriteDescriptorSet[]
+  for (i, type) in enumerate(types)
+    infos = state[type]
+    !isempty(infos) || continue
+    write = Vk.WriteDescriptorSet(set.handle, i - 1, 0, type, infos, [], [])
+    push!(writes, write)
+  end
   !isempty(writes) || return
-  Vk.update_descriptor_sets(
-    device(gd.resources.gset.set),
-    writes,
-    [],
-  )
+  Vk.update_descriptor_sets(device(set), writes, [])
 end
 
 function allocate_index_buffer(gd::GlobalData, device::Device)

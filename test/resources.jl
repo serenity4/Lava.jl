@@ -21,12 +21,12 @@
     @test r isa PhysicalBuffer
     @test resources[r.uuid] === r
 
-    im = image(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (16, 16))
+    im = image(device, Vk.FORMAT_R32G32B32A32_SFLOAT; dims = (16, 16))
     r = image(resources, im)
     @test r isa PhysicalImage
     @test resources[r.uuid] === r
 
-    att = attachment(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (16, 16))
+    att = attachment(device, Vk.FORMAT_R32G32B32A32_SFLOAT; dims = (16, 16))
     r = attachment(resources, att)
     @test r isa PhysicalAttachment
     @test resources[r.uuid] === r

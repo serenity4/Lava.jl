@@ -2,7 +2,7 @@ struct HashTable{T}
   table::Dictionary{UInt,T}
 end
 
-@forward HashTable.table Base.get, Base.getindex, Base.setindex!, Base.isempty, Base.insert!, Base.empty!
+@forward HashTable.table (Base.get, Base.getindex, Base.setindex!, Base.isempty, Base.insert!, Base.empty!, Base.length)
 
 HashTable{T}() where {T} = HashTable{T}(Dictionary())
 
