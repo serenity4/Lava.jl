@@ -76,6 +76,7 @@ end
     mem = MemoryBlock(device, 100, 7, MEMORY_DOMAIN_HOST_CACHED)
     submem = @view mem[2:4]
     @test submem isa SubMemory
+    yield()
     test_validation_msg(x -> @test startswith(x, "┌ Error: Validation")) do
       too_much = Lava.memory_block(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
       @test iserror(too_much)
@@ -175,9 +176,9 @@ end
     include("render_graph.jl")
   end
 
-  # @testset "Examples" begin
-  #   include("examples.jl")
-  # end
+  @testset "Examples" begin
+    include("examples.jl")
+  end
 end
 
 # trigger finalizers

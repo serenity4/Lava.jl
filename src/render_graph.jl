@@ -210,9 +210,9 @@ function add_resource_dependencies(rg, ex::Expr)
 
   for line in lines
     line isa LineNumberNode && continue
-    (f, reads, writes) = @match line begin
+    (f, reads, writes) = @match normalize(line) begin
       :($writes = $f($(reads...))) => (f, reads, Meta.isexpr(writes, :tuple) ? writes.args : [writes])
-      _ => error("Malformed expression, expected :(a, b = f(c, d)), got $line")
+      _ => error("Malformed expression, expected expression of the form :((reads...) = pass(writes...)), got $line")
     end
 
     !in(f, node_exs) || error("Node '$f' is specified more than once")
@@ -250,7 +250,7 @@ function add_resource_dependencies(rg, ex::Expr)
       push!(add_dependency_exs, :(add_resource_dependency($rg, $(esc(node_expr)), $(esc(expr)), ResourceDependency($(dependency...)))))
     end
   end
-  Expr(:block, add_dependency_exs...)
+  Expr(:block, add_dependency_exs..., rg)
 end
 
 function extract_special_usage(ex)
@@ -325,27 +325,6 @@ function execution_graph(rg::RenderGraph)
   eg
 end
 
-"""
-Submit rendering commands to a device.
-
-A command buffer is recorded, which may be split into multiple ones to take advantage of multithreading,
-and is then submitted them to the provided device. A custom primary command buffer can be optionally passed as a keyword,
-mostly intended for debugging purposes.
-
-A semaphore to wait for can be provided to synchronize with other commands.
-"""
-function render(rg::RenderGraph; semaphore = nothing, command_buffer = request_command_buffer(rg.device, Vk.QUEUE_GRAPHICS_BIT), submit = true)
-  analyze!(rg)
-  baked = bake(rg, command_buffer)
-
-  # submit rendering work
-  submit || return command_buffer
-  wait_semaphores = device.transfer_ops
-  !isnothing(semaphore) && push!(wait_semaphores, semaphore)
-  submit_info = Vk.SubmitInfo2(wait_semaphores, [Vk.CommandBufferSubmitInfo(command_buffer)], [])
-  Lava.submit(device, command_buffer.queue_family_index, [submit_info]; signal_fence = true, release_after_completion = [Ref(rg)])
-end
-
 function sort_nodes(rg::RenderGraph)
   eg = execution_graph(rg)
   !is_cyclic(eg) || error("The render graph is cyclical, cannot determine an execution order.")
@@ -402,7 +381,7 @@ function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
     usage = uses[attachment]
     usage.usage in attachment.usage ||
       error("An existing attachment with usage $(attachment.usage) was provided, but a usage of $(usage.usage) is required.")
-    usage.samples == attachment.samples ||
+    usage.samples == samples(attachment) ||
       error(
         "An existing attachment with a multisampling setting of $(attachment.samples) samples was provided, but is used with $(usage.samples) samples.",
       )

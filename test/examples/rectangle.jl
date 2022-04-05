@@ -14,7 +14,7 @@ function rectangle_frag(out_color, frag_color)
   out_color[] = frag_color
 end
 
-function program_1(device, vdata)
+function program_1(device, vdata, color)
   vert_interface = ShaderInterface(
     storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
     variable_decorations = dictionary([
@@ -39,41 +39,32 @@ function program_1(device, vdata)
   frag_shader = @shader frag_interface rectangle_frag(::Vec{4,Float32}, ::Vec{4,Float32})
   prog = Program(device, vert_shader, frag_shader)
 
-  fg = FrameGraph(device)
-  add_color_attachment(fg)
-  add_pass!(fg, :main, RenderPass((0, 0, 1920, 1080))) do rec
+  rg = RenderGraph(device)
+
+  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
     set_program(rec, prog)
     ds = draw_state(rec)
-    set_draw_state(rec, @set ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
-    draw(rec, RenderTargets([:color]), vdata, collect(1:4); alignment = 4)
+    @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+    @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE
+    set_draw_state(rec, ds)
+    draw(rec, vdata, collect(1:4), color; alignment = 4)
   end
 
-  usage = @resource_dependencies begin
-    color::Color = main()
+  @add_resource_dependencies rg begin
+    (color => (0.08, 0.05, 0.1, 1.0))::Color = graphics()
   end
-  add_resource_dependencies!(fg, usage)
-  clear_attachments(fg, :main, [:color => (0.08, 0.05, 0.1, 1.0)])
-  fg
 end
 
 @testset "Rectangle" begin
   vdata = [
-    (-0.5f0, -0.5f0, RGB{Float32}(1.0, 0.0, 0.0)),
-    (0.5f0, -0.5f0, RGB{Float32}(1.0, 1.0, 1.0)),
-    (-0.5f0, 0.5f0, RGB{Float32}(0.0, 1.0, 0.0)),
-    (0.5f0, 0.5f0, RGB{Float32}(0.0, 0.0, 1.0)),
+    (-0.5f0, 0.5f0, RGB{Float32}(1.0, 0.0, 0.0)),
+    (-0.5f0, -0.5f0, RGB{Float32}(0.0, 1.0, 0.0)),
+    (0.5f0, 0.5f0, RGB{Float32}(1.0, 1.0, 1.0)),
+    (0.5f0, -0.5f0, RGB{Float32}(0.0, 0.0, 1.0)),
   ]
-  fg = program_1(device, vdata)
-  snoop = Lava.SnoopCommandBuffer()
-  render(fg; command_buffer = snoop, submit = false)
-  @test length(snoop.records) == 8
-  @test fg.frame.gd.index_list == [1, 2, 3, 4]
-  ib = collect(UInt32, fg.frame.gd.index_buffer[])
-  @test ib == UInt[0, 1, 2, 3] && sizeof(ib) == 16
-  @test fg.frame.gd.allocator.last_offset == 20 * 4
+  rg = program_1(device, vdata, pcolor)
 
-  fg = program_1(device, vdata)
-  @test wait(render(fg))
-  data = collect(RGBA{Float16}, image(fg.frame.resources[:color].data), device)
+  @test wait(render(rg))
+  data = collect(RGBA{Float16}, color.view.image, device)
   save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
 end

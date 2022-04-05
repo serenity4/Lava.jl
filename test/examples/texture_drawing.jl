@@ -22,7 +22,7 @@ function texture_frag(out_color, uv, dd, images)
   out_color[] = Vec(texcolor.r, texcolor.g, texcolor.b, 1F)
 end
 
-function program_2(device, vdata)
+function program_2(device, vdata, color)
   vert_interface = ShaderInterface(
     storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
     variable_decorations = dictionary([
@@ -49,47 +49,45 @@ function program_2(device, vdata)
     ::Vec{4,Float32},
     ::Vec{2,Float32},
     ::DrawData,
-    ::Arr{2048,SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}},
+    ::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}},
   )
   prog = Program(device, vert_shader, frag_shader)
 
-  fg = FrameGraph(device)
-  add_color_attachment(fg)
+  rg = RenderGraph(device)
 
   normal = load(texture_file("normal.png"))
   normal = convert(Matrix{RGBA{Float16}}, normal)
-  normal_map = image(device, normal, Vk.FORMAT_R16G16B16A16_SFLOAT; usage = Vk.IMAGE_USAGE_SAMPLED_BIT)
-  register(fg.frame, :normal_map, normal_map)
-  add_resource!(fg, :normal_map, LogicalImage(Lava.format(normal_map)))
+  normal_map = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, normal; usage = Vk.IMAGE_USAGE_SAMPLED_BIT))
+  normal_map = PhysicalImage(normal_map)
 
-  add_pass!(fg, :main, RenderPass((0, 0, 1920, 1080))) do rec
+  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
     set_program(rec, prog)
     ds = draw_state(rec)
-    set_draw_state(rec, @set ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
+    @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+    @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE
+    set_draw_state(rec, ds)
     set_material(rec,
       (0.1f0, 1.0f0), # uv scaling coefficients
-      Texture(:normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))),
+      Texture(rec, normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))),
     )
-    draw(rec, RenderTargets([:color]), vdata, collect(1:4))
+    draw(rec, vdata, collect(1:4), color; alignment = 4)
   end
 
-  usage = @resource_dependencies begin
-    color::Color = main(normal_map::Texture)
+  @add_resource_dependencies rg begin
+    (color => (0.08, 0.05, 0.1, 1.0))::Color = graphics(normal_map::Texture)
   end
-  add_resource_dependencies!(fg, usage)
-  clear_attachments(fg, :main, [:color => (0.08, 0.05, 0.1, 1.0)])
-  fg
 end
 
 @testset "Texture drawing" begin
   vdata = [
-    (-0.5f0, -0.5f0, 0.0f0, 0.0f0),
-    (0.5f0, -0.5f0, 1.0f0, 0.0f0),
-    (-0.5f0, 0.5f0, 0.0f0, 1.0f0),
-    (0.5f0, 0.5f0, 1.0f0, 1.0f0),
+    (-0.5f0, 0.5f0, 0.0f0, 0.0f0),
+    (-0.5f0, -0.5f0, 0.0f0, 1.0f0),
+    (0.5f0, 0.5f0, 1.0f0, 0.0f0),
+    (0.5f0, -0.5f0, 1.0f0, 1.0f0),
   ]
-  fg = program_2(device, vdata)
-  @test wait(render(fg))
-  data = collect(RGBA{Float16}, image(fg.frame.resources[:color].data), device)
+  rg = program_2(device, vdata, pcolor)
+
+  @test wait(render(rg))
+  data = collect(RGBA{Float16}, color.view.image, device)
   save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
 end

@@ -269,8 +269,8 @@ function pipeline_info(
       false, # stencil test enable
       Vk.StencilOpState(Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.COMPARE_OP_LESS_OR_EQUAL, 0, 0, 0),
       Vk.StencilOpState(Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_KEEP, Vk.COMPARE_OP_LESS_OR_EQUAL, 0, 0, 0),
-      0.,
-      0.,
+      typemin(Float32),
+      typemax(Float32),
     )
   end
   Vk.GraphicsPipelineCreateInfo(

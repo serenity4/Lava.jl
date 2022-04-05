@@ -17,12 +17,20 @@ function bake(rg::RenderGraph)
   BakedRenderGraph(rg.device, sort_nodes(rg), resources, rg.uses)
 end
 
-function render(baked::BakedRenderGraph, command_buffer::CommandBuffer)
+function render(rg::Union{RenderGraph,BakedRenderGraph})
+  command_buffer = request_command_buffer(rg.device)
+  render(command_buffer, rg)
+  submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device)))
+end
+
+render(command_buffer::CommandBuffer, rg::RenderGraph) = render(command_buffer, bake(rg))
+
+function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   records, pipeline_hashes = record_commands!(baked)
-  create_pipelines(device)
+  create_pipelines(baked.device)
 
   # Fill command buffer with synchronization commands & recorded commands.
-  initialize(command_buffer, device, baked.global_data)
+  initialize(command_buffer, baked.device, baked.global_data)
   flush(command_buffer, baked, records, pipeline_hashes)
   baked
 end
