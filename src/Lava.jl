@@ -55,6 +55,7 @@ include("shaders/dependencies.jl")
 include("shaders/formats.jl")
 include("shaders/source.jl")
 include("shaders/vulkan.jl")
+include("shaders/macros.jl")
 
 include("resources.jl")
 include("textures.jl")
@@ -123,6 +124,7 @@ export
 
   # shaders
   ShaderSource, @shader,
+  @fragment, @vertex,
   ShaderCache,
   Shader,
 

@@ -22,37 +22,17 @@ function texture_frag(out_color, uv, dd, images)
   out_color[] = Vec(texcolor.r, texcolor.g, texcolor.b, 1F)
 end
 
+function texture_program(device)
+  vert = @vertex device.spirv_features texture_vert(::Output::Vec{2,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DrawData)
+  frag = @fragment device.spirv_features texture_frag(
+    ::Output::Vec{4,Float32},
+    ::Input::Vec{2,Float32},
+    ::PushConstant::DrawData,
+    ::UniformConstant{DescriptorSet = 0U, Binding = 3U}::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}})
+  Program(device, vert, frag)
+end
+
 function program_2(device, vdata, color)
-  vert_interface = ShaderInterface(
-    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
-    variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationLocation => [0U]]),
-      2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
-      3 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
-    ]),
-    features = device.spirv_features,
-  )
-
-  frag_interface = ShaderInterface(
-    execution_model = SPIRV.ExecutionModelFragment,
-    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant, SPIRV.StorageClassUniformConstant],
-    variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationLocation => [0U]]),
-      2 => dictionary([SPIRV.DecorationLocation => [0U]]),
-      4 => dictionary([SPIRV.DecorationDescriptorSet => [0U], SPIRV.DecorationBinding => [3U]]),
-    ]),
-    features = device.spirv_features,
-  )
-
-  vert_shader = @shader vert_interface texture_vert(::Vec{2,Float32}, ::Vec{4,Float32}, ::UInt32, ::DrawData)
-  frag_shader = @shader frag_interface texture_frag(
-    ::Vec{4,Float32},
-    ::Vec{2,Float32},
-    ::DrawData,
-    ::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}},
-  )
-  prog = Program(device, vert_shader, frag_shader)
-
   rg = RenderGraph(device)
 
   normal = load(texture_file("normal.png"))
@@ -61,7 +41,7 @@ function program_2(device, vdata, color)
   normal_map = PhysicalImage(normal_map)
 
   graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
-    set_program(rec, prog)
+    set_program(rec, texture_program(device))
     ds = draw_state(rec)
     @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
     @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE

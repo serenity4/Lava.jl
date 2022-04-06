@@ -14,35 +14,17 @@ function rectangle_frag(out_color, frag_color)
   out_color[] = frag_color
 end
 
+function rectangle_program(device)
+  vert = @vertex device.spirv_features rectangle_vert(::Output::Vec{4,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DrawData)
+  frag = @fragment device.spirv_features rectangle_frag(::Output::Vec{4,Float32}, ::Input::Vec{4,Float32})
+  Program(device, vert, frag)
+end
+
 function program_1(device, vdata, color)
-  vert_interface = ShaderInterface(
-    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
-    variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationLocation => [0U]]),
-      2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
-      3 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
-    ]),
-    features = device.spirv_features,
-  )
-
-  frag_interface = ShaderInterface(
-    execution_model = SPIRV.ExecutionModelFragment,
-    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput],
-    variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationLocation => [0U]]),
-      2 => dictionary([SPIRV.DecorationLocation => [0U]]),
-    ]),
-    features = device.spirv_features,
-  )
-
-  vert_shader = @shader vert_interface rectangle_vert(::Vec{4,Float32}, ::Vec{4,Float32}, ::UInt32, ::DrawData)
-  frag_shader = @shader frag_interface rectangle_frag(::Vec{4,Float32}, ::Vec{4,Float32})
-  prog = Program(device, vert_shader, frag_shader)
-
   rg = RenderGraph(device)
 
   graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
-    set_program(rec, prog)
+    set_program(rec, rectangle_program(device))
     ds = draw_state(rec)
     @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
     @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE
