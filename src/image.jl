@@ -103,7 +103,7 @@ function ImageBlock(device, dims, format, usage;
   )
 end
 
-function Base.similar(image::ImageBlock; memory_domain = nothing, usage = image.usage, is_linear = image.is_linear)
+function Base.similar(image::ImageBlock; memory_domain = nothing, usage = image.usage, is_linear = image.is_linear, samples = image.samples)
   similar = ImageBlock(
     device(image),
     dims(image),
@@ -115,7 +115,7 @@ function Base.similar(image::ImageBlock; memory_domain = nothing, usage = image.
     is_linear,
     image.mip_levels,
     array_layers = image.layers,
-    image.samples,
+    samples,
   )
   if isallocated(image)
     memory_domain = @something(memory_domain, memory(image).domain)

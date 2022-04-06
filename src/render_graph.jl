@@ -334,6 +334,37 @@ end
 
 ResourceUses(rg::RenderGraph) = merge(values(rg.uses)...)
 
+function resolve_attachment_pairs(rg::RenderGraph)
+  resolve_pairs = Dictionary{ResourceUUID, LogicalAttachment}()
+  for attachment in rg.logical_resources.attachments
+    if is_multisampled(attachment)
+      insert!(resolve_pairs, uuid(attachment), LogicalAttachment(uuid(), attachment.format, attachment.dims))
+    end
+  end
+  for attachment in rg.physical_resources.attachments
+    if is_multisampled(attachment)
+      (; info) = attachment
+      insert!(resolve_pairs, uuid(info), LogicalAttachment(uuid(), info.format, info.dims))
+    end
+  end
+  resolve_pairs
+end
+
+function add_resolve_attachments(rg::RenderGraph, resolve_pairs::Dictionary{ResourceUUID, LogicalAttachment})
+  for (resource_uuid, resolve_attachment) in pairs(resolve_pairs)
+    # Add resource in the render graph.
+    add_resource(rg, resolve_attachment)
+    i = rg.resource_indices[resource_uuid]
+
+    # Add resource usage for all nodes used by the destination attachment.
+    for j in neighbors(rg.resource_graph, i)
+      attachment_uses = rg.uses[rg.node_indices_inv[j]].attachments
+      usage = attachment_uses[resource_uuid]
+      insert!(attachment_uses, uuid(resolve_attachment), @set usage.samples = resolve_attachment.samples)
+    end
+  end
+end
+
 function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
   res = PhysicalResources()
   for info in rg.logical_resources.buffers
@@ -383,7 +414,7 @@ function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
       error("An existing attachment with usage $(attachment.usage) was provided, but a usage of $(usage.usage) is required.")
     usage.samples == samples(attachment) ||
       error(
-        "An existing attachment with a multisampling setting of $(attachment.samples) samples was provided, but is used with $(usage.samples) samples.",
+        "An existing attachment with a multisampling setting of $(samples(attachment)) samples was provided, but is used with $(usage.samples) samples.",
       )
     usage.aspect in attachment.aspect ||
       error("An existing attachment with aspect $(attachment.aspect) was provided, but is used with an aspect of $(usage.aspect).")

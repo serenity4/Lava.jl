@@ -14,3 +14,4 @@ pcolor = PhysicalAttachment(color)
 
 include("examples/rectangle.jl")
 include("examples/texture_drawing.jl")
+include("examples/multisampling.jl")

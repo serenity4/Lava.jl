@@ -35,7 +35,7 @@ end
 @forward PhysicalImage.info (format, dims, mip_levels, layers)
 
 mip_range(image::Union{Image, PhysicalImage}) = 0:(mip_levels(image))
-aspect(image::Union{Image, PhysicalImage}) = Vk.IMAGE_ASPECT_COLOR_BIT
+aspect(::Union{Image, PhysicalImage}) = Vk.IMAGE_ASPECT_COLOR_BIT
 layer_range(image::Union{Image, PhysicalImage}) = 1:(layers(image))
 
 PhysicalImage(uuid::ResourceUUID, image::Image) = PhysicalImage(uuid, handle(image), handle(memory(image)), usage(image), image.layout, LogicalImage(uuid, image))
@@ -48,9 +48,6 @@ struct PhysicalAttachment <: PhysicalResource
   usage::Vk.ImageUsageFlag
   layout::Base.RefValue{Vk.ImageLayout}
   aspect::Vk.ImageAspectFlag
-  resolve_image_view::Optional{Vk.ImageView}
-  resolve_image::Optional{Vk.Image}
-  resolve_image_memory::Optional{Vk.DeviceMemory}
   info::LogicalAttachment
 end
 
@@ -58,12 +55,6 @@ end
 
 function PhysicalAttachment(uuid::ResourceUUID, attachment::Attachment)
   (; image) = attachment.view
-  resolve_image = resolve_image_view = nothing
-  if is_multisampled(attachment)
-    resolve_image = similar(image)
-    resolve_image_view = View(resolve_image)
-    resolve_image = PhysicalImage(resolve_image)
-  end
   PhysicalAttachment(
     uuid,
     attachment.view,
@@ -72,9 +63,6 @@ function PhysicalAttachment(uuid::ResourceUUID, attachment::Attachment)
     usage(image),
     image.layout,
     aspect(attachment),
-    resolve_image_view,
-    resolve_image,
-    isnothing(resolve_image) ? nothing : memory(resolve_image),
     LogicalAttachment(uuid, attachment),
   )
 end

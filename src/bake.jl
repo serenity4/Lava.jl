@@ -4,17 +4,20 @@ struct BakedRenderGraph
   nodes::Vector{RenderNode}
   resources::PhysicalResources
   uses::Dictionary{NodeUUID,ResourceUses}
+  resolve_pairs::Dictionary{ResourceUUID, ResourceUUID}
 end
 
-function BakedRenderGraph(device, nodes, resources, uses)
-  BakedRenderGraph(device, GlobalData(device), nodes, resources, uses)
+function BakedRenderGraph(device, nodes, resources, uses, resolve_pairs)
+  BakedRenderGraph(device, GlobalData(device), nodes, resources, uses, resolve_pairs)
 end
 
 function bake(rg::RenderGraph)
+  resolve_pairs = resolve_attachment_pairs(rg)
+  add_resolve_attachments(rg, resolve_pairs)
   uses = ResourceUses(rg)
   check_physical_resources(rg, uses)
   resources = merge(materialize_logical_resources(rg, uses), rg.physical_resources)
-  BakedRenderGraph(rg.device, sort_nodes(rg), resources, rg.uses)
+  BakedRenderGraph(rg.device, sort_nodes(rg), resources, rg.uses, uuid.(resolve_pairs))
 end
 
 function render(rg::Union{RenderGraph,BakedRenderGraph})
@@ -66,11 +69,24 @@ function rendering_info(rg::BakedRenderGraph, node::RenderNode)
   color_attachments = Vk.RenderingAttachmentInfo[]
   depth_attachment = C_NULL
   stencil_attachment = C_NULL
+  resolve_uuids = Set{ResourceUUID}()
 
-  for (uuid, attachment_usage) in pairs(rg.uses[node.uuid].attachments)
-    attachment = rg.resources.attachments[uuid]
+  (; attachments) = rg.resources
+  attachment_uses = rg.uses[node.uuid].attachments
+
+  for (uuid, attachment_usage) in pairs(attachment_uses)
+    # Resolve attachments are grouped with their destination attachment.
+    uuid in resolve_uuids && continue
+
+    attachment = attachments[uuid]
     (; aspect) = attachment_usage
-    info = rendering_info(attachment, attachment_usage)
+    info = if is_multisampled(attachment_usage)
+      resolve_uuid = rg.resolve_pairs[uuid]
+      push!(resolve_uuids, resolve_uuid)
+      rendering_info(attachment, attachment_usage, attachments[resolve_uuid], attachment_uses[resolve_uuid])
+    else
+      rendering_info(attachment, attachment_usage)
+    end
     if Vk.IMAGE_ASPECT_COLOR_BIT in aspect
       push!(color_attachments, info)
     elseif Vk.IMAGE_ASPECT_DEPTH_BIT in aspect

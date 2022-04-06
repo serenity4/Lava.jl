@@ -24,11 +24,12 @@ Base.@kwdef struct AttachmentUsage <: ResourceUsage
   usage::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
   aspect::Vk.ImageAspectFlag = Vk.ImageAspectFlag(0) # can be deduced
   samples::Int64 = 1
-  resolve_layout::Optional{Vk.ImageLayout} = nothing # can be deduced
   clear_value::Optional{NTuple{4,Float32}}
 end
 
-Base.merge(x::AttachmentUsage, y::AttachmentUsage) = AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage | y.usage, x.aspect | y.aspect, x.samples | y.samples, nothing, nothing)
+function Base.merge(x::AttachmentUsage, y::AttachmentUsage)
+  AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage | y.usage, x.aspect | y.aspect, x.samples | y.samples, nothing)
+end
 
 const DEFAULT_CLEAR_VALUE = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
 
@@ -36,14 +37,17 @@ function rendering_info(attachment::PhysicalAttachment, usage::AttachmentUsage)
   clear = !isnothing(usage.clear_value)
   Vk.RenderingAttachmentInfo(
     image_layout(usage),
-    something(usage.resolve_layout, Vk.IMAGE_LAYOUT_UNDEFINED),
+    Vk.IMAGE_LAYOUT_UNDEFINED,
     load_op(usage.access, clear),
     store_op(usage.access),
     Vk.ClearValue(Vk.ClearColorValue(something(usage.clear_value, DEFAULT_CLEAR_VALUE)));
     image_view = attachment.view,
-    resolve_mode = isnothing(attachment.resolve_image_view) ? Vk.RESOLVE_MODE_NONE : attachment.info.resolve_mode,
-    resolve_image_view = something(attachment.resolve_image_view, C_NULL),
   )
+end
+
+function rendering_info(attachment::PhysicalAttachment, usage::AttachmentUsage, resolve_attachment::PhysicalAttachment, resolve_usage::AttachmentUsage)
+  info = rendering_info(attachment, usage)
+  setproperties(info, (; resolve_image_layout = image_layout(resolve_usage), attachment.info.resolve_mode, resolve_image_view = resolve_attachment.view))
 end
 
 struct ResourceUses

@@ -109,7 +109,7 @@ end
 
   info = Lava.dependency_info!(state, baked, lighting)
   @test length(info.buffer_memory_barriers) == 0
-  @test length(info.image_memory_barriers) == 8
+  @test length(info.image_memory_barriers) == 9
 end
 
 include("simple_program.jl")

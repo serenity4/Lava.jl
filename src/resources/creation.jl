@@ -56,6 +56,11 @@ Base.collect(::Type{T}, buffer::Buffer, device::Optional{Device} = nothing) wher
 
 # # Images
 
+function ensure_layout(command_buffer, image_or_view, layout)
+  image_layout(image_or_view) == layout && return
+  transition_layout(command_buffer, image_or_view, layout)
+end
+
 function transfer(
   command_buffer::CommandBuffer,
   src::Union{<:Image,<:ImageView},
@@ -64,18 +69,26 @@ function transfer(
   free_src = false,
 )
   @assert dims(src) == dims(dst)
-  if image_layout(src) ≠ Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
-    transition_layout(command_buffer, src, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-  end
-  if image_layout(dst) ≠ Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-    transition_layout(command_buffer, dst, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+  ensure_layout(command_buffer, src, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+  ensure_layout(command_buffer, dst, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+
+  if samples(src) ≠ samples(dst)
+    aux = similar(src; samples = 1)
+    ensure_layout(command_buffer, aux, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    Vk.cmd_resolve_image_2(command_buffer, Vk.ResolveImageInfo2(C_NULL,
+      image(src), image_layout(src),
+      image(aux), image_layout(aux),
+      [Vk.ImageResolve2(subresource_layers(src), Vk.Offset3D(src), subresource_layers(aux), Vk.Offset3D(aux), Vk.Extent3D(src))]
+    ))
+    return transfer(command_buffer, aux, dst; submission, free_src = true)
+  else
+    Vk.cmd_copy_image(command_buffer,
+      image(src), image_layout(src),
+      image(dst), image_layout(dst),
+      [Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src), subresource_layers(dst), Vk.Offset3D(dst), Vk.Extent3D(src))],
+    )
   end
 
-  Vk.cmd_copy_image(command_buffer,
-    image(src), image_layout(src),
-    image(dst), image_layout(dst),
-    [Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src), subresource_layers(dst), Vk.Offset3D(dst), Vk.Extent3D(src))],
-  )
 
   push!(command_buffer.to_preserve, dst)
   push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, src)
