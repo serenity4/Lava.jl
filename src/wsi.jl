@@ -3,12 +3,7 @@ struct Surface{T} <: LavaAbstraction
   target::T
 end
 
-vk_handle_type(::Type{Surface{T}}) where {T} = (Vk.SurfaceKHR, T)
-
-function Surface(win::XCBWindow)
-  handle = create(Surface{XCBWindow}, Vk.XcbSurfaceCreateInfo(win.conn.h, win.id))
-  Surface(handle, win)
-end
+vk_handle_type(::Type{<:Surface}) = Vk.SurfaceKHR
 
 struct Swapchain{T}
   handle::Vk.SwapchainKHR
@@ -16,3 +11,10 @@ struct Swapchain{T}
 end
 
 vk_handle_type(::Type{<:Swapchain}) = Vk.SwapchainKHR
+
+"""
+Opaque image that comes from the Window System Integration (WSI) as returned by `Vk.get_swapchain_images_khr`.
+"""
+struct ImageWSI <: Image{2,OpaqueMemory}
+  handle::Vk.Image
+end

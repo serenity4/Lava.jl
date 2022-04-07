@@ -225,10 +225,3 @@ subresource_range(x) = subresource_range(aspect(x), mip_range(x), layer_range(x)
 subresource_layers(aspect::Vk.ImageAspectFlag, mip_range::Integer, layer_range::UnitRange) =
   Vk.ImageSubresourceLayers(aspect, mip_range, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
 subresource_layers(x) = subresource_layers(aspect(x), first(mip_range(x)), layer_range(x))
-
-"""
-Opaque image that comes from the Window System Integration (WSI) as returned by `Vk.get_swapchain_images_khr`.
-"""
-struct ImageWSI <: Image{2,OpaqueMemory}
-  handle::Vk.Image
-end

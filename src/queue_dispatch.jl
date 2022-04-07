@@ -118,11 +118,11 @@ function queue(dispatch::QueueDispatch, family_index)
 end
 
 function present(dispatch::QueueDispatch, present_info::Vk.PresentInfoKHR)
-  queue = dispatch.present_queue
-  if isnothing(queue)
+  (; present_queue) = dispatch
+  if isnothing(present_queue)
     error("No presentation queue was specified for $dispatch")
   else
-    Vk.queue_present_khr(queue, present_info)
+    Vk.queue_present_khr(present_queue, present_info)
   end
 end
 

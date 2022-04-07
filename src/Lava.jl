@@ -7,7 +7,6 @@ using Dictionaries
 using Accessors
 using MLStyle
 using Graphs, MetaGraphs
-using XCB
 using Transducers
 using SPIRV
 using AutoHashEquals
@@ -41,10 +40,10 @@ const debug_callback_c = Ref{Ptr{Cvoid}}(C_NULL)
 
 include("command_buffer.jl")
 include("init.jl")
-include("wsi.jl")
 include("memory.jl")
 include("buffer.jl")
 include("image.jl")
+include("wsi.jl")
 include("allocators.jl")
 include("dimensions.jl")
 include("attachments.jl")
@@ -65,7 +64,8 @@ include("program.jl")
 include("device.jl")
 include("resources/creation.jl")
 include("binding_state.jl")
-include("frame.jl")
+include("global_data.jl")
+# include("frame.jl")
 include("render_graph.jl")
 include("bake.jl")
 include("command.jl")
@@ -166,6 +166,9 @@ export
   RenderGraph, render,
   RenderArea, RenderNode,
   ResourceDependency, add_resource_dependency, add_resource_dependencies, @add_resource_dependencies, clear_attachments,
+
+  # WSI
+  Surface, Swapchain,
 
   # SPIR-V reexports
   ShaderInterface

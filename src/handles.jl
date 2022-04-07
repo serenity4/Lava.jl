@@ -44,8 +44,6 @@ create(::Type{Vk.DeviceMemory}, device, create_info; kwargs...) = Vk.allocate_me
 create(::Type{Vk.Buffer}, device, create_info; kwargs...) = Vk.create_buffer(device, convert(Vk.BufferCreateInfo, create_info); kwargs...)
 create(::Type{Vk.Image}, device, create_info; kwargs...) = Vk.create_image(device, convert(Vk.ImageCreateInfo, create_info); kwargs...)
 create(::Type{Vk.ImageView}, device, create_info; kwargs...) = Vk.create_image_view(device, convert(Vk.ImageViewCreateInfo, create_info); kwargs...)
-create(::Tuple{Type{Vk.SurfaceKHR},Type{XCBWindow}}, instance, create_info; kwargs...) =
-  Vk.create_xcb_surface_khr(instance, convert(Vk.XcbSurfaceCreateInfo, create_info); kwargs...)
 create(::Type{Vk.DescriptorSetLayout}, device, bindings; kwargs...) =
   Vk.create_descriptor_set_layout(device, convert(Vk.DescriptorSetLayoutCreateInfo, bindings); kwargs...)
 create(::Type{Vk.DescriptorPool}, device, create_info; kwargs...) =

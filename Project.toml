@@ -17,7 +17,6 @@ TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 Vulkan = "9f14b124-c50e-4008-a7d4-969b3a6cd68a"
-XCB = "16167f82-ea26-5cba-b1de-ed6fd5e30a10"
 glslang_jll = "6fd5517d-459c-5c5a-9b1a-c968b4e37a81"
 
 [compat]
@@ -32,6 +31,7 @@ ImageIO = "82e4d734-157c-48bb-816b-45c225c6df19"
 OpenType = "e5a4412f-5132-4ec5-841c-0d067f41fa94"
 SwiftShader_jll = "c404ff5a-e271-5628-8eaa-423d39d64c15"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+XCB = "16167f82-ea26-5cba-b1de-ed6fd5e30a10"
 
 [targets]
-test = ["Test", "SwiftShader_jll", "GeometryExperiments", "Colors", "FileIO", "ImageIO", "OpenType"]
+test = ["Test", "SwiftShader_jll", "GeometryExperiments", "Colors", "FileIO", "ImageIO", "OpenType", "XCB"]
