@@ -44,14 +44,16 @@ struct PhysicalAttachment <: PhysicalResource
   uuid::ResourceUUID
   view::Vk.ImageView
   image::Vk.Image
-  memory::Vk.DeviceMemory
+  memory::Optional{Vk.DeviceMemory}
   usage::Vk.ImageUsageFlag
   layout::Base.RefValue{Vk.ImageLayout}
   aspect::Vk.ImageAspectFlag
   info::LogicalAttachment
 end
 
-@forward PhysicalAttachment.info (samples, mip_range, layer_range, format, dims)
+@forward PhysicalAttachment.info (samples, mip_range, layer_range, format)
+
+dims(attachment::PhysicalAttachment) = Tuple(attachment.info.dims::Vector{Int64})
 
 function PhysicalAttachment(uuid::ResourceUUID, attachment::Attachment)
   (; image) = attachment.view

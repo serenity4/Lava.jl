@@ -32,7 +32,7 @@ function texture_program(device)
   Program(device, vert, frag)
 end
 
-function program_2(device, vdata, color)
+function program_2(device, vdata, color, uv::NTuple{2,Float32} = (0.1f0, 1.0f0))
   rg = RenderGraph(device)
 
   normal = load(texture_file("normal.png"))
@@ -40,14 +40,14 @@ function program_2(device, vdata, color)
   normal_map = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, normal; usage = Vk.IMAGE_USAGE_SAMPLED_BIT))
   normal_map = PhysicalImage(normal_map)
 
-  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
+  graphics = RenderNode(render_area = RenderArea(Lava.dims(color)...), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
     set_program(rec, texture_program(device))
     ds = draw_state(rec)
     @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
     @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE
     set_draw_state(rec, ds)
     set_material(rec,
-      (0.1f0, 1.0f0), # uv scaling coefficients
+      uv, # uv scaling coefficients
       Texture(rec, normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))),
     )
     draw(rec, vdata, collect(1:4), color; alignment = 4)

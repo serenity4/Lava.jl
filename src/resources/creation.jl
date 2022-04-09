@@ -98,9 +98,15 @@ end
 
 
 function transition_layout_info(view_or_image::Union{<:Image,<:ImageView}, new_layout)
-  Vk.ImageMemoryBarrier2(image_layout(view_or_image), new_layout, 0, 0, handle(image(view_or_image)), subresource_range(view_or_image))
+  Vk.ImageMemoryBarrier2(image_layout(view_or_image), new_layout, 0, 0, handle(image(view_or_image)), subresource_range(view_or_image);
+    src_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+    dst_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+    src_access_mask = Vk.ACCESS_2_MEMORY_READ_BIT | Vk.ACCESS_2_MEMORY_WRITE_BIT,
+    dst_access_mask = Vk.ACCESS_2_MEMORY_READ_BIT | Vk.ACCESS_2_MEMORY_WRITE_BIT
+  )
 end
 
+#TODO: This excessively synchronizes, should be also available as part of the render graph.
 function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{<:Image,<:ImageView}, new_layout)
   Vk.cmd_pipeline_barrier_2(command_buffer,
     Vk.DependencyInfo([], [], [transition_layout_info(view_or_image, new_layout)]),

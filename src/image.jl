@@ -34,9 +34,9 @@ struct ImageBlock{N,M} <: Image{N,M}
   memory::RefValue{M}
 end
 
-dims(image::ImageBlock) = image.dims
-image_layout(image::ImageBlock) = image.layout[]
-image(image::ImageBlock) = image
+dims(image::Image) = image.dims
+image_layout(image::Image) = image.layout[]
+image(image::Image) = image
 memory(image::ImageBlock) = image.memory[]
 isallocated(image::ImageBlock) = isdefined(image.memory, 1)
 format(x) = x.format

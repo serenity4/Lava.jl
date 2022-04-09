@@ -44,6 +44,7 @@ function init(;
     push!(instance_layers, "VK_LAYER_KHRONOS_validation")
   end
   debug && union!(instance_extensions, ["VK_EXT_debug_utils"])
+  union!(instance_extensions, ["VK_KHR_surface", "VK_KHR_get_surface_capabilities2"])
 
   available_layers = unwrap(Vk.enumerate_instance_layer_properties())
   unsupported_layers = filter(!in(getproperty.(available_layers, :layer_name)), instance_layers)
@@ -86,6 +87,7 @@ function init(;
 
   available_extensions = unwrap(Vk.enumerate_device_extension_properties(physical_device))
   union!(device_extensions, REQUIRED_DEVICE_EXTENSIONS)
+  union!(device_extensions, ["VK_KHR_swapchain"])
   unsupported_extensions = filter(!in(getproperty.(available_extensions, :extension_name)), device_extensions)
   if !isempty(unsupported_extensions)
     error("Requesting unsupported device extensions: $unsupported_extensions")

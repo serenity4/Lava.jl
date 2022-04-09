@@ -137,6 +137,7 @@ pipeline_layout(device::Device, handle::Vk.PipelineLayout) = device.pipeline_lay
 
 @forward Device.resources (new!, Base.delete!)
 @forward Device.fence_pool (fence,)
+@forward Device.queues (set_presentation_queue,)
 
 function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")

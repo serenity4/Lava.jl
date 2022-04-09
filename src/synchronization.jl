@@ -48,7 +48,11 @@ function Base.wait(execs::AbstractVector{ExecutionState}, timeout = typemax(UInt
   fences = map(Base.Fix2(getproperty, :fence), execs)::Vector{Vk.Fence}
   _wait(fences, timeout) && all(finalize!, execs)
 end
-Base.wait((x, exec)::Tuple{<:Any,ExecutionState}) = wait(exec) && return x
+
+function Base.wait((x, exec)::Tuple{<:Any,ExecutionState})
+  wait(exec)
+  x
+end
 
 Base.@kwdef struct SubmissionInfo
   wait_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
@@ -112,3 +116,5 @@ function fence(pool::FencePool)
   push!(pool.pending, fence)
   fence
 end
+
+empty!(pool::FencePool) = (empty!(pool.available); empty!(pool.pending))

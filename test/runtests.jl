@@ -15,23 +15,27 @@ using FileIO
 using ImageIO
 using Accessors
 using OpenType
+# XCB must be loaded prior to creating the instance that will use VK_KHR_xcb_surface.
+using XCB: XCB, Connection, current_screen, XCBWindow, XWindowManager
 
 shader_file(filename) = joinpath(@__DIR__, "resources", "shaders", filename)
 texture_file(filename) = joinpath(@__DIR__, "resources", "textures", filename)
 font_file(filename) = joinpath(@__DIR__, "resources", "fonts", filename)
 render_file(filename; tmp = false) = joinpath(@__DIR__, "examples", "renders", tmp ? "tmp" : "", filename)
 
-instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy])
+instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy], instance_extensions = ["VK_KHR_xcb_surface"])
 
 function test_validation_msg(f, test)
+  val = Ref{Any}()
   mktemp() do path, io
     redirect_stderr(io) do
-      f()
+      val[] = f()
       yield()
     end
     seekstart(io)
     test(read(path, String))
   end
+  val[]
 end
 
 @testset "Lava.jl" begin
@@ -179,7 +183,11 @@ end
   @testset "Examples" begin
     include("examples.jl")
   end
-end
+
+  @testset "WSI & presentation" begin
+    include("present.jl")
+  end
+end;
 
 # trigger finalizers
 GC.gc()

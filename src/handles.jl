@@ -1,4 +1,5 @@
-Base.convert(T::Type{<:Vk.Handle}, x::LavaAbstraction) = handle(x)
+Base.convert(::Type{<:Vk.Handle}, x::LavaAbstraction) = handle(x)
+Base.convert(::Type{<:Union{Ptr{Nothing}, <:Vk.Handle}}, x::LavaAbstraction) = handle(x)
 Base.unsafe_convert(T::Type{Ptr{Cvoid}}, x::LavaAbstraction) = Base.unsafe_convert(T, handle(x))
 
 Base.broadcastable(x::LavaAbstraction) = Ref(x)

@@ -43,7 +43,6 @@ include("init.jl")
 include("memory.jl")
 include("buffer.jl")
 include("image.jl")
-include("wsi.jl")
 include("allocators.jl")
 include("dimensions.jl")
 include("attachments.jl")
@@ -65,7 +64,8 @@ include("device.jl")
 include("resources/creation.jl")
 include("binding_state.jl")
 include("global_data.jl")
-# include("frame.jl")
+include("wsi.jl")
+include("frame.jl")
 include("render_graph.jl")
 include("bake.jl")
 include("command.jl")
@@ -87,7 +87,7 @@ end
 
 export
   Vk,
-  Instance, QueueDispatch, Device, init,
+  Instance, QueueDispatch, set_presentation_queue, Device, init,
 
   # synchronization
   ExecutionState,
@@ -169,6 +169,9 @@ export
 
   # WSI
   Surface, Swapchain,
+
+  # frame
+  Frame, FrameCycle, cycle!
 
   # SPIR-V reexports
   ShaderInterface
