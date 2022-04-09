@@ -77,7 +77,7 @@ function init(;
 
   union!(
     device_vulkan_features,
-    [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :synchronization2, :dynamic_rendering],
+    [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :synchronization2, :dynamic_rendering, :timeline_semaphore],
   )
   vulkan_features = physical_device_features_core(device_vulkan_features)
   device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)

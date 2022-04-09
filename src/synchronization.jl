@@ -1,3 +1,28 @@
+abstract type Semaphore <: LavaAbstraction end
+
+vk_handle_type(::Type{<:Semaphore}) = Vk.Semaphore
+
+mutable struct TimelineSemaphore <: Semaphore
+  const handle::Vk.Semaphore
+  signal_value::UInt64
+end
+
+TimelineSemaphore(device) = TimelineSemaphore(Vk.Semaphore(device, next = Vk.SemaphoreTypeCreateInfo(Vk.SEMAPHORE_TYPE_TIMELINE, 0)), 0)
+next_value!(semaphore::TimelineSemaphore) = semaphore.signal_value += 1
+
+function timeline_semaphores(infos::AbstractVector{Vk.SemaphoreSubmitInfo})
+  semaphores = TimelineSemaphore[]
+  for info in infos
+    !iszero(info.value) && push!(semaphores, TimelineSemaphore(info.semaphore, info.value))
+  end
+  semaphores
+end
+
+struct BinarySemaphore <: Semaphore
+  handle::Vk.Semaphore
+  BinarySemaphore(device) = new(Vk.Semaphore(device))
+end
+
 """
 Execution state that encapsulates synchronization primitives and resources
 bound to a command submission on the GPU.
@@ -10,13 +35,14 @@ been completed execution.
 """
 struct ExecutionState
   queue::Queue
-  fence::Optional{Vk.Fence}
+  fences::Vector{Vk.Fence}
+  semaphores::Vector{TimelineSemaphore}
   free_after_completion::Vector{Any}
   release_after_completion::Vector{Any}
 end
 
-function ExecutionState(queue; fence = nothing, free_after_completion = [], release_after_completion = [])
-  ExecutionState(queue, fence, free_after_completion, release_after_completion)
+function ExecutionState(queue::Queue; fences = Vk.Fence[], semaphores = TimelineSemaphore[], free_after_completion = [], release_after_completion = [])
+  ExecutionState(queue, fences, semaphores, free_after_completion, release_after_completion)
 end
 
 function finalize!(exec::ExecutionState)
@@ -25,34 +51,47 @@ function finalize!(exec::ExecutionState)
   end
   empty!(exec.free_after_completion)
   empty!(exec.release_after_completion)
+end
+
+function Base.wait(fences::AbstractVector{Vk.Fence}, timeout)
+  isempty(fences) && return true
+  ret = unwrap(Vk.wait_for_fences(Vk.device(first(fences)), fences, true, timeout))
+  ret == Vk.SUCCESS
+end
+
+function semaphore_wait_info(semaphores::AbstractVector{TimelineSemaphore})
+  info = Vk.SemaphoreWaitInfo(Vk.Semaphore[], UInt64[])
+  for semaphore in semaphores
+    push!(info.semaphores, semaphore.handle)
+    push!(info.values, semaphore.signal_value)
+  end
+  info
+end
+
+function Base.wait(semaphores::AbstractVector{TimelineSemaphore}, timeout)
+  isempty(semaphores) && return true
+  ret = unwrap(Vk.wait_semaphores(first(semaphores).handle.device, semaphore_wait_info(semaphores), timeout))
+  ret == Vk.SUCCESS
+end
+
+function Base.wait(exec::ExecutionState, timeout = typemax(UInt32); finalize = true)
+  (!wait(exec.fences, timeout) || !wait(exec.semaphores, timeout)) && return false
+  finalize && finalize!(exec)
   true
 end
 
-function _wait(fence::Vk.Fence, timeout)
-  ret = unwrap(Vk.wait_for_fences(Vk.device(fence), [fence], true, timeout))
-  ret == Vk.SUCCESS
+function Base.wait(execs::AbstractVector{ExecutionState}, timeout = typemax(UInt32); finalize = true)
+  !all(Base.Fix2(wait, timeout), execs) && return false
+  finalize && foreach(finalize!, execs)
+  true
 end
 
-function _wait(fences, timeout)
-  isempty(fences) && return true
-  ret = unwrap(Vk.wait_for_fences(Vk.device(first(fence)), fences, true, timeout))
-  ret == Vk.SUCCESS
-end
-
-function Base.wait(exec::ExecutionState, timeout = typemax(UInt32))
-  fence = exec.fence::Vk.Fence
-  _wait(fence, timeout) && finalize!(exec)
-end
-
-function Base.wait(execs::AbstractVector{ExecutionState}, timeout = typemax(UInt32))
-  fences = map(Base.Fix2(getproperty, :fence), execs)::Vector{Vk.Fence}
-  _wait(fences, timeout) && all(finalize!, execs)
-end
-
-function Base.wait((x, exec)::Tuple{<:Any,ExecutionState})
-  wait(exec)
+function Base.wait((x, exec)::Tuple{<:Any,ExecutionState}, args...; kwargs...)
+  wait(exec, args...; kwargs...)
   x
 end
+
+isdone(exec) = wait(exec, 0; finalize = false)
 
 Base.@kwdef struct SubmissionInfo
   wait_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
@@ -73,20 +112,19 @@ function submit(dispatch::QueueDispatch, queue_family_index, info::SubmissionInf
   submit_info = Vk.SubmitInfo2(info.wait_semaphores, info.command_buffers, info.signal_semaphores)
 
   unwrap(Vk.queue_submit_2(q, [submit_info]; fence = something(info.signal_fence, C_NULL)))
-  ExecutionState(q; fence = info.signal_fence, info.free_after_completion, info.release_after_completion)
+  fences = Vk.Fence[]
+  !isnothing(info.signal_fence) && push!(fences, info.signal_fence)
+  ExecutionState(q; fences, semaphores = timeline_semaphores(info.signal_semaphores), info.free_after_completion, info.release_after_completion)
 end
 
 function Base.show(io::IO, exec::ExecutionState)
-  print(io, ExecutionState, "($(exec.queue)")
-  if !isnothing(exec.fence)
-    is_complete = _wait(exec.fence, 0)
-    if is_complete
-      print(io, ", completed execution")
-    else
-      print(io, ", in progress")
-    end
+  print(io, ExecutionState, '(')
+  if isdone(exec)
+    print(io, "completed execution")
+  else
+    print(io, "in progress")
   end
-  print(io, ')')
+  print(io, " on queue ", exec.queue, ')')
 end
 
 struct FencePool
@@ -117,4 +155,4 @@ function fence(pool::FencePool)
   fence
 end
 
-empty!(pool::FencePool) = (empty!(pool.available); empty!(pool.pending))
+Base.empty!(pool::FencePool) = (empty!(pool.available); empty!(pool.pending))

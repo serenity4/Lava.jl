@@ -1,12 +1,13 @@
 mutable struct Frame
     const image::ImageWSI
-    image_acquired::Vk.Semaphore
-    const image_rendered::Vk.Semaphore
+    image_acquired::BinarySemaphore
+    may_present::BinarySemaphore
+    const image_rendered::TimelineSemaphore
 end
 
 function Frame(image::ImageWSI)
     (; device) = image.handle
-    Frame(image, Vk.Semaphore(device), Vk.Semaphore(device))
+    Frame(image, BinarySemaphore(device), BinarySemaphore(device), TimelineSemaphore(device))
 end
 
 mutable struct FrameCycle
@@ -82,16 +83,20 @@ function cycle!(f, fc::FrameCycle)
     # Submit rendering commands.
     @timeit to "Submit rendering commands" begin
         submission = f(frame.image)
-        push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfoKHR(image_acquired, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
-        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfoKHR(frame.image_rendered, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
-        submit(queues, get_queue_family(queues, Vk.QUEUE_GRAPHICS_BIT), submission)
+        push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfo(image_acquired.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
+        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.image_rendered.handle, next_value!(frame.image_rendered), 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
+        # For syncing with the presentation engine only.
+        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.may_present.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
+        state = submit(queues, get_queue_family(queues, Vk.QUEUE_GRAPHICS_BIT), submission)
     end
 
     # Submit the presentation command.
     @timeit to "Submit presentation commands" begin
-        present_info = Vk.PresentInfoKHR([frame.image_rendered], [fc.swapchain], [idx - 1])
-        unwrap(present(queues, present_info))
+        present_info = Vk.PresentInfoKHR([frame.may_present], [fc.swapchain], [idx - 1])
+        present(queues, present_info)
     end
+
+    state
 end
 
 function acquire_next_image(device, swapchain, semaphore)
