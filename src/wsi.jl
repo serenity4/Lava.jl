@@ -7,6 +7,7 @@ vk_handle_type(::Type{<:Surface}) = Vk.SurfaceKHR
 
 struct Swapchain{T}
   handle::Vk.SwapchainKHR
+  info::Vk.SwapchainCreateInfoKHR
   surface::Surface{T}
 end
 

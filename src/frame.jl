@@ -1,109 +1,100 @@
-struct FrameSynchronization
+mutable struct Frame
+    view::ImageView{ImageWSI}
     image_acquired::Vk.Semaphore
-    image_rendered::Vk.Semaphore
-    has_rendered::Vk.Fence
+    const image_rendered::Vk.Semaphore
 end
 
-FrameSynchronization(device) = FrameSynchronization(Vk.Semaphore(device), Vk.Semaphore(device), Vk.Fence(device; flags = FENCE_CREATE_SIGNALED_BIT))
+function Frame(view::ImageView{ImageWSI})
+    (; device) = view.image.handle
+    Frame(view, Vk.Semaphore(device), Vk.Semaphore(device))
+end
 
-mutable struct FrameState
+mutable struct FrameCycle
     const device::Device
     swapchain::Swapchain
     const frames::Vector{Frame}
-    current_frame::Frame
+    frame_index::Int64
     frame_count::Int64
-    const syncs::Dictionary{Frame,FrameSynchronization}
 end
 
-device(fs::FrameState) = fs.device
-
-function FrameState(device, swapchain::Swapchain)
-    max_in_flight = info(swapchain).min_image_count
-    fs = FrameState(device, Ref(swapchain), [], Ref{Frame}(), Ref(0), Dictionary())
-    update!(fs)
+function FrameCycle(device, swapchain::Swapchain)
+    FrameCycle(device, swapchain, get_frames(device, swapchain), 1, 0)
 end
 
-function Vk.SurfaceCapabilitiesKHR(fs::FrameState)
-    unwrap(get_physical_device_surface_capabilities_khr(device(fs).physical_device, info(fs.swapchain[]).surface))
+function Vk.SurfaceCapabilitiesKHR(fc::FrameCycle)
+    unwrap(get_physical_device_surface_capabilities_khr(fc.device.physical_device, fc.swapchain.surface))
 end
 
-function recreate_swapchain!(fs::FrameState, new_extent::NTuple{2,Int64})
-    swapchain = fs.swapchain[]
-    swapchain_info = setproperties(info(swapchain), old_swapchain = handle(swapchain), image_extent = Vk.Extent2D(new_extent...))
-    swapchain_handle = unwrap(create_swapchain_khr(device(fs), swapchain_info))
-    fs.swapchain[] = Created(swapchain_handle, swapchain_info)
-    fs
+current_frame(fc::FrameCycle) = fc.frames[fc.frame_index]
+
+function recreate_swapchain!(fc::FrameCycle, new_extent::NTuple{2,Int64})
+    (; swapchain) = fc
+    info = setproperties(swapchain.info, old_swapchain = handle(swapchain), image_extent = Vk.Extent2D(new_extent...))
+    handle = unwrap(Vk.create_swapchain_khr(fc.device, info))
+    fc.swapchain = setproperties(swapchain, (; info, handle))
 end
 
-function get_frames(fs::FrameState)
-    (; swapchain) = fs
-    extent = info(swapchain).image_extent
-    map(unwrap(get_swapchain_images_khr(device(fs), swapchain))) do img
-        view = View(
-            device(fs),
-            img,
-            IMAGE_VIEW_TYPE_2D,
-            info(swapchain).image_format,
-            ComponentMapping(fill(COMPONENT_SWIZZLE_IDENTITY, 4)...),
-            ImageSubresourceRange(IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1),
-        )
-
-        fb = Framebuffer(device(fs), fs.render_pass, [view], extent.width, extent.height, 1)
-        Frame(img, view, fb)
+function get_frames(device, swapchain)
+    frames = Frame[]
+    for handle in unwrap(Vk.get_swapchain_images_khr(device, swapchain))
+        img = ImageWSI(handle)
+        view = View(img; swapchain.info.format)
+        push!(frames, Frame(view))
     end
+    frames
 end
 
-function update!(fs::FrameState)
-    empty!(fs.frames)
-    empty!(fs.syncs)
-
-    # TODO: make fields of returned-only structs high-level in Vulkan.jl
-    _extent = SurfaceCapabilitiesKHR(fs).current_extent.vks
-    new_extent = Extent2D(_extent.width, _extent.height)
-    if new_extent ≠ info(fs.swapchain[]).image_extent
-        recreate_swapchain!(fs, new_extent)
+function recreate!(fc::FrameCycle)
+    (; current_extent) = Vk.SurfaceCapabilitiesKHR(fc)
+    if current_extent ≠ fc.swapchain.info.image_extent
+        recreate_swapchain!(fc, current_extent)
     end
-
-    append!(fs.frames, get_frames(fs))
-    fs.current_frame[] = first(fs.frames)
-
-    foreach(fs.frames) do frame
-        insert!(fs.syncs, frame, FrameSynchronization(device(fs.render_pass)))
-    end
-    fs
+    fc.frames .= get_frames(fc.device, fc.swapchain)
 end
 
-function next_frame!(fs::FrameState, dispatch::QueueDispatch, submission::SubmissionInfo = SubmissionInfo())
-    (; swapchain) = fs.swapchain
+function next_frame!(fc::FrameCycle, idx)
+    fc.frame_index = idx
+    fc.frame_count += 1
+    current_frame(fc)
+end
+
+function cycle!(f, fc::FrameCycle)
+    (; swapchain) = fc.swapchain
     
     # Acquire the next image.
     # We pass in a semaphore to signal because the implementation
     # may not be done reading from the image when this returns.
-    (; image_acquired) = fs.syncs[fs.current_frame]
-    idx = @timeit to "Acquire next image" acquire_next_image(fs.device, swapchain, image_acquired)
+    # We use the semaphore from the last frame because we don't know
+    # which index we'll get, but we'll exchange the semaphores once we know.
+    last_frame = current_frame(fc)
+    (; image_acquired) = last_frame
+    idx = @timeit to "Acquire next image" acquire_next_image(fc.device, swapchain, image_acquired)
     if isnothing(idx)
-        # Recreate swapchain.
-        update!(fs)
-        return next_frame!(fs, dispatch, submission)
+        # Recreate swapchain and frames.
+        recreate!(fc)
+        return cycle!(fc, dispatch, submission)
     end
-    frame = fs.frames[idx + 1]
-    sync = fs.syncs[frame]
+    frame = next_frame!(fc, idx)
+
+    # Exchange semaphores.
+    last_frame.image_acquired = frame.image_acquired
+    frame.image_acquired = image_acquired
+
+    (; dispatch) = fc.device
 
     # Submit rendering commands.
     @timeit to "Submit rendering commands" begin
+        submission = f()
         push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfoKHR(image_acquired, 0, 0; stage_mask = PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
-        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfoKHR(sync.has_rendered, 0, 0; stage_mask = PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
+        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfoKHR(frame.image_acquired, 0, 0; stage_mask = PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
         submit(dispatch, get_queue_family(dispatch, QUEUE_GRAPHICS_BIT), submission)
     end
 
-    # Submit presentation command.
+    # Submit the presentation command.
     @timeit to "Submit presentation commands" begin
-        present_info = Vk.PresentInfoKHR([sync.has_rendered], [swapchain], [idx])
+        present_info = Vk.PresentInfoKHR([frame.image_rendered], [swapchain], [idx])
         unwrap(present(dispatch, present_info))
     end
-
-    fs.frame_count += 1
-    fs.current_frame = frame
 end
 
 function acquire_next_image(device, swapchain, semaphore)
@@ -111,7 +102,7 @@ function acquire_next_image(device, swapchain, semaphore)
         status = acquire_next_image_khr(device, swapchain, 0; semaphore)
         if !iserror(status)
             idx, result = unwrap(status)
-            result in (Vk.SUCCESS, Vk.SUBOPTIMAL_KHR) && return idx
+            result in (Vk.SUCCESS, Vk.SUBOPTIMAL_KHR) && return idx + 1
         else
             err = unwrap_error(status)
             err.code == ERROR_OUT_OF_DATE_KHR && return nothing
@@ -119,8 +110,4 @@ function acquire_next_image(device, swapchain, semaphore)
         end
         yield()
     end
-end
-
-function wait_hasrendered(fs::FrameState)
-    wait_for_fences(device(fs), getproperty.(fs.syncs, :has_rendered), true, typemax(UInt64))
 end
