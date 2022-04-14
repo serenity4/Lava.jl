@@ -10,9 +10,9 @@ function Frame(image::ImageWSI)
     Frame(image, BinarySemaphore(device), BinarySemaphore(device), TimelineSemaphore(device))
 end
 
-mutable struct FrameCycle
+mutable struct FrameCycle{T}
     const device::Device
-    swapchain::Swapchain
+    swapchain::Swapchain{T}
     const frames::Vector{Frame}
     frame_index::Int64
     frame_count::Int64

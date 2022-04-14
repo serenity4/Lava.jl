@@ -72,6 +72,7 @@ include("command.jl")
 include("resources/resolution.jl")
 # include("transition.jl")
 include("debug.jl")
+include("precompile.jl")
 
 function __init__()
   # for debugging in Vulkan

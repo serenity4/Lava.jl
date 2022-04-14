@@ -23,7 +23,7 @@ texture_file(filename) = joinpath(@__DIR__, "resources", "textures", filename)
 font_file(filename) = joinpath(@__DIR__, "resources", "fonts", filename)
 render_file(filename; tmp = false) = joinpath(@__DIR__, "examples", "renders", tmp ? "tmp" : "", filename)
 
-instance, device = init(; with_validation = !is_ci, device_specific_features = [:shader_int_64, :sampler_anisotropy], instance_extensions = ["VK_KHR_xcb_surface"])
+instance, device = init(; with_validation = !is_ci, instance_extensions = ["VK_KHR_xcb_surface"])
 
 function test_validation_msg(f, test)
   val = Ref{Any}()

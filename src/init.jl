@@ -80,6 +80,7 @@ function init(;
     [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :synchronization2, :dynamic_rendering, :timeline_semaphore],
   )
   vulkan_features = physical_device_features_core(device_vulkan_features)
+  union!(device_specific_features, :shader_int_64, :sampler_anisotropy)
   device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)
   enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = vulkan_features)
 
