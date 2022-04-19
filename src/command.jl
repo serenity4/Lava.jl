@@ -127,7 +127,6 @@ struct Draw <: DrawCommand
 end
 
 function apply(cb::CommandBuffer, draw::Draw)
-  buffer = draw.parameters
   Vk.cmd_draw(
     cb,
     1 + draw.vertices.stop - draw.vertices.start,

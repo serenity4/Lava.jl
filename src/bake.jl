@@ -22,8 +22,8 @@ end
 
 function render(rg::Union{RenderGraph,BakedRenderGraph})
   command_buffer = request_command_buffer(rg.device)
-  render(command_buffer, rg)
-  submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device)))
+  baked = render(command_buffer, rg)
+  submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device), release_after_completion = [baked]))
 end
 
 render(command_buffer::CommandBuffer, rg::RenderGraph) = render(command_buffer, bake(rg))

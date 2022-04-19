@@ -20,6 +20,8 @@ start_recording(cb::SimpleCommandBuffer) =
   unwrap(Vk.begin_command_buffer(cb, Vk.CommandBufferBeginInfo(flags = Vk.COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)))
 end_recording(cb) = unwrap(Vk.end_command_buffer(cb))
 
+SubmissionInfo(cb::SimpleCommandBuffer) = SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(cb)], release_after_completion = cb.to_preserve, free_after_completion = cb.to_free)
+
 function submit(command_buffer::SimpleCommandBuffer, info::SubmissionInfo = SubmissionInfo())
   push!(info.command_buffers, Vk.CommandBufferSubmitInfo(command_buffer))
   append!(info.release_after_completion, command_buffer.to_preserve)
