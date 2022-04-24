@@ -73,3 +73,12 @@ memory(::ImageWSI) = nothing
 function ImageWSI(handle, info::Vk.SwapchainCreateInfoKHR; layout = Vk.IMAGE_LAYOUT_UNDEFINED)
   ImageWSI(handle, (info.image_extent.width, info.image_extent.height), info.image_format, info.image_array_layers, info.image_usage, info.queue_family_indices, info.image_sharing_mode, Ref(layout))
 end
+
+function Base.collect(@nospecialize(T), image::ImageWSI, device::Device)
+  image = convert(ImageBlock, image, device)
+  collect(T, image, device)
+end
+
+function Base.convert(::Type{ImageBlock}, image::ImageWSI, device::Device)
+  ImageBlock(image.handle, dims(image), format(image), samples(image), mip_levels(image), layers(image), usage(image), image.queue_family_indices, image.sharing_mode, false, image.layout, Ref(OpaqueMemory()))
+end

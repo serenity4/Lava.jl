@@ -46,7 +46,7 @@ end
   ]
   rg = program_1(device, vdata, pcolor)
 
-  @test wait(render(rg))
+  render(rg)
   data = collect(RGBA{Float16}, color.view.image, device)
   save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
 end

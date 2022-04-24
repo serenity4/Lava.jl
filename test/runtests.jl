@@ -103,7 +103,7 @@ end
     @test memory(sb) ≠ memory(b)
 
     @test buffer(device, collect(1:1000); memory_domain = MEMORY_DOMAIN_HOST) isa Buffer
-    @test wait(buffer(device, collect(1:1000))) isa Buffer
+    @test buffer(device, collect(1:1000)) isa Buffer
     @test buffer(device; size = 800) isa Buffer
     @test_throws ErrorException buffer(device)
 
@@ -141,7 +141,7 @@ end
 
       img = image(device, Vk.FORMAT_R32G32B32A32_SFLOAT; dims = (512, 512))
       @test img isa Lava.Image
-      img = wait(image(device, Vk.FORMAT_R32G32B32A32_SFLOAT, rand(RGBA{Float32}, 512, 512)))
+      img = image(device, Vk.FORMAT_R32G32B32A32_SFLOAT, rand(RGBA{Float32}, 512, 512))
       @test isallocated(img)
     end
 
@@ -149,23 +149,21 @@ end
       b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
       b2 = buffer(device; size = 8000, usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b1)) == collect(1:1000)
-      t = transfer(device, b1, b2; submission = SubmissionInfo(signal_fence = Lava.fence(device)))
-      @test t isa ExecutionState
-      @test wait(t)
+      transfer(device, b1, b2)
       @test reinterpret(Int64, collect(b2, device)) == collect(1:1000)
 
-      b3 = wait(buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT))
+      b3 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)
 
       data = rand(RGBA{Float16}, 100, 100)
       usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-      img1 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage))
+      img1 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage)
       @test collect(RGBA{Float16}, img1, device) == data
-      img2 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, usage))
+      img2 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, usage)
       @test collect(RGBA{Float16}, img2, device) == data
-      img3 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; optimal_tiling = false, usage))
+      img3 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; optimal_tiling = false, usage)
       @test collect(RGBA{Float16}, img3, device) == data
-      img4 = wait(image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; usage))
+      img4 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; usage)
       @test collect(RGBA{Float16}, img4, device) == data
     end
   end

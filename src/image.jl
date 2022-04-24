@@ -52,7 +52,7 @@ function Vk.Extent3D(image::Image)
   Vk.Extent3D(d..., ntuple(Returns(1), 3 - length(d))...)
 end
 
-Vk.Offset3D(image::ImageBlock) = Vk.Offset3D(0, 0, 0)
+Vk.Offset3D(::Image) = Vk.Offset3D(0, 0, 0)
 
 vk_handle_type(::Type{ImageBlock}) = Vk.Image
 

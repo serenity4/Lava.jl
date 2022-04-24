@@ -38,5 +38,5 @@ end
 
 function allocate_index_buffer(gd::GlobalData, device::Device)
   #TODO: Create index buffer in render graph to avoid excessive synchronization.
-  gd.index_buffer[] = wait(buffer(device, convert(Vector{UInt32}, gd.index_list .- 1); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT))
+  gd.index_buffer[] = buffer(device, convert(Vector{UInt32}, gd.index_list .- 1); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 end

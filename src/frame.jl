@@ -23,14 +23,16 @@ function FrameCycle(device::Device, swapchain::Swapchain)
 end
 
 function surface_capabilities(fc::FrameCycle)
-    unwrap(get_physical_device_surface_capabilities_2_khr(fc.device.handle.physical_device, Vk.PhysicalDeviceSurfaceInfo2KHR(; fc.swapchain.surface))).surface_capabilities
+    unwrap(Vk.get_physical_device_surface_capabilities_2_khr(fc.device.handle.physical_device, Vk.PhysicalDeviceSurfaceInfo2KHR(; fc.swapchain.surface))).surface_capabilities
 end
 
 current_frame(fc::FrameCycle) = fc.frames[fc.frame_index]
 
-function recreate_swapchain!(fc::FrameCycle, new_extent::NTuple{2,Int64})
+Base.collect(::Type{T}, fc::FrameCycle) where {T} = collect(T, current_frame(fc).image, fc.device)
+
+function recreate_swapchain!(fc::FrameCycle, new_extent::Vk.Extent2D)
     (; swapchain) = fc
-    info = setproperties(swapchain.info, old_swapchain = handle(swapchain), image_extent = Vk.Extent2D(new_extent...))
+    info = setproperties(swapchain.info, old_swapchain = swapchain.handle, image_extent = new_extent)
     handle = unwrap(Vk.create_swapchain_khr(fc.device, info))
     fc.swapchain = setproperties(swapchain, (; info, handle))
 end
@@ -70,7 +72,7 @@ function cycle!(f, fc::FrameCycle)
     if isnothing(idx)
         # Recreate swapchain and frames.
         recreate!(fc)
-        return cycle!(fc, dispatch, submission)
+        return cycle!(f, fc)
     end
     frame = next_frame!(fc, idx)
 
@@ -87,6 +89,7 @@ function cycle!(f, fc::FrameCycle)
         push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.image_rendered.handle, next_value!(frame.image_rendered), 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
         # For syncing with the presentation engine only.
         push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.may_present.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
+        push!(submission.release_after_completion, frame)
         state = submit(queues, get_queue_family(queues, Vk.QUEUE_GRAPHICS_BIT), submission)
     end
 
@@ -100,14 +103,20 @@ function cycle!(f, fc::FrameCycle)
 end
 
 function acquire_next_image(device, swapchain, semaphore)
+    t0 = time()
+    has_warned = false
     while true
         status = Vk.acquire_next_image_khr(device, swapchain, 0; semaphore)
         if !iserror(status)
             idx, result = unwrap(status)
             result in (Vk.SUCCESS, Vk.SUBOPTIMAL_KHR) && return idx + 1
+            if time() > t0 + 1 && result == Vk.NOT_READY && !has_warned
+                @warn "No swapchain image has been acquired for 1 second, returning with the status code `NOT_READY`."
+                has_warned = true
+            end
         else
             err = unwrap_error(status)
-            err.code == ERROR_OUT_OF_DATE_KHR && return nothing
+            err.code == Vk.ERROR_OUT_OF_DATE_KHR && return nothing
             error("Could not acquire the next swapchain image ($(err.code))")
         end
         yield()

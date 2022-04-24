@@ -1,12 +1,21 @@
+# Synchronous operations that wait on asynchronous ones.
+
+function transfer(device::Device, args...; kwargs...)
+  submission = SubmissionInfo(signal_fence = fence(device))
+  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
+  wait(transfer(command_buffer, args...; submission, kwargs...))
+end
+
+function transition_layout(device::Device, view_or_image::Union{<:Image,<:ImageView}, new_layout)
+  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
+  transition_layout(command_buffer, view_or_image, new_layout)
+  wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(device))))
+end
+
 # # Buffers
 
 """
 Create a new buffer and fill it with data.
-
-Note that if the buffer is device-local, a transfer via staging buffer is required.
-In this case, a tuple of `(buffer, state)` is returned.
-`state` is an [`ExecutionState`](@ref) whose bound resources **must** be
-preserved until the transfer has been completed. See the related documentation for more details.
 """
 function buffer(device::Device, data = nothing; memory_domain = MEMORY_DOMAIN_DEVICE, usage = Vk.BufferUsageFlag(0), size = nothing, submission = SubmissionInfo(signal_fence = fence(device)), kwargs...)
   isnothing(size) && isnothing(data) && error("At least one of data or size must be provided.")
@@ -16,9 +25,7 @@ function buffer(device::Device, data = nothing; memory_domain = MEMORY_DOMAIN_DE
   buffer = BufferBlock(device, size; usage, kwargs...)
   allocate!(buffer, memory_domain)
   isnothing(data) && return buffer
-  state = copyto!(buffer, data; device, submission)
-  isnothing(state) && return buffer
-  (buffer, state)
+  copyto!(buffer, data; device, submission)
 end
 
 function Base.copyto!(buffer::BufferBlock, data; device::Optional{Device} = nothing, submission = SubmissionInfo())
@@ -33,6 +40,7 @@ function Base.copyto!(buffer::BufferBlock, data; device::Optional{Device} = noth
   else
     error("Buffer not visible neither to device nor to host (memory properties: $(properties(mem))).")
   end
+  buffer
 end
 
 function transfer(
@@ -73,6 +81,7 @@ function transfer(
   ensure_layout(command_buffer, dst, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
 
   if samples(src) ≠ samples(dst)
+    # Resolve the source image into a temporary one, and transfer this one to `dst`.
     aux = similar(src; samples = 1)
     ensure_layout(command_buffer, aux, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
     Vk.cmd_resolve_image_2(command_buffer, Vk.ResolveImageInfo2(C_NULL,
@@ -114,23 +123,19 @@ function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{<
   image(view_or_image).layout[] = new_layout
 end
 
-function transition_layout(device::Device, view_or_image::Union{<:Image,<:ImageView}, new_layout)
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
-  transition_layout(command_buffer, view_or_image, new_layout)
-  submit(command_buffer, SubmissionInfo(signal_fence = fence(device)))
-end
-
 function Base.collect(@nospecialize(T), image::ImageBlock, device::Device)
   if image.is_linear && Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in properties(memory(image))
+    # Get the data from the host-visible memory directly.
     isbitstype(T) || error("Image type is not an `isbits` type.")
     bytes = collect(memory(image), prod(dims(image)) * sizeof(T), device)
     data = reinterpret(T, bytes)
     reshape(data, dims(image))
   else
+    # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
     dst = ImageBlock(device, dims(image), format(image), usage; is_linear = true)
     allocate!(dst, MEMORY_DOMAIN_HOST)
-    wait(transfer(device, image, dst; submission = SubmissionInfo(signal_fence = fence(device))))
+    transfer(device, image, dst)
     collect(T, dst, device)
   end
 end
@@ -138,12 +143,13 @@ end
 function Base.copyto!(image::Image, data::AbstractArray, device::Device; kwargs...)
   b = buffer(device, data; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
   transfer(device, b, image; kwargs...)
+  image
 end
 
-function transfer(device::Device, args...; submission = SubmissionInfo(), kwargs...)
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
-  state = transfer(command_buffer, args...; submission, kwargs...)
-  something(state, command_buffer)
+function Base.copyto!(data::AbstractArray, image::Image, device::Device; kwargs...)
+  b = buffer(device, data; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT, memory_domain = MEMORY_DOMAIN_HOST)
+  transfer(device, image, b; kwargs...)
+  data
 end
 
 function transfer(
@@ -170,6 +176,30 @@ function transfer(
     Lava.submit(command_buffer, submission)
 end
 
+function transfer(
+  command_buffer::CommandBuffer,
+  view_or_image::Union{<:Image,<:ImageView},
+  buffer::Buffer;
+  submission::Optional{SubmissionInfo} = nothing,
+  free_src = false,
+)
+  transition_layout(command_buffer, view_or_image, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+  Vk.cmd_copy_image_to_buffer(command_buffer, image(view_or_image), Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer,
+    [
+      Vk.BufferImageCopy(
+        offset(buffer),
+        dims(view_or_image)...,
+        subresource_layers(view_or_image),
+        Vk.Offset3D(view_or_image),
+        Vk.Extent3D(view_or_image),
+      ),
+    ])
+    push!(command_buffer.to_preserve, buffer)
+    push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, view_or_image)
+    isnothing(submission) && return
+    Lava.submit(command_buffer, submission)
+end
+
 function image(
   device::Device,
   format::Vk.Format,
@@ -189,12 +219,11 @@ function image(
   # If optimal tiling is enabled, we'll need to transfer the image regardless.
   img = ImageBlock(device, dims, format, usage; is_linear = !optimal_tiling, samples, image_kwargs...)
   allocate!(img, memory_domain)
-  state = if !isnothing(data)
+  if !isnothing(data)
     copyto!(img, data, device; submission)
   end
-  !isnothing(layout) && wait(transition_layout(device, img, layout))
-  isnothing(state) && return img
-  (img, state)
+  !isnothing(layout) && transition_layout(device, img, layout)
+  img
 end
 
 # # Attachments
@@ -211,14 +240,8 @@ function attachment(
   kwargs...
 )
 
-  if isnothing(data)
-    img = image(device, format, data; usage, samples, dims, kwargs...)
-    Attachment(View(img; aspect), access)
-  else
-    img, state = image(device, format, data; usage, samples, dims, kwargs...)
-    attachment = Attachment(View(img; aspect), access)
-    attachment, state
-  end
+  img = image(device, format, data; usage, samples, dims, kwargs...)
+  Attachment(View(img; aspect), access)
 end
 
 # # Memory
@@ -233,7 +256,7 @@ function Base.collect(memory::MemoryBlock, size::Integer, device::Device)
   @assert reqs.size ≤ memory.size
   dst = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
   allocate!(dst, MEMORY_DOMAIN_HOST)
-  wait(transfer(device, src, dst; free_src = true, submission = SubmissionInfo(signal_fence = fence(device))))
+  transfer(device, src, dst; free_src = true)
   collect(dst)
 end
 

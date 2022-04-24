@@ -10,7 +10,7 @@ rg = RenderGraph(device)
 vbuffer = buffer(rg, 1024)
 @test vbuffer isa LogicalBuffer
 # Regular `BufferBlock`.
-ibuffer = wait(buffer(device, collect(1:100); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT))
+ibuffer = buffer(device, collect(1:100); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 @test ibuffer isa BufferBlock
 
 # Logical resources all the way.
