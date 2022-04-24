@@ -10,7 +10,7 @@ using Graphs, MetaGraphs
 using Transducers
 using SPIRV
 using AutoHashEquals
-using ColorTypes: RGB, BGR, RGBA, ARGB, BGRA, ABGR
+@reexport using ColorTypes: RGB, BGR, RGBA, ARGB, BGRA, ABGR
 using FixedPointNumbers
 
 using glslang_jll: glslang_jll

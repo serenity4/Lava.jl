@@ -29,6 +29,7 @@ end
 current_frame(fc::FrameCycle) = fc.frames[fc.frame_index]
 
 Base.collect(::Type{T}, fc::FrameCycle) where {T} = collect(T, current_frame(fc).image, fc.device)
+Base.collect(fc::FrameCycle) = collect(current_frame(fc).image, fc.device)
 
 function recreate_swapchain!(fc::FrameCycle, new_extent::Vk.Extent2D)
     (; swapchain) = fc

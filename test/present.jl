@@ -27,30 +27,30 @@ end
   cycle = FrameCycle(device, swapchain)
   set_presentation_queue(device, [swapchain.surface])
   cycle_f(x, t) = render_rectangle(device, x, Float32.((0.1 + t * 0.9, 0.5cos(t))))
+  cycle_render(cycle, t) = wait(cycle!(Base.Fix2(cycle_f, t), cycle))
 
-  # Preserve render graph for a full cycle.
-  preserve = Ref{ExecutionState}()
   test_validation_msg(x -> @test isempty(x)) do
     Δt = 0.1
-    wait(cycle!(Base.Fix2(cycle_f, Δt), cycle))
+    cycle_render(cycle, Δt)
     t0 = time()
     t = time()
     Δt = t - t0
     while Δt < 1
-      wait(cycle!(Base.Fix2(cycle_f, Δt), cycle))
+      cycle_render(cycle, Δt)
       Δt = time() - t
     end
   end
 
-  Δt = 0.5
-  wait(cycle!(Base.Fix2(cycle_f, Δt), cycle))
+  t = 0.5
+  Lava.recreate!(cycle)
+  @test all(iszero, collect(BGRA{N0f8}, cycle))
+  cycle_render(cycle, t)
+  @test any(!iszero, collect(BGRA{N0f8}, cycle))
   XCB.set_extent(win, XCB.extent(win) .+ 50)
-
-  #FIXME: The first cycle does not present anything. It could be that `ERROR_OUT_OF_DATE_KHR` is returned only for the second attempt.
-  wait(cycle!(Base.Fix2(cycle_f, Δt), cycle))
-  wait(cycle!(Base.Fix2(cycle_f, Δt), cycle))
-  data = collect(RGBA{Colors.FixedPointNumbers.N0f8}, cycle)
-  @test any(!iszero, data)
+  cycle_render(cycle, t)
+  # `ERROR_OUT_OF_DATE_KHR` is triggered on the second call.
+  cycle_render(cycle, t)
+  @test any(!iszero, collect(BGRA{N0f8}, cycle))
 
   finalize(win)
 end

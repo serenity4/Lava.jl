@@ -10,7 +10,7 @@ using SPIRV: SPIRV, Pointer, Vec, Mat, Arr, ShaderInterface, U, F
 is_ci && Vk.@set_driver :SwiftShader
 using Test
 using GeometryExperiments
-using Colors
+using FixedPointNumbers
 using FileIO
 using ImageIO
 using Accessors
