@@ -12,7 +12,7 @@ function program_3(device, vdata, color)
 end
 
 @testset "Multisampled triangle" begin
-  color_ms = attachment(device, Vk.FORMAT_R16G16B16A16_SFLOAT; samples = 4, usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, dims = (1920, 1080))
+  color_ms = attachment(device; format = Vk.FORMAT_R16G16B16A16_SFLOAT, samples = 4, usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, dims = (1920, 1080))
   pcolor_ms = PhysicalAttachment(color_ms)
   vdata = [
     (0.0f0, 0.8f0, RGB{Float32}(1.0, 0.0, 0.0)),

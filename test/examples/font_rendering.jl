@@ -58,6 +58,6 @@ end
   fg = program_3(device, positions, 12.0f0)
   render(fg)
   # FIXME: debug why font shader fails
-  data = collect(RGBA{Float16}, image(fg.frame.resources[:color].data), device)
+  data = collect(image(fg.frame.resources[:color].data), device)
   save_test_render("glyph_A.png", data, 0x2a62b795abd45046)
 end

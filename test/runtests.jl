@@ -139,9 +139,10 @@ end
       v = View(img)
       @test v isa ImageView
 
-      img = image(device, Vk.FORMAT_R32G32B32A32_SFLOAT; dims = (512, 512))
+      img = image(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (512, 512))
       @test img isa Lava.Image
-      img = image(device, Vk.FORMAT_R32G32B32A32_SFLOAT, rand(RGBA{Float32}, 512, 512))
+      @test eltype(img) == RGBA{Float32}
+      img = image(device, rand(RGBA{Float32}, 512, 512))
       @test isallocated(img)
     end
 
@@ -157,14 +158,14 @@ end
 
       data = rand(RGBA{Float16}, 100, 100)
       usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-      img1 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage)
-      @test collect(RGBA{Float16}, img1, device) == data
-      img2 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; memory_domain = MEMORY_DOMAIN_HOST, usage)
-      @test collect(RGBA{Float16}, img2, device) == data
-      img3 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; optimal_tiling = false, usage)
-      @test collect(RGBA{Float16}, img3, device) == data
-      img4 = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, data; usage)
-      @test collect(RGBA{Float16}, img4, device) == data
+      img1 = image(device, data; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage)
+      @test collect(img1, device) == data
+      img2 = image(device, data; memory_domain = MEMORY_DOMAIN_HOST, usage)
+      @test collect(img2, device) == data
+      img3 = image(device, data; optimal_tiling = false, usage)
+      @test collect(img3, device) == data
+      img4 = image(device, data; usage)
+      @test collect(img4, device) == data
     end
   end
 

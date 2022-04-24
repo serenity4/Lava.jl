@@ -10,6 +10,8 @@ using Graphs, MetaGraphs
 using Transducers
 using SPIRV
 using AutoHashEquals
+using ColorTypes: RGB, BGR, RGBA, ARGB, BGRA, ABGR
+using FixedPointNumbers
 
 using glslang_jll: glslang_jll
 const glslangValidator = glslang_jll.glslangValidator_path
@@ -31,6 +33,7 @@ Abstraction defined in the scope of this package.
 abstract type LavaAbstraction end
 
 include("utils.jl")
+include("formats.jl")
 include("handles.jl")
 include("queue_dispatch.jl")
 include("synchronization.jl")

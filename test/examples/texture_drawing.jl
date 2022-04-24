@@ -37,7 +37,7 @@ function program_2(device, vdata, color, uv::NTuple{2,Float32} = (0.1f0, 1.0f0))
 
   normal = load(texture_file("normal.png"))
   normal = convert(Matrix{RGBA{Float16}}, normal)
-  normal_map = image(device, Vk.FORMAT_R16G16B16A16_SFLOAT, normal; usage = Vk.IMAGE_USAGE_SAMPLED_BIT)
+  normal_map = image(device, normal; usage = Vk.IMAGE_USAGE_SAMPLED_BIT)
   normal_map = PhysicalImage(normal_map)
 
   graphics = RenderNode(render_area = RenderArea(Lava.dims(color)...), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec

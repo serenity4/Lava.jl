@@ -374,7 +374,7 @@ function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
   for info in rg.logical_resources.images
     usage = uses[info]
     dims = (info.dims[1], info.dims[2])
-    insert!(res, info.uuid, image(rg.device, info.format; dims, usage.usage))
+    insert!(res, info.uuid, image(rg.device; info.format, dims, usage.usage))
   end
   for info in rg.logical_resources.attachments
     usage = uses[info]
@@ -393,7 +393,7 @@ function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
         "Could not determine the dimensions of the attachment $(info.uuid). You must either provide them or use the attachment with a node that has a render area.",
       )
     end
-    insert!(res, info.uuid, attachment(rg.device, info.format; dims, usage.samples, usage.aspect, usage.access, usage.usage))
+    insert!(res, info.uuid, attachment(rg.device; info.format, dims, usage.samples, usage.aspect, usage.access, usage.usage))
   end
   res
 end

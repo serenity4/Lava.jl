@@ -40,6 +40,7 @@ image(image::Image) = image
 memory(image::ImageBlock) = image.memory[]
 isallocated(image::ImageBlock) = isdefined(image.memory, 1)
 format(x) = x.format
+Base.eltype(image::Image) = format_type(format(image))
 mip_levels(x) = x.mip_levels
 layers(x) = x.layers
 samples(x) = x.samples

@@ -140,6 +140,12 @@ function Base.collect(@nospecialize(T), image::ImageBlock, device::Device)
   end
 end
 
+function Base.collect(image::Image, device::Device)
+  T = format_type(format(image))
+  !isnothing(T) || error("The image element type could not be deduced from the image format $(format(image)). Please provide a type as first argument that matches the format of the image.")
+  collect(T, image, device)
+end
+
 function Base.copyto!(image::Image, data::AbstractArray, device::Device; kwargs...)
   b = buffer(device, data; usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
   transfer(device, b, image; kwargs...)
@@ -202,8 +208,8 @@ end
 
 function image(
   device::Device,
-  format::Vk.Format,
   data = nothing;
+  format = nothing,
   memory_domain = MEMORY_DOMAIN_DEVICE,
   optimal_tiling = true,
   usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
@@ -213,9 +219,15 @@ function image(
   submission = SubmissionInfo(signal_fence = fence(device)),
   image_kwargs...,
 )
-  isnothing(data) && isnothing(dims) && error("Image dimensions must be specified if no data is provided.")
-  isnothing(dims) && (dims = size(data))
-  !isnothing(data) && (usage |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+  if isnothing(data)
+    isnothing(dims) && error("Image dimensions must be specified when no data is provided.")
+    isnothing(format) && error("An image format must be specified when no data is provided.")
+  else
+    isnothing(dims) && (dims = size(data))
+    usage |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT
+    isnothing(format) && (format = Lava.format(typeof(data)))
+    isnothing(format) && error("No format could be determined from the data. Please provide an image format.")
+  end
   # If optimal tiling is enabled, we'll need to transfer the image regardless.
   img = ImageBlock(device, dims, format, usage; is_linear = !optimal_tiling, samples, image_kwargs...)
   allocate!(img, memory_domain)
@@ -230,17 +242,13 @@ end
 
 function attachment(
   device::Device,
-  format::Vk.Format,
   data = nothing;
-  usage = Vk.IMAGE_USAGE_SAMPLED_BIT,
-  dims = nothing,
   access::MemoryAccess = READ | WRITE,
-  samples = 1,
   aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
-  kwargs...
+  image_kwargs...
 )
 
-  img = image(device, format, data; usage, samples, dims, kwargs...)
+  img = image(device, data; image_kwargs...)
   Attachment(View(img; aspect), access)
 end
 
