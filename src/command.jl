@@ -178,7 +178,7 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info(baked.device, record.node, program, state.render_state, state.program_state, baked.global_data.resources, targets)
+        info = pipeline_info(baked.device, record.node.render_area::Vk.Rect2D, program, state.render_state, state.program_state, baked.global_data.resources, targets)
         hash = request_pipeline(baked.device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
@@ -194,7 +194,7 @@ A hash is returned to serve as the key to get the corresponding pipeline from th
 """
 function pipeline_info(
   device::Device,
-  pass::RenderNode,
+  render_area::Vk.Rect2D,
   program::Program,
   state::RenderState,
   invocation_state::ProgramInvocationState,
@@ -223,7 +223,6 @@ function pipeline_info(
     end
   end
   input_assembly_state = Vk.PipelineInputAssemblyStateCreateInfo(invocation_state.primitive_topology, false)
-  (; render_area::Vk.Rect2D) = pass
   (; x, y) = render_area.offset
   (; width, height) = render_area.extent
   viewport_state =

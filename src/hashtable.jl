@@ -1,10 +1,10 @@
 struct HashTable{T}
-  table::Dictionary{UInt,T}
+  table::LRU{UInt64,T}
 end
 
-@forward HashTable.table (Base.get, Base.getindex, Base.setindex!, Base.isempty, Base.insert!, Base.empty!, Base.length)
+@forward HashTable.table (Base.get, Base.getindex, Base.setindex!, Base.isempty, Base.empty!, Base.length)
 
-HashTable{T}() where {T} = HashTable{T}(Dictionary())
+HashTable{T}(; maxsize = 500) where {T} = HashTable{T}(LRU{UInt64, T}(; maxsize))
 
 function Base.get!(f, ht::HashTable, info)
   h = hash(info)
@@ -13,7 +13,7 @@ function Base.get!(f, ht::HashTable, info)
     return val
   else
     entry = f(info)
-    insert!(ht, h, entry)
+    ht[h] = entry
     entry
   end
 end
@@ -22,12 +22,18 @@ end
 Insert objects into the hash table by calling `f` on info arguments that were not already cached.
 """
 function batch_create!(f, ht::HashTable, infos)
-  hashes = hash.(infos)
-  uncached = findall(Base.Fix1(!haskey, ht.table), hashes)
+  uncached = Int[]
+  hashes = UInt64[]
+  for (i, info) in enumerate(infos)
+    h = hash(info)
+    push!(hashes, h)
+    !haskey(ht.table, h) && push!(uncached, i)
+  end
   if !isempty(uncached)
     objs = f(infos[uncached])
-    foreach(zip(uncached, objs)) do (idx, obj)
-      insert!(ht.table, hashes[idx], obj)
+    for (idx, obj) in zip(uncached, objs)
+      ht.table[hashes[idx]] = obj
     end
   end
+  nothing
 end

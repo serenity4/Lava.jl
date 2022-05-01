@@ -1,7 +1,7 @@
 """
 SPIR-V shader code, with stage and entry point information.
 """
-struct ShaderSource
+@auto_hash_equals struct ShaderSource
   code::Vector{UInt8}
   stage::Vk.ShaderStageFlag
   entry_point::Symbol

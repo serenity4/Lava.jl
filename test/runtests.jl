@@ -175,6 +175,10 @@ end
     include("shaders.jl")
   end
 
+  @testset "Pipelines" begin
+    include("pipelines.jl")
+  end
+
   @testset "Render Graph" begin
     include("render_graph.jl")
   end

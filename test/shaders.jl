@@ -1,22 +1,19 @@
-function test_frag_shader(out_color, frag_color)
-  out_color[] = frag_color
+function test_shader(position)
+  position[] = Vec(1f0, 1f0, 1f0, 1f0)
 end
 
 @testset "Shader cache" begin
-  frag_interface = ShaderInterface(
-    execution_model = SPIRV.ExecutionModelFragment,
-    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput],
-    variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
-      2 => dictionary([SPIRV.DecorationLocation => UInt32[0]]),
-    ]),
-    features = device.spirv_features,
-  )
-  frag_shader = @shader frag_interface test_frag_shader(::Vec{4,Float32}, ::Vec{4,Float32})
+  frag_shader = @fragment device.spirv_features test_shader(::Output::Vec{4,Float32})
 
   cache = Lava.ShaderCache(device)
   Shader(Lava.ShaderCache(device), frag_shader) # trigger JIT compilation
   t1 = @elapsed Shader(cache, frag_shader)
   t2 = @elapsed Shader(cache, frag_shader)
+  @test length(cache.shaders) == 1
   @test t1 > t2
+
+  frag_shader = @fragment device.spirv_features test_shader(::Output::Vec{4,Float32})
+  t3 = @elapsed Shader(cache, frag_shader)
+  @test length(cache.shaders) == 1
+  @test t1 > t3
 end

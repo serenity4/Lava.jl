@@ -10,6 +10,7 @@ using Graphs, MetaGraphs
 using Transducers
 using SPIRV
 using AutoHashEquals
+using LRUCache: LRU
 @reexport using ColorTypes: RGB, BGR, RGBA, ARGB, BGRA, ABGR
 using FixedPointNumbers
 

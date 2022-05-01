@@ -1,7 +1,4 @@
-"""
-Vulkan shader, fed into the 
-"""
-struct Shader
+@auto_hash_equals struct Shader
   source::ShaderSource
   shader_module::Vk.ShaderModule
   push_constant_ranges::Vector{Vk.PushConstantRange}
@@ -16,8 +13,6 @@ struct ShaderCache
   device::Vk.Device
   shaders::Dictionary{ShaderSource,Shader}
 end
-
-Base.hash(source::ShaderSource, h::UInt64) = objectid(source.code) + h
 
 ShaderCache(device) = ShaderCache(device, Dictionary())
 
