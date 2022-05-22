@@ -104,7 +104,7 @@ This graph is generated just-in-time, to convert the resource graph into a linea
 """
 struct RenderGraph
   device::Device
-  resource_graph::MetaGraph{Int64}
+  resource_graph::SimpleDiGraph{Int64}
   nodes::Dictionary{NodeUUID,RenderNode}
   node_indices::Dictionary{NodeUUID,Int64}
   node_indices_inv::Dictionary{Int64,NodeUUID}
@@ -118,14 +118,10 @@ struct RenderGraph
 end
 
 function RenderGraph(device::Device)
-  RenderGraph(device, MetaGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), [])
+  RenderGraph(device, SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), [])
 end
 
 device(rg::RenderGraph) = rg.device
-
-current_layout(g, idx) = resource_attribute(g, idx, :current_layout)::Vk.ImageLayout
-last_write(g, idx) = resource_attribute(g, idx, :last_write)::Pair{Vk.AccessFlag,Vk.PipelineStageFlag}
-synchronization_state(g, idx) = resource_attribute(g, idx, :synchronization_state)::Dictionary{Vk.AccessFlag,Vk.PipelineStageFlag}
 
 new_node!(rg::RenderGraph, args...; kwargs...) = add_node(rg, RenderNode(args...; kwargs...))
 
