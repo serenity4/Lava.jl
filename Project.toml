@@ -24,9 +24,15 @@ glslang_jll = "6fd5517d-459c-5c5a-9b1a-c968b4e37a81"
 
 [compat]
 Accessors = "0.1"
+AutoHashEquals = "0.2"
 ColorTypes = "0.11"
+Dictionaries = "0.3"
 FixedPointNumbers = "0.8"
+Graphs = "1"
 LRUCache = "1"
+MLStyle = "0.4"
+Reexport = "1"
+ResultTypes = "3"
 Vulkan = "0.6"
 julia = "1.7"
 
