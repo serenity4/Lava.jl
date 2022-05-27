@@ -36,7 +36,7 @@ function init(;
   ]),
   with_validation = true,
   debug = true,
-  message_types = Vk.DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | Vk.DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
+  message_types = Vk.DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | Vk.DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | Vk.DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT,
 )
 
   vulkan_version ≥ v"1.3" || error("Lava requires Vulkan 1.3 or later.")

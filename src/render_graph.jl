@@ -253,7 +253,9 @@ function extract_special_usage(ex)
   clear_value = nothing
   samples = 1
   if Meta.isexpr(ex, :call) && ex.args[1] == :(=>)
-    clear_value = ex.args[3]
+    # Don't rely on the conversion from the constructor.
+    # See https://github.com/JuliaLang/julia/issues/45485
+    clear_value = :(Base.convert(NTuple{4, Float32}, $(esc(ex.args[3]))))
     ex = ex.args[2]
   end
   if Meta.isexpr(ex, :call) && ex.args[1] == :(*)
