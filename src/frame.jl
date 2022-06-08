@@ -61,22 +61,58 @@ function next_frame!(fc::FrameCycle, idx)
     current_frame(fc)
 end
 
-function cycle!(f, fc::FrameCycle)
-    # Acquire the next image.
+"""
+Acquire the next image.
+"""
+function acquire_next_image(fc::FrameCycle)
+    (; image_acquired) = current_frame(fc)
     # We pass in a semaphore to signal because the implementation
     # may not be done reading from the image when this returns.
     # We use the semaphore from the last frame because we don't know
     # which index we'll get, but we'll exchange the semaphores once we know.
+    status = Vk.acquire_next_image_khr(fc.device, fc.swapchain, 0; semaphore = image_acquired)
+    if !iserror(status)
+        idx, result = unwrap(status)
+        result in (Vk.SUCCESS, Vk.SUBOPTIMAL_KHR) && return idx + 1
+        result
+    else
+        err = unwrap_error(status)
+        if err.code == Vk.ERROR_OUT_OF_DATE_KHR
+            recreate!(fc)
+            Vk.ERROR_OUT_OF_DATE_KHR
+        else
+            error("Could not acquire the next swapchain image ($(err.code))")
+        end
+    end
+end
+
+function cycle!(f, fc::FrameCycle)
+    idx = 0
+    t0 = time()
+    has_warned = false
+
+    @timeit to "Acquire next image" begin
+        while true
+            ret = acquire_next_image(fc)
+            if ret isa Int
+                idx = ret
+                break
+            end
+            if time() > t0 + 1 && ret === Vk.NOT_READY && !has_warned
+                @warn "No swapchain image has been acquired for 1 second, returning with the status code `NOT_READY`."
+                has_warned = true
+            end
+            yield()
+        end
+    end
+
+    cycle!(f, fc, idx)
+end
+
+function cycle!(f, fc::FrameCycle, idx::Integer)
     last_frame = current_frame(fc)
     (; image_acquired) = last_frame
-    idx = @timeit to "Acquire next image" acquire_next_image(fc.device, fc.swapchain, image_acquired)
-    if isnothing(idx)
-        # Recreate swapchain and frames.
-        recreate!(fc)
-        return cycle!(f, fc)
-    end
     frame = next_frame!(fc, idx)
-
     # Exchange semaphores.
     last_frame.image_acquired = frame.image_acquired
     frame.image_acquired = image_acquired
@@ -101,25 +137,4 @@ function cycle!(f, fc::FrameCycle)
     end
 
     state
-end
-
-function acquire_next_image(device, swapchain, semaphore)
-    t0 = time()
-    has_warned = false
-    while true
-        status = Vk.acquire_next_image_khr(device, swapchain, 0; semaphore)
-        if !iserror(status)
-            idx, result = unwrap(status)
-            result in (Vk.SUCCESS, Vk.SUBOPTIMAL_KHR) && return idx + 1
-            if time() > t0 + 1 && result == Vk.NOT_READY && !has_warned
-                @warn "No swapchain image has been acquired for 1 second, returning with the status code `NOT_READY`."
-                has_warned = true
-            end
-        else
-            err = unwrap_error(status)
-            err.code == Vk.ERROR_OUT_OF_DATE_KHR && return nothing
-            error("Could not acquire the next swapchain image ($(err.code))")
-        end
-        yield()
-    end
 end

@@ -175,7 +175,7 @@ export
   Surface, Swapchain,
 
   # frame
-  Frame, FrameCycle, cycle!
+  Frame, FrameCycle, cycle!, acquire_next_image,
 
   # SPIR-V reexports
   ShaderInterface
