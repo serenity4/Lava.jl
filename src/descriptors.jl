@@ -34,6 +34,7 @@ function ResourceDescriptors(device, config::GlobalDescriptorsConfig = GlobalDes
       Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_SAMPLER, 1),
     ],
   )
+  finalizer(x -> Vk.reset_descriptor_pool(x.device, x), pool)
 
   layout = Vk.DescriptorSetLayout(device,
     [
