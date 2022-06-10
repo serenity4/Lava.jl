@@ -21,6 +21,7 @@ const to = TimerOutput()
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
+@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U
 
 const Optional{T} = Union{T,Nothing}
 

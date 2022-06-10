@@ -130,29 +130,43 @@ end
 struct FencePool
   device::Vk.Device
   available::Vector{Vk.Fence}
+  completed::Vector{Vk.Fence}
   pending::Vector{Vk.Fence}
 end
 
-FencePool(device) = FencePool(device, [Vk.Fence(device) for _ in 1:10], [])
+FencePool(device) = FencePool(device, [Vk.Fence(device) for _ in 1:10], [], [])
 
-function compact!(pool::FencePool)
-  to_reset = Vk.Fence[]
-  filter!(pool.pending) do fence
-    res = unwrap(Vk.get_fence_status(pool.device, fence))
-    res == Vk.NOT_READY && return true
-    push!(to_reset, fence)
-    push!(pool.available, fence)
-    false
+function recycle_completed!(pool::FencePool)
+  (; available, completed) = pool
+  n = length(completed)
+  if !iszero(n)
+    unwrap(Vk.reset_fences(pool.device, completed))
+    append!(available, completed)
+    empty!(completed)
   end
-  !isempty(to_reset) && unwrap(Vk.reset_fences(pool.device, to_reset))
-  nothing
+  n
 end
 
+function compact!(pool::FencePool)
+  !iszero(recycle_completed!(pool)) && return
+  filter!(pool.pending) do fence
+    fence_status(fence) == Vk.NOT_READY && return true
+    push!(pool.completed, fence)
+    false
+  end
+  recycle_completed!(pool)
+end
+
+fence_status(fence::Vk.Fence) = unwrap(Vk.get_fence_status(fence.device, fence))
+
 function fence(pool::FencePool)
-  isempty(pool.available) && compact!(pool)
-  fence = isempty(pool.available) ? Vk.Fence(pool.device) : pop!(pool.available)
+  (; available) = pool
+  isempty(available) && compact!(pool)
+  fence = isempty(available) ? Vk.Fence(pool.device) : pop!(available)
   push!(pool.pending, fence)
   fence
 end
 
 Base.empty!(pool::FencePool) = (empty!(pool.available); empty!(pool.pending))
+
+Base.show(io::IO, pool::FencePool) = print(io, FencePool, "(", pool.device, ", ", length(pool.available), " available fences, ", length(pool.pending), " pending execution)")
