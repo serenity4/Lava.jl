@@ -42,7 +42,7 @@ function record_commands!(baked::BakedRenderGraph)
   records = CompactRecord[]
   pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
 
-  # record commands and submit pipelines for creation
+  # Record commands and submit pipelines for creation.
   for node in baked.nodes
     record = CompactRecord(baked, node)
     node.render(record)

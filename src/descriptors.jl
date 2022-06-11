@@ -25,6 +25,8 @@ struct ResourceDescriptors
 end
 
 function ResourceDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescriptorsConfig())
+  # MEMORY LEAK: This pool is never reset, and so its memory is never reclaimed.
+  # Inserting a naive finalizer produces a segfault, needs another solution.
   pool = Vk.DescriptorPool(
     device,
     1,
@@ -34,7 +36,6 @@ function ResourceDescriptors(device, config::GlobalDescriptorsConfig = GlobalDes
       Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_SAMPLER, 1),
     ],
   )
-  finalizer(x -> Vk.reset_descriptor_pool(x.device, x), pool)
 
   layout = Vk.DescriptorSetLayout(device,
     [
