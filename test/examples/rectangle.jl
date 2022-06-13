@@ -29,7 +29,7 @@ function program_1(device, vdata, color)
     @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
     @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE
     set_draw_state(rec, ds)
-    draw(rec, vdata, collect(1:4), color; alignment = 4)
+    draw(rec, vdata, collect(1:4), color)
   end
 
   @add_resource_dependencies rg begin
@@ -49,4 +49,4 @@ end
   render(rg)
   data = collect(RGBA{Float16}, color.view.image, device)
   save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
-end
+end;

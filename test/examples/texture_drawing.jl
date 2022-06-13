@@ -48,9 +48,9 @@ function program_2(device, vdata, color, uv::NTuple{2,Float32} = (0.1f0, 1.0f0))
     set_draw_state(rec, ds)
     set_material(rec,
       uv, # uv scaling coefficients
-      Texture(rec, normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))),
+      Texture(rec, normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
     )
-    draw(rec, vdata, collect(1:4), color; alignment = 8)
+    draw(rec, vdata, collect(1:4), color)
   end
 
   @add_resource_dependencies rg begin
@@ -60,10 +60,10 @@ end
 
 @testset "Texture drawing" begin
   vdata = [
-    (-0.5f0, 0.5f0, 0.0f0, 0.0f0),
-    (-0.5f0, -0.5f0, 0.0f0, 1.0f0),
-    (0.5f0, 0.5f0, 1.0f0, 0.0f0),
-    (0.5f0, -0.5f0, 1.0f0, 1.0f0),
+    VertexDataTexture(Vec(-0.5f0, 0.5f0), Vec(0.0f0, 0.0f0)),
+    VertexDataTexture(Vec(-0.5f0, -0.5f0), Vec(0.0f0, 1.0f0)),
+    VertexDataTexture(Vec(0.5f0, 0.5f0), Vec(1.0f0, 0.0f0)),
+    VertexDataTexture(Vec(0.5f0, -0.5f0), Vec(1.0f0, 1.0f0)),
   ]
   rg = program_2(device, vdata, pcolor)
 

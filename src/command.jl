@@ -36,6 +36,7 @@ struct CompactRecord <: CommandRecord
   other_ops::Vector{LazyOperation}
   state::RefValue{DrawState}
   program::RefValue{Program}
+  layout::VulkanLayout
 end
 
 function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
@@ -43,11 +44,11 @@ function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
   for (uuid, usage) in pairs(baked.uses[node.uuid].images)
     insert!(image_layouts, uuid, image_layout(usage))
   end
-  CompactRecord(node, image_layouts, baked.global_data, baked.resources)
+  CompactRecord(node, image_layouts, baked.global_data, baked.resources, baked.device.layout)
 end
 
-CompactRecord(node::RenderNode, image_layouts, gd::GlobalData, resources::PhysicalResources) =
-  CompactRecord(node, image_layouts, gd, resources, Dictionary(), [], Ref(DrawState()), Ref{Program}())
+CompactRecord(node::RenderNode, image_layouts, gd::GlobalData, resources::PhysicalResources, layout::VulkanLayout) =
+  CompactRecord(node, image_layouts, gd, resources, Dictionary(), [], Ref(DrawState()), Ref{Program}(), layout)
 
 Base.show(io::IO, record::CompactRecord) = print(
   io,
@@ -60,7 +61,9 @@ function set_program(record::CompactRecord, program::Program)
   record.program[] = program
 end
 
-function set_material(record::CompactRecord, @nospecialize(args...); alignment = 16)
+data_alignment(layout::VulkanLayout, data) = alignment(layout, spir_type(typeof(data)), [SPIRV.StorageClassPhysicalStorageBuffer], false)
+
+function set_material(record::CompactRecord, @nospecialize(args...); alignment = nothing)
   # replace resource specifications with indices
   for (i, arg) in enumerate(args)
     if arg isa Texture || arg isa Sampling
@@ -68,10 +71,27 @@ function set_material(record::CompactRecord, @nospecialize(args...); alignment =
     end
   end
 
+  isnothing(alignment) && (alignment = data_alignment(record.layout, args))
+  # TODO: Use `extract_bytes`, derive mapping with values and apply alignments based on mapping.
   sub = copyto!(record.gd.allocator, args, alignment)
   state = record.state[]
   record.state[] = @set state.push_data.material_data = device_address(sub)
 end
+
+"""
+Extract bytes from a Julia value, with strictly no alignment.
+"""
+function extract_bytes(data::T) where {T}
+  isstructtype(T) || return reinterpret(UInt8, [data])
+  bytes = UInt8[]
+  for field in fieldnames(T)
+    append!(bytes, extract_bytes(getproperty(data, field)))
+  end
+  bytes
+end
+
+extract_bytes(data::Vector{UInt8}) = data
+extract_bytes(data::AbstractVector) = reduce(vcat, extract_bytes.(data); init = UInt8[])
 
 function set_draw_state(record::CompactRecord, state::DrawState)
   record.state[] = state
@@ -79,11 +99,12 @@ end
 
 draw_state(record::CompactRecord) = record.state[]
 
-function draw(record::CompactRecord, vdata, idata, color...; alignment = 16, depth = nothing, stencil = nothing, instances = 1:1)
+function draw(record::CompactRecord, vdata, idata, color...; alignment = data_alignment(record.layout, vdata), depth = nothing, stencil = nothing, instances = 1:1)
   (; gd) = record
   state = record.state[]
 
   # vertex data
+  # TODO: Instead of `align_blocks` (to be replaced with the following), use `extract_bytes`, derive mapping with values and apply alignments based on mapping.
   sub = copyto!(gd.allocator, align_blocks(vdata, alignment), alignment)
   record.state[] = @set state.push_data.vertex_data = device_address(sub)
 
@@ -112,10 +133,10 @@ each start on an offset that is a multiple of `alignment`.
 """
 function align_blocks(data::AbstractArray, alignment)
   size = sizeof(eltype(data))
-  size % alignment == 0 && return reinterpret(UInt8, data)
+  size % alignment == 0 && return isbitstype(eltype(data)) ? reinterpret(UInt8, data) : reduce(vcat, extract_bytes(data); init = UInt8[])
   bytes = UInt8[]
   for el in data
-    append!(bytes, reinterpret(UInt8, [el]))
+    append!(bytes, extract_bytes(el))
     append!(bytes, zeros(UInt8, alignment - size % alignment))
   end
   bytes
