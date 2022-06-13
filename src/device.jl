@@ -14,6 +14,7 @@ struct Device <: LavaAbstraction
   spirv_features::SupportedFeatures
   resources::PhysicalResources
   fence_pool::FencePool
+  layout::VulkanLayout
 end
 
 vk_handle_type(::Type{Device}) = Vk.Device
@@ -50,6 +51,7 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     spirv_features(physical_device, api_version, extensions, features),
     PhysicalResources(),
     FencePool(handle),
+    VulkanLayout(),
   )
 end
 
