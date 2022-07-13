@@ -32,7 +32,7 @@ function texture_program(device)
   Program(device, vert, frag)
 end
 
-function program_2(device, vdata, color, uv::NTuple{2,Float32} = (0.1f0, 1.0f0))
+function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0))
   rg = RenderGraph(device)
 
   normal = load(texture_file("normal.png"))
@@ -46,10 +46,10 @@ function program_2(device, vdata, color, uv::NTuple{2,Float32} = (0.1f0, 1.0f0))
     @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
     @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE
     set_draw_state(rec, ds)
-    set_material(rec,
+    set_material(rec, MaterialDataTexture(
       uv, # uv scaling coefficients
-      Texture(rec, normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
-    )
+      index(rec, Texture(rec, normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))),
+    ))
     draw(rec, vdata, collect(1:4), color)
   end
 
@@ -60,10 +60,10 @@ end
 
 @testset "Texture drawing" begin
   vdata = [
-    VertexDataTexture(Vec(-0.5f0, 0.5f0), Vec(0.0f0, 0.0f0)),
-    VertexDataTexture(Vec(-0.5f0, -0.5f0), Vec(0.0f0, 1.0f0)),
-    VertexDataTexture(Vec(0.5f0, 0.5f0), Vec(1.0f0, 0.0f0)),
-    VertexDataTexture(Vec(0.5f0, -0.5f0), Vec(1.0f0, 1.0f0)),
+    VertexDataTexture(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
+    VertexDataTexture(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
+    VertexDataTexture(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
+    VertexDataTexture(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
   rg = program_2(device, vdata, pcolor)
 

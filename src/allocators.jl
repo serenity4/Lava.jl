@@ -33,7 +33,7 @@ function Base.copyto!(la::LinearAllocator, data::Vector{UInt8}, alignment)
   end
   ptrcopy!(la.base_ptr + offset, data)
   la.last_offset = offset + data_size
-  @view la.buffer[offset:(offset + data_size)]
+  @view la.buffer[offset:la.last_offset]
 end
 
 function get_offset(la::LinearAllocator, alignment)

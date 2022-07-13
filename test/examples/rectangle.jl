@@ -39,10 +39,10 @@ end
 
 @testset "Rectangle" begin
   vdata = [
-    (-0.5f0, 0.5f0, RGB{Float32}(1.0, 0.0, 0.0)),
-    (-0.5f0, -0.5f0, RGB{Float32}(0.0, 1.0, 0.0)),
-    (0.5f0, 0.5f0, RGB{Float32}(1.0, 1.0, 1.0)),
-    (0.5f0, -0.5f0, RGB{Float32}(0.0, 0.0, 1.0)),
+    VertexDataRectangle(Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
+    VertexDataRectangle(Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
+    VertexDataRectangle(Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
+    VertexDataRectangle(Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
   ]
   rg = program_1(device, vdata, pcolor)
 

@@ -9,19 +9,27 @@ device(shader::Shader) = shader.shader_module.device
 
 Shader(source, shader_module) = Shader(source, shader_module, [], [])
 
+mutable struct CacheDiagnostics
+  hits::Int
+  misses::Int
+end
+
 struct ShaderCache
   device::Vk.Device
   shaders::Dictionary{ShaderSource,Shader}
+  diagnostics::CacheDiagnostics
 end
 
-ShaderCache(device) = ShaderCache(device, Dictionary())
+ShaderCache(device) = ShaderCache(device, Dictionary(), CacheDiagnostics(0, 0))
 
 Shader(cache::ShaderCache, source::ShaderSource) = find_shader!(cache, source)
 
 function find_shader!(cache::ShaderCache, source::ShaderSource)
   if haskey(cache.shaders, source)
+    cache.diagnostics.hits += 1
     cache.shaders[source]
   else
+    cache.diagnostics.misses += 1
     shader_module = Vk.ShaderModule(cache.device, source)
     shader = Shader(source, shader_module)
     insert!(cache.shaders, source, shader)

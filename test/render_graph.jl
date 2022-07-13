@@ -184,4 +184,4 @@ prog = simple_program(device)
       flush(command_buffer, baked, records, pipeline_hashes)
     end
   end
-end
+end;

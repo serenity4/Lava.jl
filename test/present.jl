@@ -5,10 +5,10 @@ end
 
 function render_rectangle(device, image, uv)
   vdata = [
-    VertexDataTexture(Vec(-0.5f0, 0.5f0), Vec(0.0f0, 0.0f0)),
-    VertexDataTexture(Vec(-0.5f0, -0.5f0), Vec(0.0f0, 1.0f0)),
-    VertexDataTexture(Vec(0.5f0, 0.5f0), Vec(1.0f0, 0.0f0)),
-    VertexDataTexture(Vec(0.5f0, -0.5f0), Vec(1.0f0, 1.0f0)),
+    VertexDataTexture(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
+    VertexDataTexture(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
+    VertexDataTexture(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
+    VertexDataTexture(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
   rg = program_2(device, vdata, PhysicalAttachment(Attachment(View(image), WRITE)), uv)
   command_buffer = Lava.request_command_buffer(device)
@@ -26,7 +26,7 @@ end
   end
   cycle = FrameCycle(device, swapchain)
   set_presentation_queue(device, [swapchain.surface])
-  cycle_f(x, t) = render_rectangle(device, x, Float32.((0.1 + t * 0.9, 0.5cos(t))))
+  cycle_f(x, t) = render_rectangle(device, x, Vec2(0.1 + t * 0.9, 0.5cos(t)))
   cycle_render(cycle, t) = wait(cycle!(Base.Fix2(cycle_f, t), cycle))
 
   test_validation_msg(x -> @test isempty(x)) do

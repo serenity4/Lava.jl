@@ -5,6 +5,8 @@ SPIR-V shader code, with stage and entry point information.
   code::Vector{UInt8}
   stage::Vk.ShaderStageFlag
   entry_point::Symbol
+  typerefs::Dictionary{DataType, SPIRType}
+  offsets::Dictionary{SPIRType, Vector{UInt32}}
 end
 
 function Base.show(io::IO, source::ShaderSource)
@@ -24,10 +26,12 @@ end
 function ShaderSource(f, argtypes, interface::ShaderInterface)
   target = SPIRVTarget(f, argtypes, inferred = true)
   try
-    sh = SPIRV.Shader(target, interface)
-    ret = validate(sh)
-    @assert !iserror(ret) unwrap_error(ret)
-    ShaderSource(reinterpret(UInt8, assemble(sh.mod)), shader_stage(interface.execution_model), :main)
+    ir = IR(target, interface)
+    shader = SPIRV.Shader(ir)
+    ret = validate(shader)
+    !iserror(ret) || throw(unwrap_error(ret))
+    offsets = dictionary([t => getoffsets(ir, t) for t in ir.typerefs])
+    ShaderSource(reinterpret(UInt8, assemble(shader)), shader_stage(interface.execution_model), :main, ir.typerefs, offsets)
   catch
     @error """
     Shader compilation failed. Showing inferred code:

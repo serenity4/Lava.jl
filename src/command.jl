@@ -61,21 +61,17 @@ function set_program(record::CompactRecord, program::Program)
   record.program[] = program
 end
 
-data_alignment(layout::VulkanLayout, data) = alignment(layout, spir_type(typeof(data)), [SPIRV.StorageClassPhysicalStorageBuffer], false)
+data_alignment(layout::VulkanLayout, data) = data_alignment(layout, spir_type(typeof(data)))
+data_alignment(layout::VulkanLayout, t::SPIRType) = alignment(layout, t, [SPIRV.StorageClassPhysicalStorageBuffer], false)
 
-function set_material(record::CompactRecord, @nospecialize(args...); alignment = nothing)
-  # replace resource specifications with indices
-  for (i, arg) in enumerate(args)
-    if arg isa Texture || arg isa Sampling
-      @reset args[i] = index(record, arg)
-    end
-  end
-
-  isnothing(alignment) && (alignment = data_alignment(record.layout, args))
-  # TODO: Use `extract_bytes`, derive mapping with values and apply alignments based on mapping.
-  sub = copyto!(record.gd.allocator, args, alignment)
+function set_material(record::CompactRecord, material::T) where {T}
+  prog = record.program[]
+  # TODO: Look up what shaders use the material and create pointer resource accordingly, instead of using this weird heuristic.
+  shader = vertex_shader(prog)
+  !haskey(shader.source.typerefs, T) && (shader = fragment_shader(prog))
+  device_ptr = allocate_pointer_resource!(record.gd.allocator, material, shader, record.layout)
   state = record.state[]
-  record.state[] = @set state.push_data.material_data = device_address(sub)
+  record.state[] = @set state.push_data.material_data = device_ptr
 end
 
 function set_draw_state(record::CompactRecord, state::DrawState)
@@ -84,47 +80,60 @@ end
 
 draw_state(record::CompactRecord) = record.state[]
 
-function draw(record::CompactRecord, vdata, idata, color...; alignment = data_alignment(record.layout, vdata), depth = nothing, stencil = nothing, instances = 1:1)
+function allocate_pointer_resource!(allocator::LinearAllocator, data::AbstractVector, shader::Shader, layout #= TODO: remove layout argument =#)
+  T = eltype(data)
+  t = shader.source.typerefs[T]
+  offsets = shader.source.offsets[t]
+  # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
+  # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
+  # TODO: This must be consistent with the stride of the loaded array.
+  load_alignment = data_alignment(layout, t)
+  start = get_offset(allocator, load_alignment)
+  for el in data
+    bytes = extract_bytes(el)
+    isa(t, StructType) && (bytes = align(bytes, t, shader.source.offsets[t]))
+    copyto!(allocator, bytes, load_alignment)
+  end
+  sub = @view allocator.buffer[start:allocator.last_offset]
+  device_address(sub)
+end
+
+function allocate_pointer_resource!(allocator::LinearAllocator, data::T, shader::Shader, layout #= TODO: remove layout argument =#) where {T}
+  bytes = extract_bytes(data)
+  t = shader.source.typerefs[T]
+  isa(t, StructType) && (bytes = align(bytes, t, shader.source.offsets[t]))
+  # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
+  # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
+  load_alignment = data_alignment(layout, t)
+  sub = copyto!(allocator, bytes, load_alignment)
+  device_address(sub)
+end
+
+function draw(record::CompactRecord, vdata, idata, color...; depth = nothing, stencil = nothing, instances = 1:1)
   (; gd) = record
   state = record.state[]
 
-  # vertex data
-  # TODO: Instead of `align_blocks` (to be replaced with the following), use `extract_bytes`, derive mapping with values and apply alignments based on mapping.
-  sub = copyto!(gd.allocator, align_blocks(vdata, alignment), alignment)
-  record.state[] = @set state.push_data.vertex_data = device_address(sub)
+  # Allocate a physical storage buffer holding vertex data.
+  # TODO: Make sure that the offsets and load alignment are consistent across all shaders that use this vertex data.
+  device_ptr = allocate_pointer_resource!(gd.allocator, vdata, vertex_shader(record.program[]), record.layout)
+  record.state[] = @set state.push_data.vertex_data = device_ptr
 
-  # save draw command with its state
+  # Save draw command with its state.
   program_draws = get!(Dictionary, record.programs, record.program[])
   commands = get!(Vector{DrawCommand}, program_draws, record.state[])
 
-  # index data
+  # Add index data.
   first_index = length(gd.index_list) + 1
   append!(gd.index_list, idata)
 
-  # draw call
+  # Record draw call.
   color = map(collect(color)) do c
     record.resources.attachments[uuid(c)]
   end
   isa(depth, LogicalAttachment) && (depth = record.resources.attachments[uuid(depth)])
   isa(stencil, LogicalAttachment) && (stencil = record.resources.attachments[uuid(stencil)])
-
   targets = RenderTargets(color, depth, stencil)
   push!(commands, DrawIndexed(0, first_index:(first_index + length(idata) - 1), instances) => targets)
-end
-
-"""
-Insert padding bytes after each element so that they
-each start on an offset that is a multiple of `alignment`.
-"""
-function align_blocks(data::AbstractArray, alignment)
-  size = sizeof(eltype(data))
-  size % alignment == 0 && return isbitstype(eltype(data)) ? reinterpret(UInt8, data) : reduce(vcat, extract_bytes(data); init = UInt8[])
-  bytes = UInt8[]
-  for el in data
-    append!(bytes, extract_bytes(el))
-    append!(bytes, zeros(UInt8, alignment - size % alignment))
-  end
-  bytes
 end
 
 struct Draw <: DrawCommand

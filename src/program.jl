@@ -7,6 +7,9 @@ It exposes a program interface through its shader interfaces and its shader reso
   shaders::Dictionary{Vk.ShaderStageFlag,Shader}
 end
 
+vertex_shader(prog::Program) = prog.shaders[Vk.SHADER_STAGE_VERTEX_BIT]
+fragment_shader(prog::Program) = prog.shaders[Vk.SHADER_STAGE_FRAGMENT_BIT]
+
 function Program(cache::ShaderCache, shaders...)
   shaders = map(shaders) do shader
     shader.stage => find_shader!(cache, shader)
