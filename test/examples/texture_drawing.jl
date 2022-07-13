@@ -28,7 +28,7 @@ function texture_program(device)
     ::Output::Vec{4,Float32},
     ::Input::Vec{2,Float32},
     ::PushConstant::DrawData,
-    ::UniformConstant{DescriptorSet = 0U, Binding = 3U}::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}})
+    ::UniformConstant{DescriptorSet = 0, Binding = 3}::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}})
   Program(device, vert, frag)
 end
 
@@ -70,4 +70,4 @@ end
   render(rg)
   data = collect(RGBA{Float16}, color.view.image, device)
   save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
-end
+end;

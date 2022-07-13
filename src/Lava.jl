@@ -179,5 +179,5 @@ export
   Frame, FrameCycle, cycle!, acquire_next_image,
 
   # SPIR-V reexports
-  ShaderInterface
+  ShaderInterface, Decorations
 end

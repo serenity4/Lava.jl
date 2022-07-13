@@ -72,7 +72,7 @@ function precompile_statements(statements_file, mods::Vector{Symbol})
 end
 
 # precompile_statements(:Lava)
-precompile_statements("precompile_statements.jl", :Lava, :XCB, :ColorTypes, :OpenType, :GeometryExperiments, :ImageMagick, :ImageIO, :PNGFiles)
-precompile_statements("compiled2.jl", :Lava, :XCB, :ColorTypes, :OpenType, :GeometryExperiments, :ImageMagick, :ImageIO, :PNGFiles)
+precompile_statements(joinpath(@__DIR__, "statements", "precompile_statements.jl"), :Lava, :XCB, :ColorTypes, :OpenType, :GeometryExperiments, :ImageMagick, :ImageIO, :PNGFiles)
+# precompile_statements("old_precompiles/statements/compiled2.jl", :Lava, :XCB, :ColorTypes, :OpenType, :GeometryExperiments, :ImageMagick, :ImageIO, :PNGFiles)
 # precompile_statements("extra_precompile.jl", :Lava, :XCB, :ColorTypes, :OpenType, :GeometryExperiments, :ImageMagick, :ImageIO, :PNGFiles)
 # precompile_statements("precompile_nomain.jl", :Lava, :XCB, :ColorTypes, :OpenType, :GeometryExperiments, :ImageMagick, :ImageIO, :PNGFiles)

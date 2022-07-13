@@ -78,21 +78,6 @@ function set_material(record::CompactRecord, @nospecialize(args...); alignment =
   record.state[] = @set state.push_data.material_data = device_address(sub)
 end
 
-"""
-Extract bytes from a Julia value, with strictly no alignment.
-"""
-function extract_bytes(data::T) where {T}
-  isstructtype(T) || return reinterpret(UInt8, [data])
-  bytes = UInt8[]
-  for field in fieldnames(T)
-    append!(bytes, extract_bytes(getproperty(data, field)))
-  end
-  bytes
-end
-
-extract_bytes(data::Vector{UInt8}) = data
-extract_bytes(data::AbstractVector) = reduce(vcat, extract_bytes.(data); init = UInt8[])
-
 function set_draw_state(record::CompactRecord, state::DrawState)
   record.state[] = state
 end

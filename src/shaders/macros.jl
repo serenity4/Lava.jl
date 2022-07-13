@@ -4,8 +4,8 @@ function shader(features, ex, execution_model)
   end
 
   argtypes = []
-  storage_classes = []
-  variable_decorations = Dictionary{Int,Vector{Expr}}()
+  storage_classes = SPIRV.StorageClass[]
+  variable_decorations = Dictionary{Int,Decorations}()
   for (i, arg) in enumerate(args)
     @switch arg begin
       @case :(::$C::$T)
@@ -19,7 +19,8 @@ function shader(features, ex, execution_model)
       push!(storage_classes, sc)
       if sc in (SPIRV.StorageClassInput, SPIRV.StorageClassOutput)
         for dec in decs
-          push!(get!(Vector, variable_decorations, i), :(SPIRV.DecorationBuiltIn => [SPIRV.$(Symbol(:BuiltIn, dec))]))
+          builtin = getproperty(SPIRV, Symbol(:BuiltIn, dec))::SPIRV.BuiltIn
+          get!(Decorations, variable_decorations, i).decorate!(SPIRV.DecorationBuiltIn, builtin)
         end
       else
         for dec in decs
@@ -27,24 +28,24 @@ function shader(features, ex, execution_model)
             :($d = $val) => (d, val)
             _ => error("Expected assignment, got $d")
           end
-          push!(get!(Vector, variable_decorations, i), :(SPIRV.$(Symbol(:Decoration, dec_name)) => [$(esc(val))]))
+          concrete_dec = getproperty(SPIRV, Symbol(:Decoration, dec_name))::SPIRV.Decoration
+          get!(Decorations, variable_decorations, i).decorate!(concrete_dec, val)
         end
       end
       if !has_decorations && sc in (SPIRV.StorageClassInput, SPIRV.StorageClassOutput)
-        push!(get!(Vector, variable_decorations, i), :(SPIRV.DecorationLocation => [$(UInt32(count(==(sc), storage_classes) - 1))]))
+        get!(Decorations, variable_decorations, i).decorate!(SPIRV.DecorationLocation, count(==(sc), storage_classes) - 1)
       end
       push!(argtypes, T)
       @case _
       error("Expected argument type to be in the form '::<Class>::<Type>")
     end
   end
+
   quote
     interface = SPIRV.ShaderInterface(
       execution_model = $execution_model,
-      storage_classes = [$(storage_classes...)],
-      variable_decorations = dictionary([
-        $((:($i => dictionary([$(decs...)])) for (i, decs) in pairs(variable_decorations))...)
-      ]),
+      storage_classes = $(copy(storage_classes)),
+      variable_decorations = $(deepcopy(variable_decorations)),
       features = $(esc(features)),
     )
     $Lava.@shader interface $(esc(f))($((:(::$(esc(T))) for T in argtypes)...))

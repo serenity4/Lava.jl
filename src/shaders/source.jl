@@ -22,17 +22,17 @@ function ShaderSource(io::IO, stage::Vk.ShaderStageFlag, entry_point = :main)
 end
 
 function ShaderSource(f, argtypes, interface::ShaderInterface)
-  cfg = CFG(f, argtypes, inferred = true)
+  target = SPIRVTarget(f, argtypes, inferred = true)
   try
-    ir = make_shader(cfg, interface)
-    ret = validate_shader(ir)
+    sh = SPIRV.Shader(target, interface)
+    ret = validate(sh)
     @assert !iserror(ret) unwrap_error(ret)
-    ShaderSource(reinterpret(UInt8, assemble(ir)), shader_stage(interface.execution_model), :main)
+    ShaderSource(reinterpret(UInt8, assemble(sh.mod)), shader_stage(interface.execution_model), :main)
   catch
     @error """
     Shader compilation failed. Showing inferred code:
 
-    $(sprint(show, cfg.code; context = :color => true))
+    $(sprint(show, target.code; context = :color => true))
     """
     rethrow()
   end

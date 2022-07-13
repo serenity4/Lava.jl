@@ -11,8 +11,8 @@ function simple_program(device)
   vert_interface = ShaderInterface(
     storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
     variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInPosition]]),
-      2 => dictionary([SPIRV.DecorationBuiltIn => [SPIRV.BuiltInVertexIndex]]),
+      1 => Decorations(SPIRV.DecorationBuiltIn, SPIRV.BuiltInPosition),
+      2 => Decorations(SPIRV.DecorationBuiltIn, SPIRV.BuiltInVertexIndex),
     ]),
     features = device.spirv_features,
   )
@@ -21,7 +21,7 @@ function simple_program(device)
     execution_model = SPIRV.ExecutionModelFragment,
     storage_classes = [SPIRV.StorageClassOutput],
     variable_decorations = dictionary([
-      1 => dictionary([SPIRV.DecorationLocation => [0U]]),
+      1 => Decorations(SPIRV.DecorationLocation, 0),
     ]),
     features = device.spirv_features,
   )
