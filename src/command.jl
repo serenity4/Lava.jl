@@ -15,10 +15,34 @@ Copy operation from one source to a destination.
 """
 abstract type Copy{S,D} <: LazyOperation end
 
+abstract type RecordingMode end
+
+struct DirectRecording <: RecordingMode end
+
+struct StatefulRecording <: RecordingMode
+  program::RefValue{Program}
+  render_state::RefValue{RenderState}
+  invocation_state::RefValue{ProgramInvocationState}
+  data::RefValue{DrawData}
+end
+
+StatefulRecording() = StatefulRecording(Ref{Program}(), Ref(RenderState()), Ref(ProgramInvocationState()), Ref(DrawData()))
+
+set_program(state::StatefulRecording, program::Program) = state.program[] = program
+set_render_state(state::StatefulRecording, render_state::RenderState) = state.render_state[] = render_state
+set_invocation_state(state::StatefulRecording, invocation_state::RenderState) = state.invocation_state[] = invocation_state
+set_data(state::StatefulRecording, data::DrawData) = state.data[] = data
+function set_material(state::StatefulRecording, material::UInt64)
+  data = state.data[]
+  set_data(state, @set data.material_data = material)
+end
+render_state(state::StatefulRecording) = state.render_state
+invocation_state(state::StatefulRecording) = state.invocation_state
+
 """
 Type that records command lazily, for them to be flushed into an Vulkan command buffer later.
 """
-abstract type CommandRecord <: LavaAbstraction end
+abstract type CommandRecord{R<:RecordingMode} <: LavaAbstraction end
 
 abstract type DrawCommand end
 
@@ -27,113 +51,79 @@ Record that compacts action commands according to their state before flushing.
 
 This allows to group e.g. draw calls that use the exact same rendering state.
 """
-struct CompactRecord <: CommandRecord
+struct CompactRecord{R<:RecordingMode} <: CommandRecord{R}
   node::RenderNode
   image_layouts::Dictionary{UUID,Vk.ImageLayout}
   gd::GlobalData
   resources::PhysicalResources
   programs::Dictionary{Program,Dictionary{DrawState,Vector{Pair{DrawCommand,RenderTargets}}}}
   other_ops::Vector{LazyOperation}
-  state::RefValue{DrawState}
-  program::RefValue{Program}
   layout::VulkanLayout
+  mode::R
 end
 
-function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
+@forward CompactRecord{StatefulRecording}.mode (set_program, set_render_state, set_invocation_state, set_data, render_state, invocation_state)
+
+function CompactRecord{R}(baked::BakedRenderGraph, node::RenderNode) where {R<:RecordingMode}
   image_layouts = Dictionary{ResourceUUID,Vk.ImageLayout}()
   for (uuid, usage) in pairs(baked.uses[node.uuid].images)
     insert!(image_layouts, uuid, image_layout(usage))
   end
-  CompactRecord(node, image_layouts, baked.global_data, baked.resources, baked.device.layout)
+  CompactRecord{R}(node, image_layouts, baked.global_data, baked.resources, baked.device.layout)
 end
 
-CompactRecord(node::RenderNode, image_layouts, gd::GlobalData, resources::PhysicalResources, layout::VulkanLayout) =
-  CompactRecord(node, image_layouts, gd, resources, Dictionary(), [], Ref(DrawState()), Ref{Program}(), layout)
+CompactRecord{R}(node::RenderNode, image_layouts, gd::GlobalData, resources::PhysicalResources, layout::VulkanLayout) where {R<:RecordingMode} =
+  CompactRecord{R}(node, image_layouts, gd, resources, Dictionary(), [], Ref(DrawState()), Ref{Program}(), layout, R())
 
 Base.show(io::IO, record::CompactRecord) = print(
   io,
-  "CompactRecord(",
+  CompactRecord,
+  '(',
   length(record.programs),
   " programs, $(sum(x -> sum(length, values(x); init = 0), values(record.programs); init = 0)) draw commands)",
 )
 
-function set_program(record::CompactRecord, program::Program)
-  record.program[] = program
-end
-
-data_alignment(layout::VulkanLayout, data) = data_alignment(layout, spir_type(typeof(data)))
-data_alignment(layout::VulkanLayout, t::SPIRType) = alignment(layout, t, [SPIRV.StorageClassPhysicalStorageBuffer], false)
-
-function set_material(record::CompactRecord, material::T) where {T}
-  prog = record.program[]
+function set_material(record::CompactRecord{StatefulRecording}, material::T) where {T}
+  prog = record.mode.program[]
   # TODO: Look up what shaders use the material and create pointer resource accordingly, instead of using this weird heuristic.
   shader = vertex_shader(prog)
   !haskey(shader.source.typerefs, T) && (shader = fragment_shader(prog))
   device_ptr = allocate_pointer_resource!(record.gd.allocator, material, shader, record.layout)
-  state = record.state[]
-  record.state[] = @set state.push_data.material_data = device_ptr
+  set_material(record.mode, device_ptr)
 end
 
-function set_draw_state(record::CompactRecord, state::DrawState)
-  record.state[] = state
+allocate_material(record::CompactRecord{DirectRecording}, program::Program, data) = allocate_material(record.gd.allocator, program, data, record.layout)
+allocate_material(record::CompactRecord{StatefulRecording}, data) = allocate_material(record.gd.allocator, record.mode.program[], data, record.layout)
+
+allocate_vertex_data(record::CompactRecord{DirectRecording}, program::Program, data) = allocate_vertex_data(record.gd.allocator, program, data, record.layout)
+allocate_vertex_data(record::CompactRecord{StatefulRecording}, data) = allocate_vertex_data(record.gd.allocator, record.mode.program[], data, record.layout)
+
+function draw(record::CompactRecord, command::DrawCommand, targets::RenderTargets, state::DrawState, program::Program)
+  program_draws = get!(Dictionary, record.programs, program)
+  commands = get!(Vector{DrawCommand}, program_draws, state)
+  push!(commands, command => targets)
 end
 
-draw_state(record::CompactRecord) = record.state[]
+RenderTargets(rec::CompactRecord{DirectRecording}, color...; depth = nothing, stencil = nothing) = RenderTargets(rec, collect(color); depth, stencil)
 
-function allocate_pointer_resource!(allocator::LinearAllocator, data::AbstractVector, shader::Shader, layout #= TODO: remove layout argument =#)
-  T = eltype(data)
-  t = shader.source.typerefs[T]
-  offsets = shader.source.offsets[t]
-  # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
-  # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
-  # TODO: This must be consistent with the stride of the loaded array.
-  load_alignment = data_alignment(layout, t)
-  start = get_offset(allocator, load_alignment)
-  for el in data
-    bytes = extract_bytes(el)
-    isa(t, StructType) && (bytes = align(bytes, t, shader.source.offsets[t]))
-    copyto!(allocator, bytes, load_alignment)
-  end
-  sub = @view allocator.buffer[start:allocator.last_offset]
-  device_address(sub)
-end
-
-function allocate_pointer_resource!(allocator::LinearAllocator, data::T, shader::Shader, layout #= TODO: remove layout argument =#) where {T}
-  bytes = extract_bytes(data)
-  t = shader.source.typerefs[T]
-  isa(t, StructType) && (bytes = align(bytes, t, shader.source.offsets[t]))
-  # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
-  # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
-  load_alignment = data_alignment(layout, t)
-  sub = copyto!(allocator, bytes, load_alignment)
-  device_address(sub)
-end
-
-function draw(record::CompactRecord, vdata, idata, color...; depth = nothing, stencil = nothing, instances = 1:1)
-  (; gd) = record
-  state = record.state[]
-
-  # Allocate a physical storage buffer holding vertex data.
-  # TODO: Make sure that the offsets and load alignment are consistent across all shaders that use this vertex data.
-  device_ptr = allocate_pointer_resource!(gd.allocator, vdata, vertex_shader(record.program[]), record.layout)
-  record.state[] = @set state.push_data.vertex_data = device_ptr
-
-  # Save draw command with its state.
-  program_draws = get!(Dictionary, record.programs, record.program[])
-  commands = get!(Vector{DrawCommand}, program_draws, record.state[])
-
-  # Add index data.
-  first_index = length(gd.index_list) + 1
-  append!(gd.index_list, idata)
-
-  # Record draw call.
-  color = map(collect(color)) do c
-    record.resources.attachments[uuid(c)]
+function RenderTargets(rec::CompactRecord{DirectRecording}, color::AbstractVector; depth = nothing, stencil = nothing)
+  color = map(color) do c
+    isa(c, PhysicalAttachment) ? c : record.resources.attachments[uuid(c)]
   end
   isa(depth, LogicalAttachment) && (depth = record.resources.attachments[uuid(depth)])
   isa(stencil, LogicalAttachment) && (stencil = record.resources.attachments[uuid(stencil)])
-  targets = RenderTargets(color, depth, stencil)
-  push!(commands, DrawIndexed(0, first_index:(first_index + length(idata) - 1), instances) => targets)
+  RenderTargets(color, depth, stencil)
+end
+
+function draw(record::CompactRecord{StatefulRecording}, vdata, idata, color...; depth = nothing, stencil = nothing, material = nothing, instances = 1:1)
+  program = record.mode.program[]
+  device_ptr = allocate_vertex_data(record, vdata, vertex_shader(program))
+  data = record.mode.data[]
+  set_data(record.mode, @set data.vertex_data = device_ptr)
+  command = DrawIndexed(0, append!(record.gd, idata), instances)
+  targets = RenderTargets(color...; depth, stencil)
+  state = DrawState(render_state(record), invocation_state(record), record.mode.data[])
+  draw(record, command, targets, state, program)
 end
 
 struct Draw <: DrawCommand

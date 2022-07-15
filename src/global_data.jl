@@ -40,3 +40,10 @@ function allocate_index_buffer(gd::GlobalData, device::Device)
   #TODO: Create index buffer in render graph to avoid excessive synchronization.
   gd.index_buffer[] = buffer(device, convert(Vector{UInt32}, gd.index_list .- 1); usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 end
+
+"Append index data `idata` to the global data `gd`, returning the corresponding range of indices to be used for indexed draw calls."
+function Base.append!(gd::GlobalData, idata)
+  first_index = lastindex(gd.index_list) + 1
+  append!(gd.index_list, idata)
+  first_index:lastindex(gd.index_list)
+end

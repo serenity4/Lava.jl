@@ -63,8 +63,8 @@ include("resources.jl")
 include("textures.jl")
 include("pipeline.jl")
 include("render_state.jl")
-include("program.jl")
 include("device.jl")
+include("program.jl")
 include("resources/creation.jl")
 include("binding_state.jl")
 include("global_data.jl")
@@ -147,8 +147,9 @@ export
 
   # commands
   CompactRecord, draw,
-  DrawCommand, Draw, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
+  DrawCommand, Draw, DrawState, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
   set_program, draw_state, set_draw_state, set_material,
+  allocate_vertex_data, allocate_material,
   index,
   DrawData,
 
@@ -179,5 +180,5 @@ export
   Frame, FrameCycle, cycle!, acquire_next_image,
 
   # SPIR-V reexports
-  ShaderInterface, Decorations
+  ShaderInterface, Decorations, Vec, Arr, Mat, Vec2, Vec3, Vec4, Mat2, Mat3, Mat4
 end

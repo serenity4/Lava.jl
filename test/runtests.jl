@@ -5,7 +5,7 @@ if is_ci
 end
 
 using Lava, Dictionaries
-using SPIRV: SPIRV, Pointer, Vec, Mat, Arr, ShaderInterface, U, F, Vec2, Vec3
+using SPIRV: SPIRV, Pointer, ShaderInterface, U, F
 
 is_ci && Vk.@set_driver :SwiftShader
 using Test
