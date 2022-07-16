@@ -40,22 +40,26 @@ function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0))
   normal_map = image(device, normal; usage = Vk.IMAGE_USAGE_SAMPLED_BIT)
   normal_map = PhysicalImage(normal_map)
 
-  graphics = RenderNode(render_area = RenderArea(Lava.dims(color)...), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
-    set_program(rec, texture_program(device))
-    ds = draw_state(rec)
-    @reset ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
-    @reset ds.program_state.triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE
-    set_draw_state(rec, ds)
-    set_material(rec, MaterialDataTexture(
-      uv, # uv scaling coefficients
-      index(rec, Texture(rec, normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))),
-    ))
-    draw(rec, vdata, collect(1:4), color)
-  end
+  graphics = RenderNode(render_area = RenderArea(Lava.dims(color)...), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
   @add_resource_dependencies rg begin
     (color => (0.08, 0.05, 0.1, 1.0))::Color = graphics(normal_map::Texture)
   end
+
+  rec = StatefulRecording()
+  set_program(rec, texture_program(device))
+  set_invocation_state(rec, setproperties(invocation_state(rec), (;
+    primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+    triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,
+  )))
+  tex = Texture(normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
+  set_material(rec, rg, MaterialDataTexture(
+    uv, # uv scaling coefficients
+    request_descriptor_index(rg, graphics, tex),
+  ))
+  draw(graphics, rec, rg, vdata, collect(1:4), color)
+
+  rg
 end
 
 @testset "Texture drawing" begin

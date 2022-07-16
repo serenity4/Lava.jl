@@ -1,14 +1,16 @@
 function program_3(device, vdata, color)
   rg = RenderGraph(device)
 
-  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
-    set_program(rec, rectangle_program(device))
-    draw(rec, vdata, collect(1:3), color)
-  end
+  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
   @add_resource_dependencies rg begin
     (color * 4 => (0.08, 0.05, 0.1, 1.0))::Color = graphics()
   end
+
+  rec = StatefulRecording()
+  set_program(rec, rectangle_program(device))
+  draw(graphics, rec, rg, vdata, collect(1:3), color)
+  rg
 end
 
 @testset "Multisampled triangle" begin
