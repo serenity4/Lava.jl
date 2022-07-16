@@ -50,7 +50,6 @@ include("image.jl")
 include("allocators.jl")
 include("dimensions.jl")
 include("attachments.jl")
-include("descriptors.jl")
 
 include("spirv.jl")
 include("shaders/dependencies.jl")
@@ -61,18 +60,20 @@ include("shaders/macros.jl")
 
 include("resources.jl")
 include("textures.jl")
+include("descriptors.jl")
 include("pipeline.jl")
 include("render_state.jl")
 include("device.jl")
 include("program.jl")
 include("resources/creation.jl")
 include("binding_state.jl")
-include("global_data.jl")
+include("index_data.jl")
 include("wsi.jl")
 include("frame.jl")
 include("render_graph.jl")
 include("bake.jl")
 include("command.jl")
+include("procedural_api.jl")
 include("resources/resolution.jl")
 # include("transition.jl")
 include("debug.jl")
@@ -140,18 +141,17 @@ export
   PhysicalBuffer, PhysicalImage, PhysicalAttachment,
 
   # descriptors
-  ResourceDescriptors, ResourceMetaConfig,
+  PhysicalDescriptors, ResourceMetaConfig,
+  index,
 
   # render state
   RenderState,
 
   # commands
   CompactRecord, draw,
-  DrawCommand, Draw, DrawState, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
-  set_program, draw_state, set_draw_state, set_material,
-  allocate_vertex_data, allocate_material,
-  index,
-  DrawData,
+  DrawCommand, DrawInfo, DrawState, DrawDirect, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
+  allocate_vertex_data, allocate_material, DrawData, request_descriptor_index,
+  StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_material,
 
   # render graph
   ResourceType,

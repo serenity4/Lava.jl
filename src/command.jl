@@ -15,65 +15,37 @@ Copy operation from one source to a destination.
 """
 abstract type Copy{S,D} <: LazyOperation end
 
-abstract type RecordingMode end
-
-struct DirectRecording <: RecordingMode end
-
-struct StatefulRecording <: RecordingMode
-  program::RefValue{Program}
-  render_state::RefValue{RenderState}
-  invocation_state::RefValue{ProgramInvocationState}
-  data::RefValue{DrawData}
-end
-
-StatefulRecording() = StatefulRecording(Ref{Program}(), Ref(RenderState()), Ref(ProgramInvocationState()), Ref(DrawData()))
-
-set_program(state::StatefulRecording, program::Program) = state.program[] = program
-set_render_state(state::StatefulRecording, render_state::RenderState) = state.render_state[] = render_state
-set_invocation_state(state::StatefulRecording, invocation_state::RenderState) = state.invocation_state[] = invocation_state
-set_data(state::StatefulRecording, data::DrawData) = state.data[] = data
-function set_material(state::StatefulRecording, material::UInt64)
-  data = state.data[]
-  set_data(state, @set data.material_data = material)
-end
-render_state(state::StatefulRecording) = state.render_state
-invocation_state(state::StatefulRecording) = state.invocation_state
-
 """
 Type that records command lazily, for them to be flushed into an Vulkan command buffer later.
 """
-abstract type CommandRecord{R<:RecordingMode} <: LavaAbstraction end
+abstract type CommandRecord <: LavaAbstraction end
 
-abstract type DrawCommand end
+function draw(record::CommandRecord, command::DrawCommand, program::Program, targets::RenderTargets, state::DrawState)
+  program_draws = get!(Dictionary, record.programs, program)
+  commands = get!(Vector{DrawCommand}, program_draws, state)
+  push!(commands, command => targets)
+  nothing
+end
+
+draw(record::CommandRecord, info::DrawInfo) = draw(record, info.command, info.program, info.targets, info.state)
 
 """
-Record that compacts action commands according to their state before flushing.
+Record that compacts action commands according to their program and state before flushing.
 
-This allows to group e.g. draw calls that use the exact same rendering state.
+This allows to group draw calls that use the exact same rendering state for better performance.
 """
-struct CompactRecord{R<:RecordingMode} <: CommandRecord{R}
+struct CompactRecord <: CommandRecord
   node::RenderNode
-  image_layouts::Dictionary{UUID,Vk.ImageLayout}
-  gd::GlobalData
-  resources::PhysicalResources
   programs::Dictionary{Program,Dictionary{DrawState,Vector{Pair{DrawCommand,RenderTargets}}}}
-  other_ops::Vector{LazyOperation}
-  layout::VulkanLayout
-  mode::R
 end
 
-@forward CompactRecord{StatefulRecording}.mode (set_program, set_render_state, set_invocation_state, set_data, render_state, invocation_state)
-
-function CompactRecord{R}(baked::BakedRenderGraph, node::RenderNode) where {R<:RecordingMode}
-  image_layouts = Dictionary{ResourceUUID,Vk.ImageLayout}()
-  for (uuid, usage) in pairs(baked.uses[node.uuid].images)
-    insert!(image_layouts, uuid, image_layout(usage))
+function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
+  rec = CompactRecord(node, Dictionary())
+  for info in node.draw_infos
+    draw(rec, @set info.targets = materialize(baked, info.targets))
   end
-  CompactRecord{R}(node, image_layouts, baked.global_data, baked.resources, baked.device.layout)
+  rec
 end
-
-CompactRecord{R}(node::RenderNode, image_layouts, gd::GlobalData, resources::PhysicalResources, layout::VulkanLayout) where {R<:RecordingMode} =
-  CompactRecord{R}(node, image_layouts, gd, resources, Dictionary(), [], Ref(DrawState()), Ref{Program}(), layout, R())
 
 Base.show(io::IO, record::CompactRecord) = print(
   io,
@@ -83,55 +55,23 @@ Base.show(io::IO, record::CompactRecord) = print(
   " programs, $(sum(x -> sum(length, values(x); init = 0), values(record.programs); init = 0)) draw commands)",
 )
 
-function set_material(record::CompactRecord{StatefulRecording}, material::T) where {T}
-  prog = record.mode.program[]
-  # TODO: Look up what shaders use the material and create pointer resource accordingly, instead of using this weird heuristic.
-  shader = vertex_shader(prog)
-  !haskey(shader.source.typerefs, T) && (shader = fragment_shader(prog))
-  device_ptr = allocate_pointer_resource!(record.gd.allocator, material, shader, record.layout)
-  set_material(record.mode, device_ptr)
-end
-
-allocate_material(record::CompactRecord{DirectRecording}, program::Program, data) = allocate_material(record.gd.allocator, program, data, record.layout)
-allocate_material(record::CompactRecord{StatefulRecording}, data) = allocate_material(record.gd.allocator, record.mode.program[], data, record.layout)
-
-allocate_vertex_data(record::CompactRecord{DirectRecording}, program::Program, data) = allocate_vertex_data(record.gd.allocator, program, data, record.layout)
-allocate_vertex_data(record::CompactRecord{StatefulRecording}, data) = allocate_vertex_data(record.gd.allocator, record.mode.program[], data, record.layout)
-
-function draw(record::CompactRecord, command::DrawCommand, targets::RenderTargets, state::DrawState, program::Program)
-  program_draws = get!(Dictionary, record.programs, program)
-  commands = get!(Vector{DrawCommand}, program_draws, state)
-  push!(commands, command => targets)
-end
-
-RenderTargets(rec::CompactRecord{DirectRecording}, color...; depth = nothing, stencil = nothing) = RenderTargets(rec, collect(color); depth, stencil)
-
-function RenderTargets(rec::CompactRecord{DirectRecording}, color::AbstractVector; depth = nothing, stencil = nothing)
-  color = map(color) do c
-    isa(c, PhysicalAttachment) ? c : record.resources.attachments[uuid(c)]
-  end
-  isa(depth, LogicalAttachment) && (depth = record.resources.attachments[uuid(depth)])
-  isa(stencil, LogicalAttachment) && (stencil = record.resources.attachments[uuid(stencil)])
-  RenderTargets(color, depth, stencil)
-end
-
-function draw(record::CompactRecord{StatefulRecording}, vdata, idata, color...; depth = nothing, stencil = nothing, material = nothing, instances = 1:1)
-  program = record.mode.program[]
-  device_ptr = allocate_vertex_data(record, vdata, vertex_shader(program))
-  data = record.mode.data[]
-  set_data(record.mode, @set data.vertex_data = device_ptr)
-  command = DrawIndexed(0, append!(record.gd, idata), instances)
+function DrawInfo(rg::RenderGraph, program::Program, vdata, idata, color...; depth = nothing, stencil = nothing, material = nothing, instances = 1:1, render_state::RenderState = RenderState(), invocation_state::ProgramInvocationState = ProgramInvocationState())
+  data = DrawData(;
+    vertex_data = allocate_vertex_data(rg, program, vdata),
+    material_data = isnothing(material) ? 0 : allocate_material(rg, program, material),
+  )
+  state = DrawState(render_state, invocation_state, data)
+  command = DrawIndexed(0, append!(rg.index_data, idata), instances)
   targets = RenderTargets(color...; depth, stencil)
-  state = DrawState(render_state(record), invocation_state(record), record.mode.data[])
-  draw(record, command, targets, state, program)
+  DrawInfo(command, targets, state, program)
 end
 
-struct Draw <: DrawCommand
+struct DrawDirect <: DrawCommand
   vertices::UnitRange{Int64}
   instances::UnitRange{Int64}
 end
 
-function apply(cb::CommandBuffer, draw::Draw)
+function apply(cb::CommandBuffer, draw::DrawDirect)
   Vk.cmd_draw(
     cb,
     1 + draw.vertices.stop - draw.vertices.start,
@@ -183,13 +123,22 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info(baked.device, record.node.render_area::Vk.Rect2D, program, state.render_state, state.program_state, baked.global_data.resources, targets)
+        info = pipeline_info(baked.device, record.node.render_area.rect::Vk.Rect2D, program, state.render_state, state.program_state, baked.descriptors, targets)
         hash = request_pipeline(baked.device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
     end
   end
   pipeline_hashes
+end
+
+function materialize(baked::BakedRenderGraph, targets::RenderTargets)
+  color = map(targets.color) do c
+    isa(c, PhysicalAttachment) ? c : baked.resources.attachments[uuid(c)]
+  end
+  depth = isa(targets.depth, LogicalAttachment) ? baked.resources.attachments[uuid(targets.depth)] : targets.depth
+  stencil = isa(targets.stencil, LogicalAttachment) ? baked.resources.attachments[uuid(targets.stencil)] : targets.stencil
+  RenderTargets(color, depth, stencil)
 end
 
 """
@@ -203,7 +152,7 @@ function pipeline_info(
   program::Program,
   state::RenderState,
   invocation_state::ProgramInvocationState,
-  resources::ResourceDescriptors,
+  resources::PhysicalDescriptors,
   targets::RenderTargets,
 )
   shader_stages = [Vk.PipelineShaderStageCreateInfo(shader) for shader in program.shaders]
@@ -297,16 +246,13 @@ function request_pipeline(device::Device, info::Vk.GraphicsPipelineCreateInfo)
   hash(info)
 end
 
-function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes)
-  for op in record.other_ops
-    apply(cb, op)
-  end
+function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes, descriptors::PhysicalDescriptors)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for (call, targets) in draws
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht[hash]
-        reqs = BindRequirements(pipeline, state.push_data, record.gd.resources.gset.set)
+        reqs = BindRequirements(pipeline, state.push_data, descriptors.gset.set)
         bind(cb, reqs, binding_state)
         binding_state = reqs
         apply(cb, call)
@@ -316,13 +262,8 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
   binding_state
 end
 
-function initialize(cb::CommandBuffer, device::Device, gd::GlobalData)
-  allocate_index_buffer(gd, device)
-  Vk.cmd_bind_index_buffer(cb, gd.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
-  write(gd.resources.gset)
+function initialize(cb::CommandBuffer, device::Device, id::IndexData, descriptors::PhysicalDescriptors)
+  allocate_index_buffer(id, device)
+  Vk.cmd_bind_index_buffer(cb, id.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
+  write(descriptors.gset)
 end
-
-function Texture(rec::CompactRecord, image::UUID, sampling = DEFAULT_SAMPLING)
-  Texture(rec.resources.images[image], sampling)
-end
-Texture(rec::CompactRecord, image, sampling = DEFAULT_SAMPLING) = Texture(rec, uuid(image), sampling)

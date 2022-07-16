@@ -58,6 +58,7 @@ function new!(x::ResourceStorage, data::Resource_T)
   data
 end
 Base.merge(x::T, y::T) where {T<:ResourceStorage} = T((merge(storage_dict(x, T), storage_dict(y, T)) for T in (Buffer, Image, Attachment))...)
+Base.merge(x::ResourceStorage) = x
 Base.getindex(x::ResourceStorage, data::Resource_T) = storage_dict(x, data)[data.uuid]
 Base.in(data::Resource_T, x::ResourceStorage) = haskey(storage_dict(x, data), data.uuid)
 Base.delete!(x::ResourceStorage, data::Resource_T) = delete!(storage_dict(x, data), data.uuid)

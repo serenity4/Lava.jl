@@ -3,7 +3,7 @@
   fragment_shader = @fragment device.spirv_features test_shader(::Output::Vec{4,Float32})
   program = Program(device, vertex_shader, fragment_shader)
   color = PhysicalAttachment(attachment(device, format = Lava.format(BGRA{N0f8}), dims = (1920, 1080)))
-  rdes = ResourceDescriptors(device)
+  rdes = PhysicalDescriptors(device)
 
   # Clear previous state.
   empty!(device.pending_pipelines)

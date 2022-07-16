@@ -125,7 +125,7 @@ function create_pipelines(device::Device)
   ret
 end
 
-function pipeline_layout(device::Device, resources::ResourceDescriptors)
+function pipeline_layout(device::Device, resources::PhysicalDescriptors)
   info = Vk.PipelineLayoutCreateInfo(
     [resources.gset.set.layout],
     [Vk.PushConstantRange(Vk.SHADER_STAGE_ALL, 0, sizeof(PushConstantData))],

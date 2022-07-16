@@ -9,8 +9,9 @@ vk_handle_type(::Type{Instance}) = Vk.Instance
 
 Instance(handle::Vk.Instance) = Instance(handle, [], [], nothing)
 
-function Instance(layers, extensions, messenger_info::Optional{Vk.DebugUtilsMessengerCreateInfoEXT} = nothing; application_info = C_NULL)
-  handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info, next = something(messenger_info, C_NULL))))
+function Instance(layers, extensions, messenger_info::Optional{Vk.DebugUtilsMessengerCreateInfoEXT} = nothing; next = C_NULL, application_info = C_NULL)
+  !isnothing(messenger_info) && (next = @set messenger_info.next = next)
+  handle = unwrap(create(Instance, Vk.InstanceCreateInfo(layers, extensions; application_info, next)))
   if !isnothing(messenger_info)
     messenger = debug_messenger(handle, messenger_info)
   else
@@ -58,6 +59,9 @@ function init(;
     error("Requesting unsupported instance extensions: $unsupported_extensions")
   end
 
+  next = C_NULL
+  with_validation && (next = Vk.ValidationFeaturesEXT([Vk.VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT], []; next))
+
   dbg_info = if debug
     Vk.DebugUtilsMessengerCreateInfoEXT(
       |(
@@ -69,11 +73,9 @@ function init(;
       message_types,
       debug_callback_c[],
     )
-  else
-    nothing
   end
 
-  instance = Instance(instance_layers, instance_extensions, dbg_info; application_info)
+  instance = Instance(instance_layers, instance_extensions, dbg_info; application_info, next)
 
   union!(
     device_vulkan_features,

@@ -58,7 +58,8 @@ end
 
 ResourceUses() = ResourceUses(Dictionary(), Dictionary(), Dictionary())
 
-function Base.merge(uses::ResourceUses, other_uses::ResourceUses...)
+function Base.merge(uses::ResourceUses, uses2::ResourceUses, other_uses::ResourceUses...)
+  other_uses = [uses2; collect(other_uses)]
   ResourceUses(
     reduce(mergewith(merge), getproperty.(other_uses, :buffers); init = uses.buffers),
     reduce(mergewith(merge), getproperty.(other_uses, :images); init = uses.images),

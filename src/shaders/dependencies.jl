@@ -1,3 +1,8 @@
+struct DescriptorSet <: LavaAbstraction
+  handle::Vk.DescriptorSet
+  layout::Vk.DescriptorSetLayout
+end
+
 """
 Describes data that an object needs to be drawn, but without having a pipeline created yet.
 """

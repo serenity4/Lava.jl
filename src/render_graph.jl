@@ -20,16 +20,23 @@ RenderArea(x, y, offset_x, offset_y) = RenderArea(Vk.Rect2D(Vk.Offset2D(offset_x
 
 const NodeUUID = UUID
 
-struct RenderNode
-  uuid::NodeUUID
-  render
-  stages::Vk.PipelineStageFlag2
-  render_area::Optional{Vk.Rect2D}
+abstract type DrawCommand end
+
+struct DrawInfo
+  command::DrawCommand
+  program::Program
+  targets::RenderTargets
+  state::DrawState
 end
 
-function RenderNode(render; stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT, render_area::Optional{RenderArea} = nothing)
-  RenderNode(uuid(), render, stages, isnothing(render_area) ? nothing : render_area.rect)
+Base.@kwdef struct RenderNode
+  uuid::NodeUUID = uuid()
+  stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+  render_area::Optional{RenderArea} = nothing
+  draw_infos::Vector{DrawInfo} = DrawInfo[]
 end
+
+draw(node::RenderNode, args...; kwargs...) = push!(node.draw_infos, DrawInfo(args...; kwargs...))
 
 usage(::BufferAny_T, node::RenderNode, dep::ResourceDependency) =
   BufferUsage(; dep.type, dep.access, node.stages, usage = buffer_usage_bits(dep.type, dep.access))
@@ -56,54 +63,43 @@ merge_node_dependencies!(x, y) = mergewith!(merge, x, y)
 
 ResourceDependencies() = ResourceDependencies(Dictionary())
 
-"""
-Frame graph implementation.
+struct LogicalDescriptors
+  arrays::Dictionary{Vk.DescriptorType,DescriptorArray}
+  textures::Dictionary{UUID,Texture}
+  samplers::Dictionary{UUID,Sampling}
+  images::Dictionary{UUID,LogicalImage}
+  render_nodes::Dictionary{ResourceUUID,NodeUUID}
+end
 
-A frame graph has a list of virtual resources (buffers, images, attachments) that are
+LogicalDescriptors() = LogicalDescriptors(Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary())
+
+"""
+Render graph implementation.
+
+A render graph has a list of logical resources (buffers, images, attachments) that are
 referenced by passes. They are turned into physical resources for the actual execution of those passes.
 
-The frame graph uses two graph structures: a resource graph and an execution graph.
+The render graph uses two graph structures: a resource graph and an execution graph. The execution graph is computed from the resource
+graph during baking.
 
 ## Resource graph (bipartite, directed)
 
 This bipartite graph has two types of vertices: passes and resources.
 An edge from a resource to a pass describes a read dependency. An edge from a pass to a resource describes a write dependency.
 
-Graph attributes:
-- Resources:
-    - `:name`: name of the resource
-    - `:format` (if the resource describes either an image or an attachment)
-    - `:usage`
-    - `:size` (if the resource describes a buffer)
-    - `:vresource`: description as a virtual resource
-    - `:presource`: physical resource
-    - `:current_layout` (if the resource describes an image)
-    - `:last_write`: access bits and pipeline stages associated to the latest pass that wrote to the resource
-    - `:synchronization_state`: access bits and pipeline stages of all passes that required to synchronize with this resource
-        since the last write.
-- Passes:
-    - `:name`: name of the pass
-- Edge between a resource and a pass (all directions)
-    - `:image_layout` (if the resource describes an image)
-    - `:usage`
-    - `:aspect`
-    - `:stage`: stages in which the resource is used
-    - `:clear_value`: clear value, if applicable. If this property is absent and a load operation takes place on this resource in this pass,
-        then the contents are preserved.
-
 ## Execution graph (directed, acyclic)
 
 In this graph, vertices represent passes, and edges are resource dependencies between passes.
 A topological sort of this graph represents a possible sequential execution order that respects execution dependencies.
 
-Reusing the example above, the graph has three vertices: `gbuffer`, `lighting` and `adapt_luminance`.
-`gbuffer` has five outgoing edges to `lighting`, each edge being labeled with a resource.
-`lighting` has one outgoing edge to `adapt_luminance`.
-
-This graph is generated just-in-time, to convert the resource graph into a linear sequence of passes.
+This graph is generated just-in-time and is used to convert the resource graph into a linear sequence of passes.
 """
 struct RenderGraph
   device::Device
+  "Used to allocate lots of tiny objects."
+  allocator::LinearAllocator
+  "Holds all index data required for building (indexed) draw calls."
+  index_data::IndexData
   resource_graph::SimpleDiGraph{Int64}
   nodes::Dictionary{NodeUUID,RenderNode}
   node_indices::Dictionary{NodeUUID,Int64}
@@ -113,12 +109,13 @@ struct RenderGraph
   uses::Dictionary{NodeUUID,ResourceUses}
   logical_resources::LogicalResources
   physical_resources::PhysicalResources
+  descriptors::LogicalDescriptors
   "Temporary resources meant to be thrown away after execution."
-  temporary::Vector{UUID}
+  temporary::Vector{ResourceUUID}
 end
 
 function RenderGraph(device::Device)
-  RenderGraph(device, SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), [])
+  RenderGraph(device, LinearAllocator(device, 1_000_000), IndexData(), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), LogicalDescriptors(), [])
 end
 
 device(rg::RenderGraph) = rg.device
@@ -382,7 +379,7 @@ function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
       for node in rg.nodes
         !isnothing(node.render_area) || continue
         if haskey(rg.uses[node.uuid].attachments, info.uuid)
-          ext = node.render_area.extent
+          ext = node.render_area.rect.extent
           dims = (ext.width, ext.height)
           break
         end

@@ -19,13 +19,11 @@ end
 """
 Set of buffer handles for loading per-material and per-vertex data, along with global camera data.
 """
-struct PushConstantData
-  camera_data::UInt64
-  vertex_data::UInt64
-  material_data::UInt64
+Base.@kwdef struct PushConstantData
+  camera_data::UInt64 = 0
+  vertex_data::UInt64 = 0
+  material_data::UInt64 = 0
 end
-
-PushConstantData() = PushConstantData(0, 0, 0)
 
 const DrawData = PushConstantData
 

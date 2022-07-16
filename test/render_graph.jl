@@ -28,13 +28,12 @@ bloom_downsample_3 = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
 
 # No rendering done here, doesn't matter what function is passed. We pass in `identity`.
 gbuffer = RenderNode(
-  identity;
   render_area = RenderArea(1920, 1080),
   stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 )
-lighting = RenderNode(identity; render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
-adapt_luminance = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
-combine = RenderNode(identity, render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+lighting = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
+adapt_luminance = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+combine = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
 
 @add_resource_dependencies rg begin
   (emissive => (0.0, 0.0, 0.0, 1.0))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth =
@@ -121,12 +120,12 @@ prog = simple_program(device)
   color = attachment(rg, Vk.FORMAT_R32G32B32A32_SFLOAT)
   normal = image(rg, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
   depth = attachment(rg, Vk.FORMAT_D32_SFLOAT)
-  graphics =
-    RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT) do rec
-      set_program(rec, prog)
-      set_material(rec, index(rec, Texture(rec, normal)))
-      draw(rec, PointSet(HyperCube(1.0f0), Point{2,Float32}).points, collect(1:4), color; depth)
-    end
+  rec = StatefulRecording()
+  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+
+  set_program(rec, prog)
+  set_material(rec, rg, request_descriptor_index(rg, graphics, Texture(normal)))
+  info = draw(graphics, rec, rg, PointSet(HyperCube(1.0f0), Point{2,Float32}).points, collect(1:4), color; depth)
 
   @add_resource_dependencies rg begin
     (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
@@ -137,7 +136,7 @@ prog = simple_program(device)
   rendering_info = Lava.rendering_info(baked, graphics)
   color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color].view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue((0f0, 0f0, 0f0, 1f0))))
   depth_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[depth].view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue(Lava.DEFAULT_CLEAR_VALUE)))
-  @test rendering_info == Vk.RenderingInfo(C_NULL, 0, graphics.render_area, 1, 0, [color_info], depth_info, C_NULL)
+  @test rendering_info == Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL)
 
   @testset "Barriers for layout transitions" begin
     normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, 0, 0, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, baked.resources[normal].image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
@@ -160,19 +159,19 @@ prog = simple_program(device)
     pipeline = device.pipeline_ht[only(pipeline_hashes)]
 
     command_buffer = Lava.SnoopCommandBuffer()
-    Lava.initialize(command_buffer, device, baked.global_data)
+    Lava.initialize(command_buffer, device, baked.index_data, baked.descriptors)
     flush(command_buffer, baked, records, pipeline_hashes)
     @test !isempty(command_buffer)
     @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_draw_indexed, :cmd_end_rendering]
     _cmd_bind_index_buffer, _cmd_pipeline_barrier_2, _cmd_begin_rendering, _cmd_bind_pipeline, _cmd_bind_descriptor_sets, _cmd_push_constants, _cmd_draw_indexed, _cmd_end_rendering = command_buffer
 
     @test isallocated(_cmd_bind_index_buffer.args[1])
-    @test _cmd_bind_index_buffer.args == [baked.global_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]
+    @test _cmd_bind_index_buffer.args == [baked.index_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]
 
     @test _cmd_pipeline_barrier_2.args == [dependency_info]
     @test _cmd_begin_rendering.args == [rendering_info]
     @test _cmd_bind_pipeline.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline]
-    @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [baked.global_data.resources.gset.set], []]
+    @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [baked.descriptors.gset.set], []]
     @test _cmd_push_constants.args[1:2] == [pipeline.layout, Vk.SHADER_STAGE_ALL]
     @test _cmd_push_constants.args[4] == sizeof(Lava.DrawData)
     @test _cmd_draw_indexed.args == [4, 1, 0, 0, 0]
@@ -180,7 +179,7 @@ prog = simple_program(device)
 
     test_validation_msg(x -> @test isempty(x)) do
       command_buffer = Lava.request_command_buffer(device)
-      Lava.initialize(command_buffer, device, baked.global_data)
+      Lava.initialize(command_buffer, device, baked.index_data, baked.descriptors)
       flush(command_buffer, baked, records, pipeline_hashes)
     end
   end

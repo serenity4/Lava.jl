@@ -1,14 +1,12 @@
 struct BakedRenderGraph
   device::Device
-  global_data::GlobalData
+  allocator::LinearAllocator
+  index_data::IndexData
+  descriptors::PhysicalDescriptors
   nodes::Vector{RenderNode}
   resources::PhysicalResources
   uses::Dictionary{NodeUUID,ResourceUses}
   resolve_pairs::Dictionary{ResourceUUID, ResourceUUID}
-end
-
-function BakedRenderGraph(device, nodes, resources, uses, resolve_pairs)
-  BakedRenderGraph(device, GlobalData(device), nodes, resources, uses, resolve_pairs)
 end
 
 function bake(rg::RenderGraph)
@@ -17,7 +15,8 @@ function bake(rg::RenderGraph)
   uses = ResourceUses(rg)
   check_physical_resources(rg, uses)
   resources = merge(materialize_logical_resources(rg, uses), rg.physical_resources)
-  BakedRenderGraph(rg.device, sort_nodes(rg), resources, rg.uses, uuid.(resolve_pairs))
+  descriptors = PhysicalDescriptors(rg.device, rg.uses, resources, rg.descriptors)
+  BakedRenderGraph(rg.device, rg.allocator, rg.index_data, descriptors, sort_nodes(rg), resources, rg.uses, uuid.(resolve_pairs))
 end
 
 function render(rg::Union{RenderGraph,BakedRenderGraph})
@@ -33,7 +32,7 @@ function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   create_pipelines(baked.device)
 
   # Fill command buffer with synchronization commands & recorded commands.
-  initialize(command_buffer, baked.device, baked.global_data)
+  initialize(command_buffer, baked.device, baked.index_data, baked.descriptors)
   flush(command_buffer, baked, records, pipeline_hashes)
   baked
 end
@@ -45,7 +44,6 @@ function record_commands!(baked::BakedRenderGraph)
   # Record commands and submit pipelines for creation.
   for node in baked.nodes
     record = CompactRecord(baked, node)
-    node.render(record)
     push!(records, record)
     merge!(pipeline_hashes, request_pipelines(baked, record))
   end
@@ -59,7 +57,7 @@ function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipelin
   for (node, record) in zip(baked.nodes, records)
     synchronize_before!(state, cb, baked, node)
     begin_render_node(cb, baked, node)
-    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes)
+    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes, baked.descriptors)
     end_render_node(cb, baked, node)
     synchronize_after!(state, cb, baked, node)
   end
@@ -100,7 +98,7 @@ function rendering_info(rg::BakedRenderGraph, node::RenderNode)
     end
   end
   info = Vk.RenderingInfo(
-    node.render_area,
+    node.render_area.rect,
     1,
     0,
     color_attachments;

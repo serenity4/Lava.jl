@@ -70,14 +70,14 @@ function allocate_material(allocator::LinearAllocator, program::Program, data::T
   allocate_pointer_resource!(allocator, data, shader, layout)
 end
 
-function allocate_material(device_or_record::Device, allocator::LinearAllocator, program::Program, data)
-  allocate_material(allocator, program, data, device_or_record.layout)
+function allocate_material(device::Device, allocator::LinearAllocator, program::Program, data)
+  allocate_material(allocator, program, data, device.layout)
 end
 
 @auto_hash_equals struct RenderTargets
-  color::Vector{PhysicalAttachment}
-  depth::Optional{PhysicalAttachment}
-  stencil::Optional{PhysicalAttachment}
+  color::Vector{Union{LogicalAttachment, PhysicalAttachment}}
+  depth::Optional{Union{LogicalAttachment, PhysicalAttachment}}
+  stencil::Optional{Union{LogicalAttachment, PhysicalAttachment}}
 end
 
 RenderTargets(color::AbstractVector; depth = nothing, stencil = nothing) = RenderTargets(color, depth, stencil)
