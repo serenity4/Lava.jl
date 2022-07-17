@@ -20,7 +20,7 @@ function rectangle_program(device)
   Program(device, vert, frag)
 end
 
-function program_1(device, vdata, color, prog = rectangle_program(device))
+function program_1(device, vdata, color; prog = rectangle_program(device))
   rg = RenderGraph(device)
 
   graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)

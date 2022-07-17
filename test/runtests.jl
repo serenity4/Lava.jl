@@ -150,7 +150,7 @@ end
       b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
       b2 = buffer(device; size = 8000, usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b1)) == collect(1:1000)
-      transfer(device, b1, b2)
+      transfer(device, b1, b2; submission = sync_submission(device))
       @test reinterpret(Int64, collect(b2, device)) == collect(1:1000)
 
       b3 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
@@ -192,6 +192,12 @@ end
   @testset "WSI & presentation" begin
     include("present.jl")
   end
+
+  # Make sure we don't have fences that are never signaled.
+  Lava.compact!(device.fence_pool)
+  @test isempty(device.fence_pool.pending)
+  @test isempty(device.fence_pool.completed)
+  @test !isempty(device.fence_pool.available)
 end;
 
 # trigger finalizers

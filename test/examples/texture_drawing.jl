@@ -39,7 +39,7 @@ function texture_program(device)
   Program(device, vert, frag)
 end
 
-function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0))
+function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0); prog = texture_program(device))
   rg = RenderGraph(device)
 
   normal = load(texture_file("normal.png"))

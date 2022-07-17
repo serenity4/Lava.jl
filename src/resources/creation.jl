@@ -1,9 +1,9 @@
 # Synchronous operations that wait on asynchronous ones.
 
-function transfer(device::Device, args...; kwargs...)
-  submission = SubmissionInfo(signal_fence = fence(device))
+function transfer(device::Device, args...; submission = nothing, kwargs...)
   command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
-  wait(transfer(command_buffer, args...; submission, kwargs...))
+  ret = transfer(command_buffer, args...; submission, kwargs...)
+  isnothing(submission) ? ret : wait(ret)
 end
 
 function transition_layout(device::Device, view_or_image::Union{<:Image,<:ImageView}, new_layout)
@@ -17,7 +17,7 @@ end
 """
 Create a new buffer and fill it with data.
 """
-function buffer(device::Device, data = nothing; memory_domain = MEMORY_DOMAIN_DEVICE, usage = Vk.BufferUsageFlag(0), size = nothing, submission = SubmissionInfo(signal_fence = fence(device)), kwargs...)
+function buffer(device::Device, data = nothing; memory_domain = MEMORY_DOMAIN_DEVICE, usage = Vk.BufferUsageFlag(0), size = nothing, submission = nothing, kwargs...)
   isnothing(size) && isnothing(data) && error("At least one of data or size must be provided.")
   isnothing(size) && (size = sizeof(data))
 
@@ -25,6 +25,7 @@ function buffer(device::Device, data = nothing; memory_domain = MEMORY_DOMAIN_DE
   buffer = BufferBlock(device, size; usage, kwargs...)
   allocate!(buffer, memory_domain)
   isnothing(data) && return buffer
+  Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in properties(memory(buffer)) && (submission = @something(submission, SubmissionInfo(signal_fence = fence(device))))
   copyto!(buffer, data; device, submission)
 end
 
@@ -135,7 +136,7 @@ function Base.collect(@nospecialize(T), image::ImageBlock, device::Device)
     usage = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
     dst = ImageBlock(device, dims(image), format(image), usage; is_linear = true)
     allocate!(dst, MEMORY_DOMAIN_HOST)
-    transfer(device, image, dst)
+    transfer(device, image, dst; submission = sync_submission(device))
     collect(T, dst, device)
   end
 end
@@ -216,7 +217,7 @@ function image(
   dims = nothing,
   samples = 1,
   layout::Optional{Vk.ImageLayout} = nothing,
-  submission = SubmissionInfo(signal_fence = fence(device)),
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
   image_kwargs...,
 )
   if isnothing(data)
@@ -231,9 +232,7 @@ function image(
   # If optimal tiling is enabled, we'll need to transfer the image regardless.
   img = ImageBlock(device, dims, format, usage; is_linear = !optimal_tiling, samples, image_kwargs...)
   allocate!(img, memory_domain)
-  if !isnothing(data)
-    copyto!(img, data, device; submission)
-  end
+  !isnothing(data) && copyto!(img, data, device; submission)
   !isnothing(layout) && transition_layout(device, img, layout)
   img
 end
@@ -264,7 +263,7 @@ function Base.collect(memory::MemoryBlock, size::Integer, device::Device)
   @assert reqs.size ≤ memory.size
   dst = BufferBlock(device, size; usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
   allocate!(dst, MEMORY_DOMAIN_HOST)
-  transfer(device, src, dst; free_src = true)
+  transfer(device, src, dst; free_src = true, submission = sync_submission(device))
   collect(dst)
 end
 

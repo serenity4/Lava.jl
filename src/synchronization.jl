@@ -127,6 +127,8 @@ function Base.show(io::IO, exec::ExecutionState)
   print(io, " on queue ", exec.queue, ')')
 end
 
+sync_submission(device) = SubmissionInfo(signal_fence = fence(device))
+
 struct FencePool
   device::Vk.Device
   available::Vector{Vk.Fence}
