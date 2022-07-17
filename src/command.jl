@@ -20,13 +20,6 @@ Type that records command lazily, for them to be flushed into an Vulkan command 
 """
 abstract type CommandRecord <: LavaAbstraction end
 
-function draw(record::CommandRecord, command::DrawCommand, program::Program, targets::RenderTargets, state::DrawState)
-  program_draws = get!(Dictionary, record.programs, program)
-  commands = get!(Vector{DrawCommand}, program_draws, state)
-  push!(commands, command => targets)
-  nothing
-end
-
 draw(record::CommandRecord, info::DrawInfo) = draw(record, info.command, info.program, info.targets, info.state)
 
 """
@@ -42,9 +35,17 @@ end
 function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
   rec = CompactRecord(node, Dictionary())
   for info in node.draw_infos
-    draw(rec, @set info.targets = materialize(baked, info.targets))
+    @reset info.targets = materialize(baked, info.targets)
+    draw(rec, info)
   end
   rec
+end
+
+function draw(record::CompactRecord, command::DrawCommand, program::Program, targets::RenderTargets, state::DrawState)
+  program_draws = get!(Dictionary, record.programs, program)
+  commands = get!(Vector{Pair{DrawCommand,RenderTargets}}, program_draws, state)
+  push!(commands, command => targets)
+  nothing
 end
 
 Base.show(io::IO, record::CompactRecord) = print(
@@ -61,61 +62,9 @@ function DrawInfo(rg::RenderGraph, program::Program, vdata, idata, color...; dep
     material_data = isnothing(material) ? 0 : allocate_material(rg, program, material),
   )
   state = DrawState(render_state, invocation_state, data)
-  command = DrawIndexed(0, append!(rg.index_data, idata), instances)
+  command = DrawIndexed(0, idata, instances)
   targets = RenderTargets(color...; depth, stencil)
   DrawInfo(command, targets, state, program)
-end
-
-struct DrawDirect <: DrawCommand
-  vertices::UnitRange{Int64}
-  instances::UnitRange{Int64}
-end
-
-function apply(cb::CommandBuffer, draw::DrawDirect)
-  Vk.cmd_draw(
-    cb,
-    1 + draw.vertices.stop - draw.vertices.start,
-    1 + draw.instances.stop - draw.instances.start,
-    draw.vertices.start - 1,
-    draw.instances.start - 1,
-  )
-end
-
-struct DrawIndirect{B<:Buffer} <: DrawCommand
-  parameters::B
-  count::Int64
-end
-
-function apply(cb::CommandBuffer, draw::DrawIndirect)
-  buffer = draw.parameters
-  Vk.cmd_draw_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
-end
-
-struct DrawIndexed <: DrawCommand
-  vertex_offset::Int64
-  indices::UnitRange{Int64}
-  instances::UnitRange{Int64}
-end
-
-function apply(cb::CommandBuffer, draw::DrawIndexed)
-  Vk.cmd_draw_indexed(
-    cb,
-    1 + draw.indices.stop - draw.indices.start,
-    1 + draw.instances.stop - draw.instances.start,
-    draw.indices.start - 1,
-    draw.vertex_offset,
-    draw.instances.start - 1,
-  )
-end
-
-struct DrawIndexedIndirect{B<:Buffer} <: DrawCommand
-  parameters::B
-  count::Int64
-end
-
-function apply(cb::CommandBuffer, draw::DrawIndexedIndirect)
-  buffer = draw.parameters
-  Vk.cmd_draw_indexed_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end
 
 function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
@@ -246,7 +195,7 @@ function request_pipeline(device::Device, info::Vk.GraphicsPipelineCreateInfo)
   hash(info)
 end
 
-function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes, descriptors::PhysicalDescriptors)
+function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes, descriptors::PhysicalDescriptors, index_data::IndexData)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for (call, targets) in draws
@@ -255,7 +204,7 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
         reqs = BindRequirements(pipeline, state.push_data, descriptors.gset.set)
         bind(cb, reqs, binding_state)
         binding_state = reqs
-        apply(cb, call)
+        isa(call, DrawIndexed) ? apply(cb, call, index_data) : apply(cb, call)
       end
     end
   end

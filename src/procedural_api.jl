@@ -37,7 +37,7 @@ function DrawInfo(rec::StatefulRecording, rg::RenderGraph, vdata, idata, color..
   set_data(rec, data)
   state = DrawState(render_state(rec), invocation_state(rec), data)
   DrawInfo(
-    DrawIndexed(0, append!(rg.index_data, idata), instances),
+    DrawIndexed(0, idata, instances),
     program,
     RenderTargets(color...; depth, stencil),
     DrawState(render_state(rec), invocation_state(rec), rec.data[]),

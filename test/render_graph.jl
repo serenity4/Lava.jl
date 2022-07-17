@@ -159,6 +159,7 @@ prog = simple_program(device)
     pipeline = device.pipeline_ht[only(pipeline_hashes)]
 
     command_buffer = Lava.SnoopCommandBuffer()
+    Lava.fill_indices!(baked.index_data, records)
     Lava.initialize(command_buffer, device, baked.index_data, baked.descriptors)
     flush(command_buffer, baked, records, pipeline_hashes)
     @test !isempty(command_buffer)
@@ -179,6 +180,7 @@ prog = simple_program(device)
 
     test_validation_msg(x -> @test isempty(x)) do
       command_buffer = Lava.request_command_buffer(device)
+      Lava.fill_indices!(baked.index_data, records)
       Lava.initialize(command_buffer, device, baked.index_data, baked.descriptors)
       flush(command_buffer, baked, records, pipeline_hashes)
     end

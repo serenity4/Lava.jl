@@ -32,9 +32,24 @@ function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   create_pipelines(baked.device)
 
   # Fill command buffer with synchronization commands & recorded commands.
+  fill_indices!(baked.index_data, records)
   initialize(command_buffer, baked.device, baked.index_data, baked.descriptors)
   flush(command_buffer, baked, records, pipeline_hashes)
   baked
+end
+
+function fill_indices!(index_data::IndexData, records)
+  for record in records
+    for draws in record.programs
+      for calls in draws
+        for (command, target) in calls
+          if isa(command, DrawIndexed)
+            append!(index_data, command)
+          end
+        end
+      end
+    end
+  end
 end
 
 function record_commands!(baked::BakedRenderGraph)
@@ -57,7 +72,7 @@ function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipelin
   for (node, record) in zip(baked.nodes, records)
     synchronize_before!(state, cb, baked, node)
     begin_render_node(cb, baked, node)
-    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes, baked.descriptors)
+    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes, baked.descriptors, baked.index_data)
     end_render_node(cb, baked, node)
     synchronize_after!(state, cb, baked, node)
   end
