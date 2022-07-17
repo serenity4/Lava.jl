@@ -15,22 +15,22 @@ Base.@kwdef struct ProgramInvocationState
   polygon_mode::Vk.PolygonMode = Vk.POLYGON_MODE_FILL
 end
 
+"""
+Interface structure holding a device address as its single field.
 
+This structure is necessary until SPIRV.jl can work around the requirement of
+having interface block types be composite types.
 """
-Set of buffer handles for loading per-material and per-vertex data, along with global camera data.
-"""
-Base.@kwdef struct PushConstantData
-  camera_data::UInt64 = 0
-  vertex_data::UInt64 = 0
-  material_data::UInt64 = 0
+struct DeviceAddress
+  addr::UInt64
 end
 
-const DrawData = PushConstantData
+SPIRV.Pointer{T}(addr::DeviceAddress) where {T} = SPIRV.Pointer{T}(addr.addr)
 
 struct DrawState
   render_state::RenderState
   program_state::ProgramInvocationState
-  push_data::PushConstantData
+  user_data::DeviceAddress
 end
 
-DrawState() = DrawState(RenderState(), ProgramInvocationState(), PushConstantData())
+DrawState() = DrawState(RenderState(), ProgramInvocationState(), DeviceAddress(0))

@@ -1,33 +1,40 @@
-struct VertexDataTexture
+struct TextureCoordinates
   pos::Vec{2,Float32}
   uv::Vec{2,Float32}
 end
 
-function texture_vert(uv, position, index, dd)
-  vd = Pointer{Vector{VertexDataTexture}}(dd.vertex_data)[index]
-  (; pos) = vd
-  position[] = Vec(pos.x, pos.y, 0F, 1F)
-  uv[] = vd.uv
-end
-
-struct MaterialDataTexture
+struct TextureDrawing
   uv_scaling::Vec{2,Float32}
   img_index::UInt32
 end
 
-function texture_frag(out_color, uv, dd, images)
-  md = Pointer{MaterialDataTexture}(dd.material_data)[]
-  (; uv_scaling, img_index) = md
+struct TextureData
+  coords::UInt64
+  drawing::UInt64
+end
+
+function texture_vert(uv, position, index, data_address::DeviceAddress)
+  data = Pointer{TextureData}(data_address)[]
+  coords = Pointer{Vector{TextureCoordinates}}(data.coords)[index]
+  (; pos) = coords
+  position[] = Vec(pos.x, pos.y, 0F, 1F)
+  uv[] = coords.uv
+end
+
+function texture_frag(out_color, uv, data_address, images)
+  data = Pointer{TextureData}(data_address)[]
+  drawing = Pointer{TextureDrawing}(data.drawing)[]
+  (; uv_scaling, img_index) = drawing
   texcolor = images[img_index](uv * uv_scaling)
   out_color[] = Vec(texcolor.r, texcolor.g, texcolor.b, 1F)
 end
 
 function texture_program(device)
-  vert = @vertex device.spirv_features texture_vert(::Output::Vec{2,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DrawData)
+  vert = @vertex device.spirv_features texture_vert(::Output::Vec{2,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddress)
   frag = @fragment device.spirv_features texture_frag(
     ::Output::Vec{4,Float32},
     ::Input::Vec{2,Float32},
-    ::PushConstant::DrawData,
+    ::PushConstant::DeviceAddress,
     ::UniformConstant{DescriptorSet = 0, Binding = 3}::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}})
   Program(device, vert, frag)
 end
@@ -53,21 +60,23 @@ function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0))
     triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,
   )))
   tex = Texture(normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
-  set_material(rec, rg, MaterialDataTexture(
+  coords_ptr = allocate_data(rec, rg, vdata)
+  drawing_ptr = allocate_data(rec, rg, TextureDrawing(
     uv, # uv scaling coefficients
     request_descriptor_index(rg, graphics, tex),
   ))
-  draw(graphics, rec, rg, vdata, collect(1:4), color)
+  set_data(rec, rg, TextureData(coords_ptr, drawing_ptr))
+  draw(graphics, rec, collect(1:4), color)
 
   rg
 end
 
 @testset "Texture drawing" begin
   vdata = [
-    VertexDataTexture(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
-    VertexDataTexture(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
-    VertexDataTexture(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
-    VertexDataTexture(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
+    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
+    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
+    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
+    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
   rg = program_2(device, vdata, pcolor)
 

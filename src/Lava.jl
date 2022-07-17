@@ -150,8 +150,9 @@ export
   # commands
   CompactRecord, draw,
   DrawCommand, DrawInfo, DrawState, DrawDirect, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
-  allocate_vertex_data, allocate_material, DrawData, request_descriptor_index,
-  StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_material,
+  allocate_data, DrawData, request_descriptor_index,
+  DeviceAddress,
+  StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_data,
 
   # render graph
   ResourceType,

@@ -56,16 +56,14 @@ Base.show(io::IO, record::CompactRecord) = print(
   " programs, $(sum(x -> sum(length, values(x); init = 0), values(record.programs); init = 0)) draw commands)",
 )
 
-function DrawInfo(rg::RenderGraph, program::Program, vdata, idata, color...; depth = nothing, stencil = nothing, material = nothing, instances = 1:1, render_state::RenderState = RenderState(), invocation_state::ProgramInvocationState = ProgramInvocationState())
-  data = DrawData(;
-    vertex_data = allocate_vertex_data(rg, program, vdata),
-    material_data = isnothing(material) ? 0 : allocate_material(rg, program, material),
-  )
-  state = DrawState(render_state, invocation_state, data)
+function DrawInfo(program::Program, data_address, idata, color...; depth = nothing, stencil = nothing, instances = 1:1, render_state::RenderState = RenderState(), invocation_state::ProgramInvocationState = ProgramInvocationState())
+  state = DrawState(render_state, invocation_state, data_address)
   command = DrawIndexed(0, idata, instances)
   targets = RenderTargets(color...; depth, stencil)
-  DrawInfo(command, targets, state, program)
+  DrawInfo(command, program, targets, state)
 end
+
+allocate_data(rg::RenderGraph, program::Program, data) = allocate_data(rg.allocator, program, data, rg.device.layout)
 
 function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
@@ -201,7 +199,7 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
       for (call, targets) in draws
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht[hash]
-        reqs = BindRequirements(pipeline, state.push_data, descriptors.gset)
+        reqs = BindRequirements(pipeline, state.user_data, descriptors.gset)
         bind(cb, reqs, binding_state)
         binding_state = reqs
         isa(call, DrawIndexed) ? apply(cb, call, index_data) : apply(cb, call)

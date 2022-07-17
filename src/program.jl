@@ -53,25 +53,12 @@ end
 data_alignment(layout::VulkanLayout, data) = data_alignment(layout, spir_type(typeof(data)))
 data_alignment(layout::VulkanLayout, t::SPIRType) = alignment(layout, t, [SPIRV.StorageClassPhysicalStorageBuffer], false)
 
-function allocate_vertex_data(allocator::LinearAllocator, program::Program, data, layout::VulkanLayout)
-  # TODO: Make sure that the offsets and load alignment are consistent across all shaders that use this vertex data.
-  allocate_pointer_resource!(allocator, data, vertex_shader(program), layout)
-end
-
-function allocate_vertex_data(device::Device, allocator::LinearAllocator, program::Program, data)
-  allocate_vertex_data(allocator, program, data, device.layout)
-end
-
-function allocate_material(allocator::LinearAllocator, program::Program, data::T, layout::VulkanLayout) where {T}
-  # TODO: Look up what shaders use the material and create pointer resource accordingly, instead of using this weird heuristic.
+function allocate_data(allocator::LinearAllocator, program::Program, data::T, layout::VulkanLayout) where {T}
+  # TODO: Look up what shaders use the data and create pointer resource accordingly, instead of using this weird heuristic.
+  # TODO: Make sure that the offsets and load alignment are consistent across all shaders that use this data.
   shader = vertex_shader(program)
   !haskey(shader.source.typerefs, T) && (shader = fragment_shader(program))
-
   allocate_pointer_resource!(allocator, data, shader, layout)
-end
-
-function allocate_material(device::Device, allocator::LinearAllocator, program::Program, data)
-  allocate_material(allocator, program, data, device.layout)
 end
 
 @auto_hash_equals struct RenderTargets

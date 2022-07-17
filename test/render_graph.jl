@@ -125,8 +125,8 @@ prog = simple_program(device)
   graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
   set_program(rec, prog)
-  set_material(rec, rg, request_descriptor_index(rg, graphics, Texture(normal)))
-  info = draw(graphics, rec, rg, PointSet(HyperCube(1.0f0), Point{2,Float32}).points, collect(1:4), color; depth)
+  set_data(rec, rg, PointSet(HyperCube(1.0f0), Point{2,Float32}).points)
+  info = draw(graphics, rec, collect(1:4), color; depth)
 
   @add_resource_dependencies rg begin
     (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
@@ -175,7 +175,7 @@ prog = simple_program(device)
     @test _cmd_bind_pipeline.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline]
     @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [device.descriptors.gset], []]
     @test _cmd_push_constants.args[1:2] == [pipeline.layout, Vk.SHADER_STAGE_ALL]
-    @test _cmd_push_constants.args[4] == sizeof(Lava.DrawData)
+    @test _cmd_push_constants.args[4] == sizeof(DeviceAddress)
     @test _cmd_draw_indexed.args == [4, 1, 0, 0, 0]
     @test _cmd_end_rendering.args == []
 

@@ -5,10 +5,10 @@ end
 
 function render_rectangle(device, image, uv)
   vdata = [
-    VertexDataTexture(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
-    VertexDataTexture(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
-    VertexDataTexture(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
-    VertexDataTexture(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
+    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
+    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
+    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
+    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
   rg = program_2(device, vdata, PhysicalAttachment(Attachment(View(image), WRITE)), uv)
   command_buffer = Lava.request_command_buffer(device)

@@ -1,5 +1,5 @@
-function test_program_vert(position, index, dd)
-  pos = Pointer{Vector{Point{2,Float32}}}(dd.vertex_data)[index]
+function test_program_vert(position, index, data_address::DeviceAddress)
+  pos = Pointer{Vector{Point{2,Float32}}}(data_address)[index]
   position[] = Vec(pos[1], pos[2], 0F, 1F)
 end
 
@@ -26,7 +26,7 @@ function simple_program(device)
     features = device.spirv_features,
   )
 
-  vert_shader = @shader vert_interface test_program_vert(::Vec{4,Float32}, ::UInt32, ::DrawData)
+  vert_shader = @shader vert_interface test_program_vert(::Vec{4,Float32}, ::UInt32, ::DeviceAddress)
   frag_shader = @shader frag_interface test_program_frag(::Vec{4,Float32})
   Program(device, vert_shader, frag_shader)
 end
