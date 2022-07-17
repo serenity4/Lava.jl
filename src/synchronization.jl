@@ -161,6 +161,13 @@ end
 
 fence_status(fence::Vk.Fence) = unwrap(Vk.get_fence_status(fence.device, fence))
 
+"""
+Retrieve a fence from the `pool`.
+
+Note that the fence that is retrieved will be automatically listed as pending execution.
+If the fence is never signaled, then it will never be released; it is the responsibility
+of the calling code to have a signal operation perform on the fence.
+"""
 function fence(pool::FencePool)
   (; available) = pool
   isempty(available) && compact!(pool)
