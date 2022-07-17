@@ -72,7 +72,7 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info(baked.device, record.node.render_area.rect::Vk.Rect2D, program, state.render_state, state.program_state, baked.descriptors, targets)
+        info = pipeline_info(baked.device, record.node.render_area.rect::Vk.Rect2D, program, state.render_state, state.program_state, baked.device.descriptors, targets)
         hash = request_pipeline(baked.device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
@@ -201,7 +201,7 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
       for (call, targets) in draws
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht[hash]
-        reqs = BindRequirements(pipeline, state.push_data, descriptors.gset.set)
+        reqs = BindRequirements(pipeline, state.push_data, descriptors.gset)
         bind(cb, reqs, binding_state)
         binding_state = reqs
         isa(call, DrawIndexed) ? apply(cb, call, index_data) : apply(cb, call)
@@ -211,8 +211,7 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
   binding_state
 end
 
-function initialize(cb::CommandBuffer, device::Device, id::IndexData, descriptors::PhysicalDescriptors)
+function initialize(cb::CommandBuffer, device::Device, id::IndexData)
   allocate_index_buffer(id, device)
   Vk.cmd_bind_index_buffer(cb, id.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
-  write(descriptors.gset)
 end

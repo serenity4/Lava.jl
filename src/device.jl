@@ -14,6 +14,8 @@ struct Device <: LavaAbstraction
   spirv_features::SupportedFeatures
   resources::PhysicalResources
   fence_pool::FencePool
+  logical_descriptors::LogicalDescriptors
+  descriptors::PhysicalDescriptors
   layout::VulkanLayout
 end
 
@@ -51,6 +53,8 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     spirv_features(physical_device, api_version, extensions, features),
     PhysicalResources(),
     FencePool(handle),
+    LogicalDescriptors(),
+    PhysicalDescriptors(handle),
     VulkanLayout(),
   )
 end
@@ -127,7 +131,7 @@ end
 
 function pipeline_layout(device::Device, resources::PhysicalDescriptors)
   info = Vk.PipelineLayoutCreateInfo(
-    [resources.gset.set.layout],
+    [resources.gset.layout],
     [Vk.PushConstantRange(Vk.SHADER_STAGE_ALL, 0, sizeof(PushConstantData))],
   )
   get!(device.pipeline_layout_ht, info) do info

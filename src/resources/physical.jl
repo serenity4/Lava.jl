@@ -40,6 +40,22 @@ layer_range(image::Union{Image, PhysicalImage}) = 1:(layers(image))
 
 PhysicalImage(uuid::ResourceUUID, image::Image) = PhysicalImage(uuid, handle(image), handle(memory(image)), usage(image), image.layout, LogicalImage(uuid, image))
 
+function default_view(image::PhysicalImage)
+  Vk.ImageView(
+    image.image.device,
+    image.image,
+    image_view_type(length(image.info.dims)),
+    format(image),
+    Vk.ComponentMapping(
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+      Vk.COMPONENT_SWIZZLE_IDENTITY,
+    ),
+    subresource_range(image),
+  )
+end
+
 struct PhysicalAttachment <: PhysicalResource
   uuid::ResourceUUID
   view::Vk.ImageView

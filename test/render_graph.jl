@@ -1,4 +1,5 @@
 using Graphs: nv, ne
+
 rg = RenderGraph(device)
 
 # Specify resources used for the rendering process.
@@ -84,7 +85,7 @@ end
 end
 
 @testset "Baking a render graph" begin
-  baked = Lava.bake(rg)
+  baked = Lava.bake!(device, rg)
   info = Lava.rendering_info(baked, combine)
   @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(1920, 1080))
   color_info, output_info = info.color_attachments
@@ -131,7 +132,7 @@ prog = simple_program(device)
     (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
   end
 
-  baked = Lava.bake(rg)
+  baked = Lava.bake!(device, rg)
   dependency_info = Lava.dependency_info!(Lava.SynchronizationState(), deepcopy(baked), graphics)
   rendering_info = Lava.rendering_info(baked, graphics)
   color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color].view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue((0f0, 0f0, 0f0, 1f0))))
@@ -160,7 +161,7 @@ prog = simple_program(device)
 
     command_buffer = Lava.SnoopCommandBuffer()
     Lava.fill_indices!(baked.index_data, records)
-    Lava.initialize(command_buffer, device, baked.index_data, baked.descriptors)
+    Lava.initialize(command_buffer, device, baked.index_data)
     flush(command_buffer, baked, records, pipeline_hashes)
     @test !isempty(command_buffer)
     @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_draw_indexed, :cmd_end_rendering]
@@ -172,7 +173,7 @@ prog = simple_program(device)
     @test _cmd_pipeline_barrier_2.args == [dependency_info]
     @test _cmd_begin_rendering.args == [rendering_info]
     @test _cmd_bind_pipeline.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline]
-    @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [baked.descriptors.gset.set], []]
+    @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [device.descriptors.gset], []]
     @test _cmd_push_constants.args[1:2] == [pipeline.layout, Vk.SHADER_STAGE_ALL]
     @test _cmd_push_constants.args[4] == sizeof(Lava.DrawData)
     @test _cmd_draw_indexed.args == [4, 1, 0, 0, 0]
@@ -181,7 +182,7 @@ prog = simple_program(device)
     test_validation_msg(x -> @test isempty(x)) do
       command_buffer = Lava.request_command_buffer(device)
       Lava.fill_indices!(baked.index_data, records)
-      Lava.initialize(command_buffer, device, baked.index_data, baked.descriptors)
+      Lava.initialize(command_buffer, device, baked.index_data)
       flush(command_buffer, baked, records, pipeline_hashes)
     end
   end

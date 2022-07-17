@@ -1,22 +1,24 @@
-struct BakedRenderGraph
+# Mutability is to allow finalizers.
+mutable struct BakedRenderGraph
   device::Device
   allocator::LinearAllocator
   index_data::IndexData
-  descriptors::PhysicalDescriptors
   nodes::Vector{RenderNode}
   resources::PhysicalResources
   uses::Dictionary{NodeUUID,ResourceUses}
+  # Pairs att1 => att2 where att1 is a multisampled attachment resolved on att2.
   resolve_pairs::Dictionary{ResourceUUID, ResourceUUID}
 end
 
-function bake(rg::RenderGraph)
+function bake!(device::Device, rg::RenderGraph)
   resolve_pairs = resolve_attachment_pairs(rg)
   add_resolve_attachments(rg, resolve_pairs)
   uses = ResourceUses(rg)
   check_physical_resources(rg, uses)
   resources = merge(materialize_logical_resources(rg, uses), rg.physical_resources)
-  descriptors = PhysicalDescriptors(rg.device, rg.uses, resources, rg.descriptors)
-  BakedRenderGraph(rg.device, rg.allocator, rg.index_data, descriptors, sort_nodes(rg), resources, rg.uses, uuid.(resolve_pairs))
+  descriptors = materialize_logical_descriptors!(rg.device, resources, rg.uses)
+  baked = BakedRenderGraph(rg.device, rg.allocator, IndexData(), sort_nodes(rg), resources, rg.uses, uuid.(resolve_pairs))
+  finalizer(x -> free_logical_descriptors!(x.device, descriptors), baked)
 end
 
 function render(rg::Union{RenderGraph,BakedRenderGraph})
@@ -25,7 +27,7 @@ function render(rg::Union{RenderGraph,BakedRenderGraph})
   wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device), release_after_completion = [baked])))
 end
 
-render(command_buffer::CommandBuffer, rg::RenderGraph) = render(command_buffer, bake(rg))
+render(command_buffer::CommandBuffer, rg::RenderGraph) = render(command_buffer, bake!(rg.device, rg))
 
 function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   records, pipeline_hashes = record_commands!(baked)
@@ -33,7 +35,7 @@ function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
 
   # Fill command buffer with synchronization commands & recorded commands.
   fill_indices!(baked.index_data, records)
-  initialize(command_buffer, baked.device, baked.index_data, baked.descriptors)
+  initialize(command_buffer, baked.device, baked.index_data)
   flush(command_buffer, baked, records, pipeline_hashes)
   baked
 end
@@ -72,7 +74,7 @@ function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipelin
   for (node, record) in zip(baked.nodes, records)
     synchronize_before!(state, cb, baked, node)
     begin_render_node(cb, baked, node)
-    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes, baked.descriptors, baked.index_data)
+    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes, baked.device.descriptors, baked.index_data)
     end_render_node(cb, baked, node)
     synchronize_after!(state, cb, baked, node)
   end

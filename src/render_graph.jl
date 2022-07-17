@@ -18,10 +18,6 @@ end
 RenderArea(x, y) = RenderArea(Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(x, y)))
 RenderArea(x, y, offset_x, offset_y) = RenderArea(Vk.Rect2D(Vk.Offset2D(offset_x, offset_y), Vk.Extent2D(x, y)))
 
-const NodeUUID = UUID
-
-abstract type DrawCommand end
-
 struct DrawInfo
   command::DrawCommand
   program::Program
@@ -63,16 +59,6 @@ merge_node_dependencies!(x, y) = mergewith!(merge, x, y)
 
 ResourceDependencies() = ResourceDependencies(Dictionary())
 
-struct LogicalDescriptors
-  arrays::Dictionary{Vk.DescriptorType,DescriptorArray}
-  textures::Dictionary{UUID,Texture}
-  samplers::Dictionary{UUID,Sampling}
-  images::Dictionary{UUID,LogicalImage}
-  render_nodes::Dictionary{ResourceUUID,NodeUUID}
-end
-
-LogicalDescriptors() = LogicalDescriptors(Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary())
-
 """
 Render graph implementation.
 
@@ -98,8 +84,6 @@ struct RenderGraph
   device::Device
   "Used to allocate lots of tiny objects."
   allocator::LinearAllocator
-  "Holds all index data required for building (indexed) draw calls."
-  index_data::IndexData
   resource_graph::SimpleDiGraph{Int64}
   nodes::Dictionary{NodeUUID,RenderNode}
   node_indices::Dictionary{NodeUUID,Int64}
@@ -109,13 +93,12 @@ struct RenderGraph
   uses::Dictionary{NodeUUID,ResourceUses}
   logical_resources::LogicalResources
   physical_resources::PhysicalResources
-  descriptors::LogicalDescriptors
   "Temporary resources meant to be thrown away after execution."
   temporary::Vector{ResourceUUID}
 end
 
 function RenderGraph(device::Device)
-  RenderGraph(device, LinearAllocator(device, 1_000_000), IndexData(), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), LogicalDescriptors(), [])
+  RenderGraph(device, LinearAllocator(device, 1_000_000), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), [])
 end
 
 device(rg::RenderGraph) = rg.device

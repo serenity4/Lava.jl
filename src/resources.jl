@@ -1,4 +1,5 @@
 const ResourceUUID = UUID
+const NodeUUID = UUID # Forward declaration to handle include dependencies, nodes are part of render graphs.
 
 uuid() = uuid1()
 uuid(id::UUID) = id

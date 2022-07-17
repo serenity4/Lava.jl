@@ -171,6 +171,7 @@ end
 
   include("resources.jl")
   include("fence_pool.jl")
+  include("descriptors.jl")
 
   @testset "Shaders" begin
     include("shaders.jl")

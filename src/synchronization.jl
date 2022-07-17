@@ -167,6 +167,10 @@ function fence(pool::FencePool)
   fence
 end
 
-Base.empty!(pool::FencePool) = (empty!(pool.available); empty!(pool.pending))
+function Base.empty!(pool::FencePool)
+  empty!(pool.available)
+  empty!(pool.pending)
+  pool
+end
 
 Base.show(io::IO, pool::FencePool) = print(io, FencePool, "(", pool.device, ", ", length(pool.available), " available fences, ", length(pool.pending), " pending execution)")

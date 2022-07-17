@@ -20,7 +20,7 @@ function rectangle_program(device)
   Program(device, vert, frag)
 end
 
-function program_1(device, vdata, color)
+function program_1(device, vdata, color, prog = rectangle_program(device))
   rg = RenderGraph(device)
 
   graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
@@ -30,7 +30,7 @@ function program_1(device, vdata, color)
   end
 
   rec = StatefulRecording()
-  set_program(rec, rectangle_program(device))
+  set_program(rec, prog)
   set_invocation_state(rec, setproperties(invocation_state(rec), (;
     primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
     triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,

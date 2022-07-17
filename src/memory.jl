@@ -63,7 +63,17 @@ function Base.map(f, memory::DenseMemory)
   end
 end
 
-MemoryBlock(device, size::Integer, type::Integer, domain::MemoryDomain) = unwrap(memory_block(device, size, type, domain))
+function MemoryBlock(device, size::Integer, type::Integer, domain::MemoryDomain)
+  ret = memory_block(device, size, type, domain)
+  !iserror(ret) && return unwrap(ret)
+  err = unwrap_error(ret)
+  if in(err.code, (Vk.ERROR_OUT_OF_DEVICE_MEMORY, Vk.ERROR_OUT_OF_HOST_MEMORY))
+    GC.gc(false)
+    @propagate_errors memory_block(device, size, type, domain)
+  else
+    unwrap(ret)
+  end
+end
 
 function memory_block(device, size, type, domain)::ResultTypes.Result{MemoryBlock, Vk.VulkanError}
   prop, i = find_memory_type(physical_device(device), type, domain)
