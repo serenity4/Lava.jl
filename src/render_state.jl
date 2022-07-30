@@ -21,16 +21,16 @@ Interface structure holding a device address as its single field.
 This structure is necessary until SPIRV.jl can work around the requirement of
 having interface block types be composite types.
 """
-struct DeviceAddress
+struct DeviceAddressBlock
   addr::UInt64
 end
 
-SPIRV.Pointer{T}(addr::DeviceAddress) where {T} = SPIRV.Pointer{T}(addr.addr)
+SPIRV.Pointer{T}(addr::DeviceAddressBlock) where {T} = SPIRV.Pointer{T}(addr.addr)
 
 struct DrawState
   render_state::RenderState
-  program_state::ProgramInvocationState
-  user_data::DeviceAddress
+  program_invocation_state::ProgramInvocationState
+  program_invocation_data::DeviceAddressBlock
 end
 
-DrawState() = DrawState(RenderState(), ProgramInvocationState(), DeviceAddress(0))
+DrawState() = DrawState(RenderState(), ProgramInvocationState(), DeviceAddressBlock(0))

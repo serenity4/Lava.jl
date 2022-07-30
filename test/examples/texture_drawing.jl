@@ -13,7 +13,7 @@ struct TextureData
   drawing::UInt64
 end
 
-function texture_vert(uv, position, index, data_address::DeviceAddress)
+function texture_vert(uv, position, index, data_address::DeviceAddressBlock)
   data = Pointer{TextureData}(data_address)[]
   coords = Pointer{Vector{TextureCoordinates}}(data.coords)[index]
   (; pos) = coords
@@ -30,11 +30,11 @@ function texture_frag(out_color, uv, data_address, images)
 end
 
 function texture_program(device)
-  vert = @vertex device.spirv_features texture_vert(::Output::Vec{2,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddress)
+  vert = @vertex device.spirv_features texture_vert(::Output::Vec{2,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddressBlock)
   frag = @fragment device.spirv_features texture_frag(
     ::Output::Vec{4,Float32},
     ::Input::Vec{2,Float32},
-    ::PushConstant::DeviceAddress,
+    ::PushConstant::DeviceAddressBlock,
     ::UniformConstant{DescriptorSet = 0, Binding = 3}::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}})
   Program(device, vert, frag)
 end

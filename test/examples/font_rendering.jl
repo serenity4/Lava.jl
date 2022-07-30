@@ -30,7 +30,7 @@ function program_3(device, positions, ppm)
   add_pass!(fg, :main, RenderPass((0, 0, 1920, 1080))) do rec
     set_program(rec, prog)
     ds = draw_state(rec)
-    set_draw_state(rec, @set ds.program_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
+    set_draw_state(rec, @set ds.program_invocation_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
     set_material(rec,
       RGBA{Float32}(1.0, 1.0, 0.0, 1.0), # text color
       device_address(curve_buffer),
