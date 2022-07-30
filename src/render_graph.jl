@@ -29,7 +29,10 @@ Base.@kwdef struct RenderNode
   uuid::NodeUUID = uuid()
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
   render_area::Optional{RenderArea} = nothing
+  "Data required for issuing draw calls that will only be valid for a given cycle."
   draw_infos::Vector{DrawInfo} = DrawInfo[]
+  "Program invocation valid across different cycles. Turned into [`DrawInfo`](@ref) every cycle."
+  program_invocations::Vector{ProgramInvocation} = ProgramInvocation[]
 end
 
 draw(node::RenderNode, args...; kwargs...) = push!(node.draw_infos, DrawInfo(args...; kwargs...))

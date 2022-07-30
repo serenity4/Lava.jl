@@ -8,6 +8,7 @@ using Accessors
 using MLStyle
 using Graphs
 using SPIRV
+using SPIRV: payload_sizes
 using AutoHashEquals
 using LRUCache: LRU
 @reexport using ColorTypes: RGB, BGR, RGBA, ARGB, BGRA, ABGR
@@ -64,12 +65,12 @@ include("descriptors.jl")
 include("pipeline.jl")
 include("render_state.jl")
 include("device.jl")
+include("draw.jl")
 include("program.jl")
 include("resources/creation.jl")
 include("binding_state.jl")
 include("wsi.jl")
 include("frame.jl")
-include("draw.jl")
 include("render_graph.jl")
 include("bake.jl")
 include("command.jl")
@@ -126,7 +127,7 @@ export
   SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
 
   # program
-  Program, ProgramInvocationState,
+  Program, ProgramInvocationState, ProgramInvocationData, DataBlock,
 
   # shaders
   ShaderSource, @shader,
@@ -150,8 +151,8 @@ export
   # commands
   CompactRecord, draw,
   DrawCommand, DrawInfo, DrawState, DrawDirect, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
-  allocate_data, DrawData, request_descriptor_index,
-  DeviceAddress,
+  allocate_data, request_descriptor_index, DescriptorIndex,
+  DeviceAddressBlock, DeviceAddress,
   StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_data,
 
   # render graph

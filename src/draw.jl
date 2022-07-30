@@ -81,3 +81,12 @@ function apply(cb::CommandBuffer, draw::DrawIndexedIndirect)
   buffer = draw.parameters
   Vk.cmd_draw_indexed_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
 end
+
+@auto_hash_equals struct RenderTargets
+  color::Vector{Union{LogicalAttachment, PhysicalAttachment}}
+  depth::Optional{Union{LogicalAttachment, PhysicalAttachment}}
+  stencil::Optional{Union{LogicalAttachment, PhysicalAttachment}}
+end
+
+RenderTargets(color::AbstractVector; depth = nothing, stencil = nothing) = RenderTargets(color, depth, stencil)
+RenderTargets(color...; depth = nothing, stencil = nothing) = RenderTargets(collect(color); depth, stencil)

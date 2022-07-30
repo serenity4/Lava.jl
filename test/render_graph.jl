@@ -112,7 +112,6 @@ end
   @test length(info.image_memory_barriers) == 9
 end
 
-include("simple_program.jl")
 prog = simple_program(device)
 
 @testset "Rendering" begin

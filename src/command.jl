@@ -70,7 +70,7 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info(baked.device, record.node.render_area.rect::Vk.Rect2D, program, state.render_state, state.program_state, baked.device.descriptors, targets)
+        info = pipeline_info(baked.device, record.node.render_area.rect::Vk.Rect2D, program, state.render_state, state.program_invocation_state, baked.device.descriptors, targets)
         hash = request_pipeline(baked.device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
@@ -199,7 +199,7 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, bi
       for (call, targets) in draws
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht[hash]
-        reqs = BindRequirements(pipeline, state.user_data, descriptors.gset)
+        reqs = BindRequirements(pipeline, state.program_invocation_data, descriptors.gset)
         bind(cb, reqs, binding_state)
         binding_state = reqs
         isa(call, DrawIndexed) ? apply(cb, call, index_data) : apply(cb, call)

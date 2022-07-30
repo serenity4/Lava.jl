@@ -172,10 +172,13 @@ end
   include("resources.jl")
   include("fence_pool.jl")
   include("descriptors.jl")
+  include("data_blocks.jl")
 
   @testset "Shaders" begin
     include("shaders.jl")
   end
+
+  include("simple_program.jl")
 
   @testset "Pipelines" begin
     include("pipelines.jl")

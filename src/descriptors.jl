@@ -83,3 +83,12 @@ function PhysicalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDes
   set = DescriptorSet(first(unwrap(Vk.allocate_descriptor_sets(device, Vk.DescriptorSetAllocateInfo(pool, [layout])))), layout)
   PhysicalDescriptors(pool, set, Dictionary())
 end
+
+primitive type DescriptorIndex 32 end
+
+DescriptorIndex(index::UInt32) = reinterpret(DescriptorIndex, index)
+DescriptorIndex(index::Integer) = DescriptorIndex(convert(UInt32, index))
+
+Base.show(io::IO, desc::DescriptorIndex) = print(io, DescriptorIndex, '(', reinterpret(UInt32, desc), ')')
+
+SPIRV.primitive_type_to_spirv(::Type{DescriptorIndex}) = SPIRV.IntegerType(32, 0)
