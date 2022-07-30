@@ -195,11 +195,46 @@ function device_address_block!(allocator::LinearAllocator, ldescs::LogicalDescri
     aligned = align(block, type_info)
     patch_descriptors!(block, ldescs, data.descriptors, node_id)
     patch_pointers!(block, addresses)
-    address = allocate_data!(allocator, type_info, aligned.bytes, type_info.mapping[aligned.type], layout)
+    address = allocate_data!(allocator, type_info, aligned.bytes, type_info.mapping[aligned.type], layout, false)
     insert!(addresses, objectid(block), address)
     i == data.root && (root_address = address)
   end
   DeviceAddressBlock(root_address)
+end
+
+macro invocation_data(ex)
+  Meta.isexpr(ex, :block) || error("Expected block expression, got expression of type ", ex.head)
+  @gensym block_d descriptor_d block_counter descriptor_counter blk desc index
+  transformed = postwalk(ex) do subex
+    if Meta.isexpr(subex, :macrocall)
+      ex = @trymatch string(subex.args[1]) begin
+        "@block" => quote
+          local $blk = $DataBlock($(subex.args[3]))
+          $block_d[$blk] = ($block_counter += 1)
+          $blk
+        end
+        "@address" => :($DeviceAddress($(subex.args[3])))
+        "@descriptor" => quote
+          local $desc = $(subex.args[3])
+          local $index = ($descriptor_counter += 1)
+          $descriptor_d[$desc] = $index
+          $DescriptorIndex($index)
+        end
+      end
+      !isnothing(ex) && return ex
+    end
+    subex
+  end
+  quote
+    $(esc(block_d)) = IdDict{DataBlock,Int}()
+    $(esc(descriptor_d)) = IdDict{AllDescriptors,Int}()
+    $(esc(block_counter)) = 0
+    $(esc(descriptor_counter)) = 0
+    ans = $(esc(transformed))
+    blocks = first.(sort(collect($(esc(block_d))); by = last))
+    descriptors = first.(sort(collect($(esc(descriptor_d))); by = last))
+    ProgramInvocationData(blocks, descriptors, $(esc(block_d))[ans])
+  end
 end
 
 """
@@ -255,8 +290,8 @@ Allocate the provided bytes with an alignment computed from `layout`.
 
 Padding will be applied to composite types using the offsets specified in the shader.
 """
-function allocate_data!(allocator::LinearAllocator, type_info::TypeInfo, bytes::AbstractVector{UInt8}, t::SPIRType, layout::VulkanLayout)
-  isa(t, StructType) && (bytes = align(bytes, t, type_info.offsets[t]))
+function allocate_data!(allocator::LinearAllocator, type_info::TypeInfo, bytes::AbstractVector{UInt8}, t::SPIRType, layout::VulkanLayout, align_bytes = isa(t, StructType))
+  align_bytes && (bytes = align(bytes, t, type_info.offsets[t]))
   # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
   # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
   load_alignment = data_alignment(layout, t)
