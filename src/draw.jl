@@ -38,6 +38,8 @@ struct DrawIndexed <: DrawCommand
   instances::UnitRange{Int64}
 end
 
+DrawIndexed(indices, instances = 1:1) = DrawIndexed(0, indices, instances)
+
 struct IndexData
   index_list::Vector{UInt32}
   index_buffer::RefValue{BufferBlock{MemoryBlock}}
