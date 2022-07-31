@@ -202,6 +202,27 @@ function device_address_block!(allocator::LinearAllocator, ldescs::LogicalDescri
   DeviceAddressBlock(root_address)
 end
 
+"""
+    @invocation_data begin
+      b1 = @block a
+      b2 = @block B(@address(b1), @descriptor(texture))
+      @block C(1, 2, @address(b2))
+    end
+
+Create a [`ProgramInvocationData`](@ref) out of `@block` annotations,
+which represent [`DataBlock`](@ref)s.
+
+Within the body of `@invocation_data`, three additional macros are allowed:
+- `@block` to create a new block.
+- `@address` to reference an existing block as a [`DeviceAddress`](@ref).
+- `@descriptor` to reference a descriptor (texture, image, sampler...) via a computed index.
+
+All descriptors passed on to `@descriptor` will be preserved as part of the program invocation data.
+Multiple references to the same descriptor will reuse the same index.
+
+The last value of the block must be a [`DataBlock`](@ref), e.g. obtained with `@block`, and will be set as
+the root block for the program invocation data.
+"""
 macro invocation_data(ex)
   Meta.isexpr(ex, :block) || error("Expected block expression, got expression of type ", ex.head)
   @gensym block_d descriptor_d block_counter descriptor_counter blk desc index
@@ -216,8 +237,11 @@ macro invocation_data(ex)
         "@address" => :($DeviceAddress($(subex.args[3])))
         "@descriptor" => quote
           local $desc = $(subex.args[3])
-          local $index = ($descriptor_counter += 1)
-          $descriptor_d[$desc] = $index
+          local $index = get($descriptor_d, $desc, nothing)
+          if isnothing($index)
+            $index = ($descriptor_counter += 1)
+            $descriptor_d[$desc] = $index
+          end
           $DescriptorIndex($index)
         end
       end
@@ -230,7 +254,7 @@ macro invocation_data(ex)
     $(esc(descriptor_d)) = IdDict{AllDescriptors,Int}()
     $(esc(block_counter)) = 0
     $(esc(descriptor_counter)) = 0
-    ans = $(esc(transformed))
+    ans = $(esc(transformed))::DataBlock
     blocks = first.(sort(collect($(esc(block_d))); by = last))
     descriptors = first.(sort(collect($(esc(descriptor_d))); by = last))
     ProgramInvocationData(blocks, descriptors, $(esc(block_d))[ans])

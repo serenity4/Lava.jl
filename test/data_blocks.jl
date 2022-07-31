@@ -11,6 +11,12 @@ function data_blocks()
   [b1, b2, b3]
 end
 
+type_info = TypeInfo(getproperty.(data_blocks(), :type), layout)
+
+# `tex` is put in global scope to test for the hygiene of `@invocation_data`.
+img = Lava.LogicalImage(uuid(), Vk.FORMAT_UNDEFINED, [1920, 1080], 1, 1)
+tex = Texture(img)
+
 @testset "Data blocks" begin
   b1, b2, b3 = data_blocks()
   @test isempty(b1.descriptor_ids)
@@ -21,7 +27,6 @@ end
   @test isempty(b3.descriptor_ids)
   @test b3.pointer_addresses == [1, 8 + 1]
 
-  type_info = TypeInfo([b1.type, b2.type, b3.type], layout)
   ab1 = align(b1, type_info)
   @test length(b1.bytes) == 17
   @test length(ab1.bytes) == 24
@@ -37,8 +42,6 @@ end
 
 @testset "Program invocation data & block transforms" begin
   b1, b2, b3 = data_blocks()
-  img = Lava.LogicalImage(uuid(), Vk.FORMAT_UNDEFINED, [1920, 1080], 1, 1)
-  tex = Texture(img)
   descriptors = [tex]
 
   ldescs = LogicalDescriptors()
@@ -71,11 +74,12 @@ end
   @test length(data.blocks[3].pointer_addresses) == length(data.blocks[3].pointer_addresses)
 
   # Make sure we got the hygiene right.
-  ex = macroexpand(Module(), :($(@__MODULE__).@invocation_data begin
+  M = Module()
+  ex = macroexpand(M, :($(@__MODULE__).@invocation_data begin
       b1 = @block (1, 0x02, 3)
       b2 = @block (3 * $(@__MODULE__).U, 0x01, @descriptor($(@__MODULE__).tex))
       # The last block index will be set as root.
       b3 = @block (@address(b1), @address(b2), 3)
     end))
-  @test isa(eval(ex), ProgramInvocationData)
+  @test isa(Core.eval(M, ex), ProgramInvocationData)
 end;
