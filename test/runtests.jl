@@ -173,28 +173,12 @@ end
   include("fence_pool.jl")
   include("descriptors.jl")
   include("data_blocks.jl")
-
-  @testset "Shaders" begin
-    include("shaders.jl")
-  end
-
+  include("shaders.jl")
   include("simple_program.jl")
-
-  @testset "Pipelines" begin
-    include("pipelines.jl")
-  end
-
-  @testset "Render Graph" begin
-    include("render_graph.jl")
-  end
-
-  @testset "Examples" begin
-    include("examples.jl")
-  end
-
-  @testset "WSI & presentation" begin
-    include("present.jl")
-  end
+  include("pipelines.jl")
+  include("render_graph.jl")
+  include("examples.jl")
+  include("present.jl")
 
   # Make sure we don't have fences that are never signaled.
   Lava.compact!(device.fence_pool)
