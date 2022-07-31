@@ -128,6 +128,7 @@ export
 
   # program
   Program, ProgramInvocationState, ProgramInvocationData, DataBlock, @invocation_data,
+  ProgramInvocation,
 
   # shaders
   ShaderSource, @shader,

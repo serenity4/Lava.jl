@@ -82,4 +82,15 @@ end
       b3 = @block (@address(b1), @address(b2), 3)
     end))
   @test isa(Core.eval(M, ex), ProgramInvocationData)
+
+  # Support for array blocks.
+  allocator = LinearAllocator(device, 1_000)
+  data3 = @invocation_data begin
+    b1 = @block [(1, 2), (2, 3)]
+    @block [(@address(b1), @descriptor(tex))]
+  end
+  @test data3.postorder_traversal == [1, 2]
+  type_info2 = TypeInfo(getproperty.(data3.blocks, :type), layout)
+  address = device_address_block!(allocator, ldescs, uuid(), data3, type_info2, layout)
+  @test isa(address, DeviceAddressBlock)
 end;

@@ -41,6 +41,8 @@ mutable struct DataBlock
 end
 DataBlock(@nospecialize(T::DataType)) = DataBlock(UInt8[], Int[], Int[], T)
 
+Base.copy(block::DataBlock) = @set block.bytes = copy(block.bytes)
+
 DeviceAddress(block::DataBlock) = DeviceAddress(objectid(block))
 
 function DataBlock(x)
@@ -51,7 +53,7 @@ end
 
 extract!(block::DataBlock, x::T) where {T} = isstructtype(T) ? extract_struct!(block, x) : extract_leaf!(block, x)
 
-function extract!(block::DataBlock, x::AbstractVector)
+function extract!(block::DataBlock, x::Union{AbstractVector,Arr})
   for el in x
     extract!(block, el)
   end
@@ -77,35 +79,37 @@ Align a data block according to the type layout information provided by `type_in
 """
 function SPIRV.align(block::DataBlock, type_info::TypeInfo)
   t = type_info.mapping[block.type]
-  sizes = payload_sizes(t)
-  offsets = getoffsets(type_info, t)
-  res = DataBlock(block.type)
-  append!(res.bytes, align(block.bytes, sizes, offsets))
+  isa(t, StructType) || isa(t, ArrayType) || return copy(block)
+  isempty(block.descriptor_ids) && isempty(block.pointer_addresses) && return @set block.bytes = align(block.bytes, t, type_info)
+
+  aligned = DataBlock(UInt8[], copy(block.descriptor_ids), copy(block.pointer_addresses), block.type)
+
+  remaps = Pair{UnitRange{Int},UnitRange{Int}}[]
+  append!(aligned.bytes, align(block.bytes, t, type_info; callback = (from, to) -> push!(remaps, from => to)))
+
   i = firstindex(block.pointer_addresses)
   address_byte = i ≤ lastindex(block.pointer_addresses) ? block.pointer_addresses[i] : nothing
   j = firstindex(block.descriptor_ids)
   descriptor_byte = j ≤ lastindex(block.descriptor_ids) ? block.descriptor_ids[j] : nothing
-  data_byte = 1
-  for (size, offset) in zip(sizes, offsets)
+  for (from, to) in remaps
     isnothing(address_byte) && isnothing(descriptor_byte) && break
-    if address_byte === data_byte
-      push!(res.pointer_addresses, 1 + offset)
+    if address_byte === first(from)
+      push!(aligned.pointer_addresses, first(to))
       address_byte = if i < lastindex(block.pointer_addresses)
         i += 1
         block.pointer_addresses[i]
       end
     end
-    if descriptor_byte === data_byte
-      push!(res.descriptor_ids, 1 + offset)
+    if descriptor_byte === first(from)
+      push!(aligned.descriptor_ids, first(to))
       descriptor_byte = if j < lastindex(block.descriptor_ids)
         j += 1
         block.descriptor_ids[j]
       end
     end
-    data_byte += size
   end
   @assert isnothing(address_byte) && isnothing(descriptor_byte) "Addresses or descriptor indices were not transfered properly."
-  res
+  aligned
 end
 
 const AllDescriptors = Union{Texture,LogicalImage,PhysicalImage,Sampling}
@@ -280,23 +284,26 @@ function draw_info!(allocator::LinearAllocator, ldescs::LogicalDescriptors, prog
   DrawInfo(program_invocation.command, program_invocation.program, program_invocation.targets, draw_state)
 end
 
-function allocate_array!(allocator::LinearAllocator, bytes::AbstractVector{UInt8}, elsize, eloffsets, load_alignment::Integer, elsizes = nothing)
-  start = get_offset(allocator, load_alignment)
-  for i in 0:(cld(length(bytes), elsize) - 1)
-    elbytes = @view bytes[1 + i * elsize:(i + 1) * elsize]
-    !isnothing(elsizes) && (elbytes = align(elbytes, elsizes, eloffsets))
-    copyto!(allocator, elbytes, load_alignment)
+function SPIRV.TypeInfo(prog::Program)
+  info = TypeInfo()
+  for shader in prog.shaders
+    for (T, t) in pairs(shader.source.type_info.mapping)
+      existing = get(info.mapping, T, nothing)
+      isnothing(existing) || existing == t || error("Julia type $T maps to different SPIR-V types: $existing and $t.")
+      set!(info.mapping, T, t)
+    end
+    for (t, offsets) in pairs(shader.source.type_info.offsets)
+      existing = get(info.offsets, t, nothing)
+      isnothing(existing) || existing == offsets || error("SPIR-V type $t possesses offset declarations that are inconsistent across shaders.")
+      set!(info.offsets, t, offsets)
+    end
+    for (t, stride) in pairs(shader.source.type_info.strides)
+      existing = get(info.strides, t, nothing)
+      isnothing(existing) || existing == stride || error("SPIR-V type $t possesses array stride declarations that are inconsistent across shaders.")
+      set!(info.strides, t, stride)
+    end
   end
-  sub = @view allocator.buffer[start:allocator.last_offset]
-  device_address(sub)
-end
-
-function allocate_data!(allocator::LinearAllocator, type_info::TypeInfo, bytes::AbstractVector{UInt8}, type::SPIRV.ArrayType, layout::VulkanLayout)
-  t = type.eltype
-  # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
-  # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
-  # TODO: This must be consistent with the stride of the loaded array.
-  allocate_array!(allocator, bytes, payload_size(t), type_info.offsets[t], data_alignment(layout, t), payload_sizes(t))
+  info
 end
 
 """
@@ -312,10 +319,10 @@ end
 """
 Allocate the provided bytes with an alignment computed from `layout`.
 
-Padding will be applied to composite types using the offsets specified in the shader.
+Padding will be applied to composite and array types using the offsets specified in the shader.
 """
-function allocate_data!(allocator::LinearAllocator, type_info::TypeInfo, bytes::AbstractVector{UInt8}, t::SPIRType, layout::VulkanLayout, align_bytes = isa(t, StructType))
-  align_bytes && (bytes = align(bytes, t, type_info.offsets[t]))
+function allocate_data!(allocator::LinearAllocator, type_info::TypeInfo, bytes::AbstractVector{UInt8}, t::SPIRType, layout::VulkanLayout, align_bytes = isa(t, StructType) || isa(t, ArrayType))
+  align_bytes && (bytes = align(bytes, t, type_info))
   # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
   # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
   load_alignment = data_alignment(layout, t)

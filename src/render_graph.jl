@@ -30,9 +30,13 @@ Base.@kwdef struct RenderNode
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
   render_area::Optional{RenderArea} = nothing
   "Data required for issuing draw calls that will only be valid for a given cycle."
-  draw_infos::Vector{DrawInfo} = DrawInfo[]
-  "Program invocation valid across different cycles. Turned into [`DrawInfo`](@ref) every cycle."
-  program_invocations::Vector{ProgramInvocation} = ProgramInvocation[]
+  draw_infos::Optional{Vector{DrawInfo}} = DrawInfo[]
+  "Program invocations, that will generate [`DrawInfo`](@ref) calls at every cycle."
+  program_invocations::Optional{Vector{ProgramInvocation}} = ProgramInvocation[]
+end
+
+function Base.copy(node::RenderNode)
+  RenderNode(node.uuid, node.stages, node.render_area, isnothing(node.draw_infos) ? nothing : copy(node.draw_infos), isnothing(node.program_invocations) ? nothing : copy(node.program_invocations))
 end
 
 draw(node::RenderNode, args...; kwargs...) = push!(node.draw_infos, DrawInfo(args...; kwargs...))
@@ -314,6 +318,29 @@ function sort_nodes(rg::RenderGraph)
 end
 
 ResourceUses(rg::RenderGraph) = merge(values(rg.uses)...)
+
+"""
+Expand all program invocations of all render nodes, generating
+[`DrawInfo`](@ref) structures to be used during baking.
+
+Render nodes will not be mutated; instead, copies will be reinserted which contain the
+generated draw infos.
+"""
+function generate_draw_infos!(rg::RenderGraph)
+  for (node_id, node) in pairs(rg.nodes)
+    (isnothing(node.program_invocations) || isempty(node.program_invocations)) && continue
+    # Do not mutate nodes so that they can be reused in other render graphs.
+    generated_node = setproperties(node, (;
+      draw_infos = DrawInfo[],
+      program_invocations = nothing,
+    ))
+    for invocation in node.program_invocations
+      draw_info = draw_info!(rg.allocator, rg.device.logical_descriptors, invocation, node_id, rg.device)
+      push!(generated_node.draw_infos, draw_info)
+    end
+    rg.nodes[node_id] = generated_node
+  end
+end
 
 function resolve_attachment_pairs(rg::RenderGraph)
   resolve_pairs = Dictionary{ResourceUUID, LogicalAttachment}()

@@ -11,6 +11,7 @@ mutable struct BakedRenderGraph
 end
 
 function bake!(device::Device, rg::RenderGraph)
+  generate_draw_infos!(rg)
   resolve_pairs = resolve_attachment_pairs(rg)
   add_resolve_attachments(rg, resolve_pairs)
   uses = ResourceUses(rg)
