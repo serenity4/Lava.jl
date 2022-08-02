@@ -23,8 +23,7 @@
 
   @testset "Logical descriptors" begin
     ldescs = Lava.LogicalDescriptors()
-    id = Lava.uuid()
-    image = Lava.LogicalImage(id, Vk.FORMAT_UNDEFINED, [1920, 1080], 1, 1)
+    image = Lava.LogicalImage(Vk.FORMAT_UNDEFINED, [1920, 1080], 1, 1)
     tex = Texture(image)
     node_id = Lava.uuid()
     idx = request_descriptor_index(ldescs, node_id, tex)

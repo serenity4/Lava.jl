@@ -5,21 +5,59 @@ It exposes a program interface through its shader interfaces and its shader reso
 """
 @auto_hash_equals struct Program
   shaders::Dictionary{Vk.ShaderStageFlag,Shader}
+  type_info::TypeInfo
 end
 
 vertex_shader(prog::Program) = prog.shaders[Vk.SHADER_STAGE_VERTEX_BIT]
 fragment_shader(prog::Program) = prog.shaders[Vk.SHADER_STAGE_FRAGMENT_BIT]
 
 function Program(cache::ShaderCache, shaders...)
+  type_info = retrieve_type_info(shaders)
   shaders = map(shaders) do shader
     shader.stage => find_shader!(cache, shader)
   end
-  Program(dictionary(shaders))
+  Program(dictionary(shaders), type_info)
 end
 
-function Program(device, shaders...)
-  Program(device.shader_cache, shaders...)
+function retrieve_type_info(shaders)
+  info = TypeInfo()
+  for shader in shaders
+    (; mapping, offsets, strides) = shader.type_info
+    for (T, t) in pairs(mapping)
+      existing = get(info.mapping, T, nothing)
+      if !isnothing(existing) && existing ≠ t
+        existing ≈ t || error("Julia type $T maps to different SPIR-V types: $existing and $t.")
+      else
+        set!(info.mapping, T, t)
+        existing = t
+      end
+      if isa(t, StructType)
+        t_offsets = get(info.offsets, existing, nothing)
+        shader_offsets = get(offsets, t, nothing)
+        if !isnothing(shader_offsets)
+          if isnothing(t_offsets)
+            insert!(info.offsets, existing, shader_offsets)
+          else
+            t_offsets == shader_offsets || error("SPIR-V type $t possesses member offset decorations that are inconsistent across shaders.")
+          end
+        end
+      elseif isa(t, ArrayType)
+        t_stride = get(info.strides, existing, nothing)
+        shader_stride = get(strides, t, nothing)
+        if !isnothing(shader_stride)
+          if isnothing(t_stride)
+            insert!(info.strides, existing, shader_stride)
+          else
+            t_stride == shader_stride || error("SPIR-V type $t possesses an array stride decoration that is inconsistent across shaders.")
+          end
+        end
+      end
+    end
+  end
+  info
 end
+
+Program(device, shaders...) = Program(device.shader_cache, shaders...)
 
 primitive type DeviceAddress 64 end
 
@@ -279,31 +317,9 @@ struct ProgramInvocation
 end
 
 function draw_info!(allocator::LinearAllocator, ldescs::LogicalDescriptors, program_invocation::ProgramInvocation, node_id::NodeUUID, device::Device)
-  address_block = device_address_block!(allocator, ldescs, node_id, program_invocation.invocation_data, TypeInfo(program_invocation.program), device.layout)
+  address_block = device_address_block!(allocator, ldescs, node_id, program_invocation.invocation_data, program_invocation.program.type_info, device.layout)
   draw_state = DrawState(program_invocation.render_state, program_invocation.invocation_state, address_block)
   DrawInfo(program_invocation.command, program_invocation.program, program_invocation.targets, draw_state)
-end
-
-function SPIRV.TypeInfo(prog::Program)
-  info = TypeInfo()
-  for shader in prog.shaders
-    for (T, t) in pairs(shader.source.type_info.mapping)
-      existing = get(info.mapping, T, nothing)
-      isnothing(existing) || existing == t || error("Julia type $T maps to different SPIR-V types: $existing and $t.")
-      set!(info.mapping, T, t)
-    end
-    for (t, offsets) in pairs(shader.source.type_info.offsets)
-      existing = get(info.offsets, t, nothing)
-      isnothing(existing) || existing == offsets || error("SPIR-V type $t possesses offset declarations that are inconsistent across shaders.")
-      set!(info.offsets, t, offsets)
-    end
-    for (t, stride) in pairs(shader.source.type_info.strides)
-      existing = get(info.strides, t, nothing)
-      isnothing(existing) || existing == stride || error("SPIR-V type $t possesses array stride declarations that are inconsistent across shaders.")
-      set!(info.strides, t, stride)
-    end
-  end
-  info
 end
 
 """

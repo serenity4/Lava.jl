@@ -14,7 +14,7 @@ end
 type_info = TypeInfo(getproperty.(data_blocks(), :type), layout)
 
 # `tex` is put in global scope to test for the hygiene of `@invocation_data`.
-img = Lava.LogicalImage(uuid(), Vk.FORMAT_UNDEFINED, [1920, 1080], 1, 1)
+img = Lava.LogicalImage(Vk.FORMAT_UNDEFINED, [1920, 1080], 1, 1)
 tex = Texture(img)
 
 @testset "Data blocks" begin
