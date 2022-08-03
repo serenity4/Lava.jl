@@ -5,12 +5,12 @@ end
 
 struct TextureDrawing
   uv_scaling::Vec{2,Float32}
-  img_index::UInt32
+  img_index::DescriptorIndex
 end
 
 struct TextureData
-  coords::UInt64
-  drawing::UInt64
+  coords::DeviceAddress
+  drawing::DeviceAddress
 end
 
 function texture_vert(uv, position, index, data_address::DeviceAddressBlock)

@@ -89,6 +89,12 @@ primitive type DescriptorIndex 32 end
 DescriptorIndex(index::UInt32) = reinterpret(DescriptorIndex, index)
 DescriptorIndex(index::Integer) = DescriptorIndex(convert(UInt32, index))
 
+Base.convert(::Type{DescriptorIndex}, idx::UInt32) = reinterpret(DescriptorIndex, idx)
+Base.convert(::Type{DescriptorIndex}, idx::Integer) = convert(DescriptorIndex, convert(UInt32, idx))
+Base.convert(::Type{UInt32}, idx::DescriptorIndex) = reinterpret(UInt32, idx)
+
+Base.getindex(arr::Union{Arr,AbstractVector}, idx::DescriptorIndex) = getindex(arr, convert(UInt32, idx))
+
 Base.show(io::IO, desc::DescriptorIndex) = print(io, DescriptorIndex, '(', reinterpret(UInt32, desc), ')')
 
 SPIRV.primitive_type_to_spirv(::Type{DescriptorIndex}) = SPIRV.IntegerType(32, 0)

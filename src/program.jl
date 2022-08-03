@@ -64,8 +64,10 @@ primitive type DeviceAddress 64 end
 DeviceAddress(address::UInt64) = reinterpret(DeviceAddress, address)
 
 Base.convert(::Type{UInt64}, address::DeviceAddress) = reinterpret(UInt64, address)
+Base.convert(::Type{DeviceAddress}, address::UInt64) = reinterpret(DeviceAddress, address)
 
 SPIRV.primitive_type_to_spirv(::Type{DeviceAddress}) = SPIRV.IntegerType(64, 0)
+SPIRV.Pointer{T}(address::DeviceAddress) where {T} = Pointer{T}(convert(UInt64, address))
 
 const BlockUUID = UUID
 
@@ -120,7 +122,7 @@ function SPIRV.align(block::DataBlock, type_info::TypeInfo)
   isa(t, StructType) || isa(t, ArrayType) || return copy(block)
   isempty(block.descriptor_ids) && isempty(block.pointer_addresses) && return @set block.bytes = align(block.bytes, t, type_info)
 
-  aligned = DataBlock(UInt8[], copy(block.descriptor_ids), copy(block.pointer_addresses), block.type)
+  aligned = DataBlock(UInt8[], Int[], Int[], block.type)
 
   remaps = Pair{UnitRange{Int},UnitRange{Int}}[]
   append!(aligned.bytes, align(block.bytes, t, type_info; callback = (from, to) -> push!(remaps, from => to)))
@@ -216,7 +218,7 @@ function patch_descriptors!(block::DataBlock, ldescs::LogicalDescriptors, descri
       # We should first look through existing descriptors to reuse UUIDs.
       request_descriptor_index(ldescs, node_id, descriptor)
     end
-    unsafe_store!(Ptr{UInt32}(ptr + byte_idx - 1), index)
+    unsafe_store!(Ptr{DescriptorIndex}(ptr + byte_idx - 1), index)
   end
 end
 
@@ -235,8 +237,8 @@ function device_address_block!(allocator::LinearAllocator, ldescs::LogicalDescri
   for i in data.postorder_traversal
     block = data.blocks[i]
     aligned = align(block, type_info)
-    patch_descriptors!(block, ldescs, data.descriptors, node_id)
-    patch_pointers!(block, addresses)
+    patch_descriptors!(aligned, ldescs, data.descriptors, node_id)
+    patch_pointers!(aligned, addresses)
     address = allocate_data!(allocator, type_info, aligned.bytes, type_info.mapping[aligned.type], layout, false)
     insert!(addresses, objectid(block), address)
     i == data.root && (root_address = address)
