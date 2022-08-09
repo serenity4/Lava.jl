@@ -5,7 +5,7 @@ uuid() = uuid1()
 uuid(id::UUID) = id
 uuid(x) = x.uuid
 
-Vk.@bitmask_flag ResourceType::UInt32 begin
+Vk.@bitmask_flag ResourceType::UInt16 begin
   RESOURCE_TYPE_VERTEX_BUFFER = 1
   RESOURCE_TYPE_INDEX_BUFFER = 2
   RESOURCE_TYPE_COLOR_ATTACHMENT = 4

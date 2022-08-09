@@ -268,7 +268,7 @@ The last value of the block must be a [`DataBlock`](@ref), e.g. obtained with `@
 the root block for the program invocation data.
 """
 macro invocation_data(ex)
-  Meta.isexpr(ex, :block) || error("Expected block expression, got expression of type ", ex.head)
+  Meta.isexpr(ex, :block) || (ex = Expr(:block, ex))
   @gensym block_d descriptor_d block_counter descriptor_counter blk desc index
   transformed = postwalk(ex) do subex
     if Meta.isexpr(subex, :macrocall)
@@ -305,6 +305,19 @@ macro invocation_data(ex)
   end
 end
 
+struct ResourceDependency
+  type::ResourceType
+  access::MemoryAccess
+  clear_value::Optional{NTuple{4,Float32}}
+  samples::Int64
+end
+ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceDependency(type, access, clear_value, samples)
+
+function Base.merge(x::ResourceDependency, y::ResourceDependency)
+  @assert x.uuid === y.uuid
+  ResourceDependency(x.uuid, x.type | y.type, x.access | y.access)
+end
+
 """
 Cycle-independent specification of a program invocation for graphics operations.
 """
@@ -316,6 +329,7 @@ struct ProgramInvocation
   invocation_data::ProgramInvocationData
   render_state::RenderState
   invocation_state::ProgramInvocationState
+  resource_dependencies::Dictionary{ResourceUUID, ResourceDependency}
 end
 
 function draw_info!(allocator::LinearAllocator, ldescs::LogicalDescriptors, program_invocation::ProgramInvocation, node_id::NodeUUID, device::Device)

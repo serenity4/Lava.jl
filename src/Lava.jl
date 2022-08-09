@@ -173,8 +173,8 @@ export
   RESOURCE_TYPE_UNIFORM,
   RESOURCE_TYPE_SAMPLER,
   RenderGraph, render,
-  RenderArea, RenderNode,
-  ResourceDependency, add_resource_dependency, add_resource_dependencies, @add_resource_dependencies, clear_attachments,
+  RenderArea, RenderNode, add_node,
+  ResourceDependency, add_resource_dependency!, add_resource_dependencies!, @add_resource_dependencies, @resource_dependencies, clear_attachments,
 
   # WSI
   Surface, Swapchain,

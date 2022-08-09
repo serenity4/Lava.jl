@@ -10,8 +10,8 @@ mutable struct BakedRenderGraph
   resolve_pairs::Dictionary{ResourceUUID, ResourceUUID}
 end
 
-function bake!(device::Device, rg::RenderGraph)
-  generate_draw_infos!(rg)
+function bake!(rg::RenderGraph)
+  expand_program_invocations!(rg)
   resolve_pairs = resolve_attachment_pairs(rg)
   add_resolve_attachments(rg, resolve_pairs)
   uses = ResourceUses(rg)
@@ -28,7 +28,7 @@ function render(rg::Union{RenderGraph,BakedRenderGraph})
   wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device), release_after_completion = [baked])))
 end
 
-render(command_buffer::CommandBuffer, rg::RenderGraph) = render(command_buffer, bake!(rg.device, rg))
+render(command_buffer::CommandBuffer, rg::RenderGraph) = render(command_buffer, bake!(rg))
 
 function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   records, pipeline_hashes = record_commands!(baked)

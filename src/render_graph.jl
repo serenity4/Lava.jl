@@ -1,16 +1,3 @@
-struct ResourceDependency
-  type::ResourceType
-  access::MemoryAccess
-  clear_value::Optional{NTuple{4,Float32}}
-  samples::Int64
-end
-ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceDependency(type, access, clear_value, samples)
-
-function Base.merge(x::ResourceDependency, y::ResourceDependency)
-  @assert x.uuid === y.uuid
-  ResourceDependency(x.uuid, x.type | y.type, x.access | y.access)
-end
-
 struct RenderArea
   rect::Vk.Rect2D
 end
@@ -158,7 +145,7 @@ function add_resource(rg::RenderGraph, uuid::ResourceUUID)
   uuid
 end
 
-function add_resource_dependency(rg::RenderGraph, node::RenderNode, resource, dependency::ResourceDependency)
+function add_resource_dependency!(rg::RenderGraph, node::RenderNode, resource, dependency::ResourceDependency)
   resource_uuid = add_resource(rg, resource)
   node_uuid = node.uuid
 
@@ -178,62 +165,107 @@ function add_resource_dependency(rg::RenderGraph, node::RenderNode, resource, de
 end
 
 macro add_resource_dependencies(rg, ex)
-  add_resource_dependencies(rg, ex)
+  add_resource_dependencies!(rg, ex)
 end
 
-function add_resource_dependencies(rg, ex::Expr)
+function add_resource_dependencies!(rg, ex::Expr)
   rg = esc(rg)
   lines = @match ex begin
     Expr(:block, _...) => ex.args
     _ => [ex]
   end
-
-  dependency_exs = Dictionary()
   node_exs = []
-
+  dependency_exs = Dictionary()
   for line in lines
-    line isa LineNumberNode && continue
+    isa(line, LineNumberNode) && continue
     (f, reads, writes) = @match normalize(line) begin
       :($writes = $f($(reads...))) => (f, reads, Meta.isexpr(writes, :tuple) ? writes.args : [writes])
       _ => error("Malformed expression, expected expression of the form :((reads...) = pass(writes...)), got $line")
     end
-
     !in(f, node_exs) || error("Node '$f' is specified more than once")
     push!(node_exs, f)
-
-    node_dependencies = Dictionary()
-
-    for r in reads
-      expr, type = extract_resource_spec(r)
-      expr, clear_value, samples = extract_special_usage(expr)
-      isnothing(clear_value) || error("Specifying a clear value for a read attachment is illegal.")
-      !haskey(node_dependencies, expr) || error("Resource $expr for node $f specified multiple times in read access")
-      insert!(node_dependencies, expr, (type, READ, clear_value, samples))
-    end
-    for w in writes
-      expr, type = extract_resource_spec(w)
-      expr, clear_value, samples = extract_special_usage(expr)
-      access = WRITE
-      if haskey(node_dependencies, expr)
-        read_deps = node_dependencies[expr]
-        WRITE ∉ read_deps[2] || error("Resource $expr for node $f specified multiple times in write access")
-        type |= read_deps[1]
-        access |= read_deps[2]
-        samples = max(samples, read_deps[4])
-      end
-      set!(node_dependencies, expr, (type, access, clear_value, samples))
-    end
-
-    insert!(dependency_exs, f, node_dependencies)
+    insert!(dependency_exs, f, dependencies(reads, writes))
   end
 
   add_dependency_exs = Expr[]
   for (node_expr, node_dependencies) in pairs(dependency_exs)
     for (expr, dependency) in pairs(node_dependencies)
-      push!(add_dependency_exs, :(add_resource_dependency($rg, $(esc(node_expr)), $(esc(expr)), ResourceDependency($(dependency...)))))
+      push!(add_dependency_exs, :(add_resource_dependency!($rg, $(esc(node_expr)), $(esc(expr)), ResourceDependency($(dependency...)))))
     end
   end
   Expr(:block, add_dependency_exs..., rg)
+end
+
+function resource_dependencies(reads::AbstractVector, writes::AbstractVector)
+  dependencies = Dictionary()
+  for r in reads
+    expr, type = extract_resource_spec(r)
+    expr, clear_value, samples = extract_special_usage(expr)
+    isnothing(clear_value) || error("Specifying a clear value for a read attachment is not allowed.")
+    !haskey(dependencies, expr) || error("Resource $expr specified multiple times in read access.")
+    insert!(dependencies, expr, (type, READ, clear_value, samples))
+  end
+  for w in writes
+    expr, type = extract_resource_spec(w)
+    expr, clear_value, samples = extract_special_usage(expr)
+    access = WRITE
+    if haskey(dependencies, expr)
+      read_deps = dependencies[expr]
+      WRITE ∉ read_deps[2] || error("Resource $expr specified multiple times in write access.")
+      type |= read_deps[1]
+      access |= read_deps[2]
+      samples = max(samples, read_deps[4])
+    end
+    set!(dependencies, expr, (type, access, clear_value, samples))
+  end
+  dependencies
+end
+
+"""
+
+# Example
+
+```julia
+@resource_dependencies begin
+  @read
+  vbuffer::Buffer::Vertex
+  ibuffer::Buffer::Index
+
+  @write
+  emissive => (0.0, 0.0, 0.0, 1.0)::Color
+  albedo::Color
+  normal::Color
+  pbr::Color
+  depth::Depth
+end
+```
+"""
+macro resource_dependencies(ex)
+  reads = []
+  writes = []
+  ret = Expr(:vect)
+  @match ex begin
+    Expr(:block, _...) => ex.args
+    _ => error("Expected block declaration, got $ex")
+  end
+  mode = nothing
+  for line in ex.args
+    isa(line, LineNumberNode) && continue
+    if Meta.isexpr(line, :macrocall)
+      mode = @match line.args[1] begin
+        &Symbol("@read") => :read
+        &Symbol("@write") => :write
+        m => error("Expected call to @read or @write macro, got a call to macro $m instead")
+      end
+    else
+      !isnothing(mode) || error("Expected @read or @write macrocall, got $line")
+      mode === :read ? push!(reads, line) : mode === :write ? push!(writes, line) : error("Unexpected unknown mode '$mode'")
+    end
+  end
+  for (expr, dependency) in pairs(resource_dependencies(reads, writes))
+    push!(ret.args, :(uuid($(esc(expr))) => ResourceDependency($(dependency...))))
+  end
+  :(dictionary($ret))
 end
 
 function extract_special_usage(ex)
@@ -319,26 +351,40 @@ end
 
 ResourceUses(rg::RenderGraph) = merge(values(rg.uses)...)
 
+function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)
+  for invocation in node.program_invocations
+    for (resource_id, resource_dependency) in pairs(invocation.resource_dependencies)
+      add_resource_dependency!(rg, node, resource_id, resource_dependency)
+    end
+  end
+end
+
 """
 Expand all program invocations of all render nodes, generating
 [`DrawInfo`](@ref) structures to be used during baking.
 
-Render nodes will not be mutated; instead, copies will be reinserted which contain the
-generated draw infos.
+Render nodes will not be mutated; instead, copies which contain the
+generated draw infos will be reinserted into the render graph.
 """
-function generate_draw_infos!(rg::RenderGraph)
-  for (node_id, node) in pairs(rg.nodes)
-    (isnothing(node.program_invocations) || isempty(node.program_invocations)) && continue
-    # Do not mutate nodes so that they can be reused in other render graphs.
-    generated_node = setproperties(node, (;
-      draw_infos = DrawInfo[],
-      program_invocations = nothing,
-    ))
-    for invocation in node.program_invocations
-      draw_info = draw_info!(rg.allocator, rg.device.logical_descriptors, invocation, node_id, rg.device)
-      push!(generated_node.draw_infos, draw_info)
-    end
-    rg.nodes[node_id] = generated_node
+function generate_draw_infos!(rg::RenderGraph, node::RenderNode)
+  isempty(node.program_invocations) && return
+  # Do not mutate nodes so that they can be reused in other render graphs.
+  generated_node = setproperties(node, (;
+    draw_infos = DrawInfo[],
+    program_invocations = nothing,
+  ))
+  for invocation in node.program_invocations
+    draw_info = draw_info!(rg.allocator, rg.device.logical_descriptors, invocation, node_id, rg.device)
+    push!(generated_node.draw_infos, draw_info)
+  end
+  rg.nodes[node.uuid] = generated_node
+end
+
+function expand_program_invocations!(rg::RenderGraph)
+  for node in rg.nodes
+    !isnothing(node.program_invocations) || continue
+    add_resource_dependencies!(rg, node)
+    generate_draw_infos!(rg, node)
   end
 end
 

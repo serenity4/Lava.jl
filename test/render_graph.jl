@@ -86,7 +86,7 @@ using Graphs: nv, ne
   end
 
   @testset "Baking a render graph" begin
-    baked = Lava.bake!(device, rg)
+    baked = Lava.bake!(rg)
     info = Lava.rendering_info(baked, combine)
     @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(1920, 1080))
     color_info, output_info = info.color_attachments
@@ -132,7 +132,7 @@ using Graphs: nv, ne
       (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
     end
 
-    baked = Lava.bake!(device, rg)
+    baked = Lava.bake!(rg)
     dependency_info = Lava.dependency_info!(Lava.SynchronizationState(), deepcopy(baked), graphics)
     rendering_info = Lava.rendering_info(baked, graphics)
     color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color].view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue((0f0, 0f0, 0f0, 1f0))))
@@ -186,5 +186,26 @@ using Graphs: nv, ne
         flush(command_buffer, baked, records, pipeline_hashes)
       end
     end
+  end
+
+  @testset "Render graph from persistent data" begin
+    color = LogicalAttachment(Vk.FORMAT_R32G32B32A32_SFLOAT)
+    normal = LogicalImage(Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
+    depth = LogicalAttachment(Vk.FORMAT_D32_SFLOAT)
+    graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+    cmd = DrawIndexed(1:4)
+    dependencies = @resource_dependencies begin
+      @read
+      normal::Texture
+      @write
+      (color => (0.0, 0.0, 0.0, 1.0))::Color
+      depth::Depth
+    end
+    invocation = ProgramInvocation(prog, cmd, RenderTargets(color; depth), @invocation_data(@block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderState(), ProgramInvocationState(), dependencies)
+    push!(graphics.program_invocations, invocation)
+
+    rg = RenderGraph(device)
+    add_node(rg, graphics)
+    baked = Lava.bake!(rg)
   end
 end;
