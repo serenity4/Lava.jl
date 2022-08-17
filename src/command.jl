@@ -70,7 +70,7 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info(baked.device, record.node.render_area.rect::Vk.Rect2D, program, state.render_state, state.program_invocation_state, baked.device.descriptors, targets)
+        info = pipeline_info(baked.device, record.node.render_area::RenderArea, program, state.render_state, state.program_invocation_state, targets)
         hash = request_pipeline(baked.device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
@@ -80,11 +80,11 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
 end
 
 function materialize(baked::BakedRenderGraph, targets::RenderTargets)
-  color = map(targets.color) do c
-    isa(c, PhysicalAttachment) ? c : baked.resources.attachments[uuid(c)]
+  color = map(targets.color) do resource
+    islogical(resource) ? baked.resources[resource.id] : resource
   end
-  depth = isa(targets.depth, LogicalAttachment) ? baked.resources.attachments[uuid(targets.depth)] : targets.depth
-  stencil = isa(targets.stencil, LogicalAttachment) ? baked.resources.attachments[uuid(targets.stencil)] : targets.stencil
+  depth = isnothing(targets.depth) ? nothing : islogical(targets.depth) ? baked.resources[targets.depth.id] : targets.depth
+  stencil = isnothing(targets.stencil) ? nothing : islogical(targets.stencil) ? baked.resources[targets.stencil.id] : targets.stencil
   RenderTargets(color, depth, stencil)
 end
 
@@ -95,17 +95,16 @@ A hash is returned to serve as the key to get the corresponding pipeline from th
 """
 function pipeline_info(
   device::Device,
-  render_area::Vk.Rect2D,
+  render_area::RenderArea,
   program::Program,
   state::RenderState,
   invocation_state::ProgramInvocationState,
-  resources::PhysicalDescriptors,
   targets::RenderTargets,
 )
   shader_stages = [Vk.PipelineShaderStageCreateInfo(shader) for shader in program.shaders]
   # Vertex data is retrieved from an address provided in the push constant.
   vertex_input_state = Vk.PipelineVertexInputStateCreateInfo([], [])
-  rendering_state = Vk.PipelineRenderingCreateInfo(0, format.(targets.color), format(targets.depth), format(targets.stencil))
+  rendering_state = Vk.PipelineRenderingCreateInfo(targets)
   attachments = map(targets.color) do _
     if isnothing(state.blending_mode)
       #TODO: Allow specifying blending mode for color attachments.
@@ -124,12 +123,12 @@ function pipeline_info(
     end
   end
   input_assembly_state = Vk.PipelineInputAssemblyStateCreateInfo(invocation_state.primitive_topology, false)
-  (; x, y) = render_area.offset
-  (; width, height) = render_area.extent
+  (; x, y) = render_area.rect.offset
+  (; width, height) = render_area.rect.extent
   viewport_state =
     Vk.PipelineViewportStateCreateInfo(
       viewports = [Vk.Viewport(x, height - y, float(width), -float(height), 0, 1)],
-      scissors = [render_area],
+      scissors = [render_area.rect],
     )
 
   (; depth_bias) = state
@@ -153,11 +152,12 @@ function pipeline_info(
     1.0,
     cull_mode = invocation_state.cull_mode,
   )
-  nsamples = samples(first(targets.color))
-  all(==(nsamples) ∘ samples, targets.color) || error("Incoherent number of samples detected: $(samples.(targets.color))")
+  color_samples = [(c.data::Attachment).view.image.samples for c in targets.color]
+  all(==(first(color_samples)), color_samples) || error("Incoherent number of samples detected for color attachments: ", color_samples)
+  nsamples = first(color_samples)
   multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), false, 1.0, false, false)
   color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1.0f0), 4))
-  layout = pipeline_layout(device, resources)
+  layout = pipeline_layout(device)
   depth_stencil_state = C_NULL
   if !isnothing(targets.depth) || !isnothing(targets.stencil)
     depth_stencil_state = Vk.PipelineDepthStencilStateCreateInfo(
@@ -193,13 +193,13 @@ function request_pipeline(device::Device, info::Vk.GraphicsPipelineCreateInfo)
   hash(info)
 end
 
-function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes, descriptors::PhysicalDescriptors, index_data::IndexData)
+function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes, index_data::IndexData)
   for (program, calls) in pairs(record.programs)
     for (state, draws) in pairs(calls)
       for (call, targets) in draws
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht[hash]
-        reqs = BindRequirements(pipeline, state.program_invocation_data, descriptors.gset)
+        reqs = BindRequirements(pipeline, state.program_invocation_data, device.descriptors.gset)
         bind(cb, reqs, binding_state)
         binding_state = reqs
         isa(call, DrawIndexed) ? apply(cb, call, index_data) : apply(cb, call)

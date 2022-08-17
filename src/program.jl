@@ -152,8 +152,6 @@ function SPIRV.align(block::DataBlock, type_info::TypeInfo)
   aligned
 end
 
-const AllDescriptors = Union{Texture,LogicalImage,PhysicalImage,Sampling}
-
 """
 Data attached to program invocations as a push constant.
 
@@ -172,7 +170,7 @@ struct ProgramInvocationData
   blocks::Vector{DataBlock}
   "Index of the block to use as interface."
   root::Int
-  descriptors::Vector{AllDescriptors}
+  descriptors::Vector{Descriptor}
   postorder_traversal::Vector{Int}
 end
 
@@ -207,16 +205,15 @@ function postorder!(finish_times, g, next, visited, time)
   time
 end
 
-function patch_descriptors!(block::DataBlock, ldescs::LogicalDescriptors, descriptors, node_id::NodeUUID)
+function patch_descriptors!(block::DataBlock, gdescs::GlobalDescriptors, descriptors, node_id::NodeID)
   patched = Dictionary{UInt32,UInt32}()
   ptr = pointer(block.bytes)
   for byte_idx in block.descriptor_ids
     descriptor_idx = only(reinterpret(UInt32, @view block.bytes[byte_idx:byte_idx + 3]))
     index = get!(patched, descriptor_idx) do
       descriptor = descriptors[descriptor_idx]
-      # TODO: This creates a new descriptor UUID.
-      # We should first look through existing descriptors to reuse UUIDs.
-      request_descriptor_index(ldescs, node_id, descriptor)
+      @reset descriptor.node_id = node_id
+      request_index!(gdescs, descriptor)
     end
     unsafe_store!(Ptr{DescriptorIndex}(ptr + byte_idx - 1), index)
   end
@@ -231,13 +228,13 @@ function patch_pointers!(block::DataBlock, addresses::Dictionary{UInt64, UInt64}
   end
 end
 
-function device_address_block!(allocator::LinearAllocator, ldescs::LogicalDescriptors, node_id::NodeUUID, data::ProgramInvocationData, type_info::TypeInfo, layout::VulkanLayout)
+function device_address_block!(allocator::LinearAllocator, gdescs::GlobalDescriptors, node_id::NodeID, data::ProgramInvocationData, type_info::TypeInfo, layout::VulkanLayout)
   addresses = Dictionary{UInt64, UInt64}()
   root_address = nothing
   for i in data.postorder_traversal
     block = data.blocks[i]
     aligned = align(block, type_info)
-    patch_descriptors!(aligned, ldescs, data.descriptors, node_id)
+    patch_descriptors!(aligned, gdescs, data.descriptors, node_id)
     patch_pointers!(aligned, addresses)
     address = allocate_data!(allocator, type_info, aligned.bytes, type_info.mapping[aligned.type], layout, false)
     insert!(addresses, objectid(block), address)
@@ -280,7 +277,7 @@ macro invocation_data(ex)
         end
         "@address" => :($DeviceAddress($(subex.args[3])))
         "@descriptor" => quote
-          local $desc = $(subex.args[3])
+          local $desc = $(subex.args[3])::$Descriptor
           local $index = get($descriptor_d, $desc, nothing)
           if isnothing($index)
             $index = ($descriptor_counter += 1)
@@ -295,7 +292,7 @@ macro invocation_data(ex)
   end
   quote
     $(esc(block_d)) = IdDict{DataBlock,Int}()
-    $(esc(descriptor_d)) = IdDict{AllDescriptors,Int}()
+    $(esc(descriptor_d)) = IdDict{Descriptor,Int}()
     $(esc(block_counter)) = 0
     $(esc(descriptor_counter)) = 0
     ans = $(esc(transformed))::DataBlock
@@ -306,7 +303,7 @@ macro invocation_data(ex)
 end
 
 struct ResourceDependency
-  type::ResourceType
+  type::ShaderResourceType
   access::MemoryAccess
   clear_value::Optional{NTuple{4,Float32}}
   samples::Int64
@@ -314,8 +311,8 @@ end
 ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceDependency(type, access, clear_value, samples)
 
 function Base.merge(x::ResourceDependency, y::ResourceDependency)
-  @assert x.uuid === y.uuid
-  ResourceDependency(x.uuid, x.type | y.type, x.access | y.access)
+  @assert x.id === y.id
+  ResourceDependency(x.id, x.type | y.type, x.access | y.access)
 end
 
 """
@@ -329,11 +326,11 @@ struct ProgramInvocation
   invocation_data::ProgramInvocationData
   render_state::RenderState
   invocation_state::ProgramInvocationState
-  resource_dependencies::Dictionary{ResourceUUID, ResourceDependency}
+  resource_dependencies::Dictionary{Resource, ResourceDependency}
 end
 
-function draw_info!(allocator::LinearAllocator, ldescs::LogicalDescriptors, program_invocation::ProgramInvocation, node_id::NodeUUID, device::Device)
-  address_block = device_address_block!(allocator, ldescs, node_id, program_invocation.invocation_data, program_invocation.program.type_info, device.layout)
+function draw_info!(allocator::LinearAllocator, gdescs::GlobalDescriptors, program_invocation::ProgramInvocation, node_id::NodeID, device::Device)
+  address_block = device_address_block!(allocator, gdescs, node_id, program_invocation.invocation_data, program_invocation.program.type_info, device.layout)
   draw_state = DrawState(program_invocation.render_state, program_invocation.invocation_state, address_block)
   DrawInfo(program_invocation.command, program_invocation.program, program_invocation.targets, draw_state)
 end

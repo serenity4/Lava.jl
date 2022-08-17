@@ -1,11 +1,11 @@
 mutable struct Frame
-    const image::ImageWSI
+    const image::Image
     image_acquired::BinarySemaphore
     may_present::BinarySemaphore
     const image_rendered::TimelineSemaphore
 end
 
-function Frame(image::ImageWSI)
+function Frame(image::Image)
     (; device) = image.handle
     Frame(image, BinarySemaphore(device), BinarySemaphore(device), TimelineSemaphore(device))
 end
@@ -41,7 +41,7 @@ end
 function get_frames(device, swapchain)
     frames = Frame[]
     for handle in unwrap(Vk.get_swapchain_images_khr(device, swapchain))
-        img = ImageWSI(handle, swapchain.info)
+        img = image_wsi(handle, swapchain.info)
         push!(frames, Frame(img))
     end
     frames

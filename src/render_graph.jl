@@ -13,7 +13,7 @@ struct DrawInfo
 end
 
 Base.@kwdef struct RenderNode
-  uuid::NodeUUID = uuid()
+  id::NodeID = NodeID()
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
   render_area::Optional{RenderArea} = nothing
   "Data required for issuing draw calls that will only be valid for a given cycle."
@@ -23,35 +23,29 @@ Base.@kwdef struct RenderNode
 end
 
 function Base.copy(node::RenderNode)
-  RenderNode(node.uuid, node.stages, node.render_area, isnothing(node.draw_infos) ? nothing : copy(node.draw_infos), isnothing(node.program_invocations) ? nothing : copy(node.program_invocations))
+  RenderNode(node.id, node.stages, node.render_area, isnothing(node.draw_infos) ? nothing : copy(node.draw_infos), isnothing(node.program_invocations) ? nothing : copy(node.program_invocations))
 end
+
+Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
 
 draw(node::RenderNode, args...; kwargs...) = push!(node.draw_infos, DrawInfo(args...; kwargs...))
 
-usage(::BufferAny_T, node::RenderNode, dep::ResourceDependency) =
-  BufferUsage(; dep.type, dep.access, node.stages, usage = buffer_usage_bits(dep.type, dep.access))
-usage(::ImageAny_T, node::RenderNode, dep::ResourceDependency) =
-  ImageUsage(; dep.type, dep.access, node.stages, usage = image_usage_bits(dep.type, dep.access), dep.samples)
-usage(::AttachmentAny_T, node::RenderNode, dep::ResourceDependency) = AttachmentUsage(;
-  dep.type,
-  dep.access,
-  dep.clear_value,
-  dep.samples,
-  node.stages,
-  usage = image_usage_bits(dep.type, dep.access),
-  aspect = aspect_bits(dep.type),
-)
-
-struct ResourceDependencies
-  node::Dictionary{NodeUUID,Dictionary{ResourceUUID,ResourceDependency}}
+function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDependency)
+  usage = @match resource_type(resource) begin
+    &RESOURCE_TYPE_BUFFER => BufferUsage(; dep.type, dep.access, node.stages, usage_flags = buffer_usage_flags(dep.type, dep.access))
+    &RESOURCE_TYPE_IMAGE => ImageUsage(; dep.type, dep.access, node.stages, usage_flags = image_usage_flags(dep.type, dep.access), dep.samples)
+    &RESOURCE_TYPE_ATTACHMENT => AttachmentUsage(;
+        dep.type,
+        dep.access,
+        dep.clear_value,
+        dep.samples,
+        node.stages,
+        usage_flags = image_usage_flags(dep.type, dep.access),
+        aspect = aspect_flags(dep.type),
+      )
+  end
+  ResourceUsage(resource.id, usage)
 end
-
-@forward ResourceDependencies.node (Base.getindex, Base.delete!, Base.get, Base.haskey)
-
-Base.merge!(x::ResourceDependencies, y::ResourceDependencies) = mergewith!(merge_node_dependencies, x.node, y.node)
-merge_node_dependencies!(x, y) = mergewith!(merge, x, y)
-
-ResourceDependencies() = ResourceDependencies(Dictionary())
 
 """
 Render graph implementation.
@@ -79,88 +73,73 @@ struct RenderGraph
   "Used to allocate lots of tiny objects."
   allocator::LinearAllocator
   resource_graph::SimpleDiGraph{Int64}
-  nodes::Dictionary{NodeUUID,RenderNode}
-  node_indices::Dictionary{NodeUUID,Int64}
-  node_indices_inv::Dictionary{Int64,NodeUUID}
-  resource_indices::Dictionary{ResourceUUID,Int64}
-  "Resource uses per node."
-  uses::Dictionary{NodeUUID,ResourceUses}
-  logical_resources::LogicalResources
-  physical_resources::PhysicalResources
+  nodes::Dictionary{NodeID,RenderNode}
+  node_indices::Dictionary{NodeID,Int64}
+  node_indices_inv::Dictionary{Int64,NodeID}
+  resource_indices::Dictionary{ResourceID,Int64}
+  "Resource uses per node. One resource may be used several times by a single node."
+  uses::Dictionary{NodeID,Dictionary{ResourceID, Vector{ResourceUsage}}}
+  resources::Dictionary{ResourceID, Resource}
   "Temporary resources meant to be thrown away after execution."
-  temporary::Vector{ResourceUUID}
+  temporary::Vector{ResourceID}
 end
 
-function RenderGraph(device::Device)
-  RenderGraph(device, LinearAllocator(device, 1_000_000), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), LogicalResources(), PhysicalResources(), [])
+function RenderGraph(device::Device, allocator_size = 1_000_000)
+  RenderGraph(device, LinearAllocator(device, 1_000_000), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), [])
 end
 
 device(rg::RenderGraph) = rg.device
 
-new_node!(rg::RenderGraph, args...; kwargs...) = add_node(rg, RenderNode(args...; kwargs...))
-
-function add_node(rg::RenderGraph, node::RenderNode)
-  (; uuid) = node
-  !haskey(rg.nodes, uuid) || error("Node '$uuid' was already added to the render graph. Passes can only be provided once.")
-  insert!(rg.nodes, uuid, node)
+function add_node!(rg::RenderGraph, node::RenderNode)
+  existing = get(rg.nodes, node.id, nothing)
+  if !isnothing(existing)
+    existing === node || error("Trying to overwrite a node ID with a different node.")
+  else
+    insert!(rg.nodes, node.id, node)
+  end
   g = rg.resource_graph
   add_vertex!(g)
-  insert!(rg.node_indices, uuid, nv(g))
-  insert!(rg.node_indices_inv, nv(g), uuid)
-  uuid
+  insert!(rg.node_indices, node.id, nv(g))
+  insert!(rg.node_indices_inv, nv(g), node.id)
+  nothing
 end
 
 new!(rg::RenderGraph, args...) = add_resource!(rg, new!(rg.logical_resources, args...))
 
 @forward RenderGraph.logical_resources (buffer, image, attachment)
 
-function add_resource(rg::RenderGraph, data::Union{Buffer,Image,Attachment})
-  resource = new!(rg.physical_resources, data)
-  push!(rg.temporary, resource.uuid)
-  add_resource(rg, resource)
-end
+function add_resource!(rg::RenderGraph, resource::Resource)
+  islogical(resource) && push!(rg.temporary, resource.id)
 
-function add_resource(rg::RenderGraph, data::PhysicalResource)
-  (; uuid) = data
-  in(data, rg.physical_resources) && return uuid
-  insert!(rg.physical_resources, uuid, data)
-  add_resource(rg, uuid)
-  uuid
-end
+  # Add to list of resources.
+  existing = get!(rg.resources, resource.id, resource)
+  if !isnothing(existing)
+    resource === existing || error("Trying to overwrite a resource ID with a different resource.")
+  else
+    insert!(rg.resources, resource.id, resource)
+  end
 
-function add_resource(rg::RenderGraph, data::LogicalResource)
-  (; uuid) = data
-  in(data, rg.logical_resources) && return uuid
-  insert!(rg.logical_resources, uuid, data)
-  push!(rg.temporary, uuid)
-  add_resource(rg, uuid)
-  uuid
-end
-
-function add_resource(rg::RenderGraph, uuid::ResourceUUID)
-  haskey(rg.resource_indices, uuid) && return uuid
+  # Add to the resource graph.
+  haskey(rg.resource_indices, resource.id) && return
   g = rg.resource_graph
   add_vertex!(g)
-  insert!(rg.resource_indices, uuid, nv(g))
-  uuid
+  insert!(rg.resource_indices, resource.id, nv(g))
+  nothing
 end
 
-function add_resource_dependency!(rg::RenderGraph, node::RenderNode, resource, dependency::ResourceDependency)
-  resource_uuid = add_resource(rg, resource)
-  node_uuid = node.uuid
+function add_resource_dependency!(rg::RenderGraph, node::RenderNode, resource::Resource, dependency::ResourceDependency)
+  add_resource!(rg, resource)
 
   # Add edge.
-  haskey(rg.nodes, node_uuid) || add_node(rg, node)
-  v = rg.node_indices[node_uuid]
+  haskey(rg.nodes, node.id) || add_node!(rg, node)
   g = rg.resource_graph
-  haskey(rg.resource_indices, resource_uuid) || add_resource(rg, resource_uuid)
-  i = rg.resource_indices[resource_uuid]
-  add_edge!(g, i, v)
+  v = rg.resource_indices[resource.id]
+  w = rg.node_indices[node.id]
+  add_edge!(g, v, w)
 
   # Add usage.
-  uses = get!(ResourceUses, rg.uses, node_uuid)
-  resource_usage = usage(resource, node, dependency)
-  set!(uses, resource_uuid, resource_usage)
+  uses = get!(Dictionary{ResourceID,Vector{ResourceUsage}}, rg.uses, node.id)
+  push!(get!(Vector{ResourceUsage}, uses, resource.id), ResourceUsage(resource, node, dependency))
   nothing
 end
 
@@ -184,7 +163,7 @@ function add_resource_dependencies!(rg, ex::Expr)
     end
     !in(f, node_exs) || error("Node '$f' is specified more than once")
     push!(node_exs, f)
-    insert!(dependency_exs, f, dependencies(reads, writes))
+    insert!(dependency_exs, f, resource_dependencies(reads, writes))
   end
 
   add_dependency_exs = Expr[]
@@ -263,7 +242,7 @@ macro resource_dependencies(ex)
     end
   end
   for (expr, dependency) in pairs(resource_dependencies(reads, writes))
-    push!(ret.args, :(uuid($(esc(expr))) => ResourceDependency($(dependency...))))
+    push!(ret.args, :($(esc(expr)) => ResourceDependency($(dependency...))))
   end
   :(dictionary($ret))
 end
@@ -286,70 +265,45 @@ end
 
 function extract_resource_spec(ex::Expr)
   @match ex begin
-    :($r::Buffer::Vertex) => (r => RESOURCE_TYPE_VERTEX_BUFFER)
-    :($r::Buffer::Index) => (r => RESOURCE_TYPE_INDEX_BUFFER)
-    :($r::Buffer::Storage) => (r => RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_STORAGE)
-    :($r::Buffer::Uniform) => (r => RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_UNIFORM)
-    :($r::Buffer) => (r => RESOURCE_TYPE_BUFFER)
-    :($r::Color) => (r => RESOURCE_TYPE_COLOR_ATTACHMENT)
-    :($r::Depth) => (r => RESOURCE_TYPE_DEPTH_ATTACHMENT)
-    :($r::Stencil) => (r => RESOURCE_TYPE_STENCIL_ATTACHMENT)
-    :($r::Depth::Stencil) || :($_::Stencil::Depth) => (r => RESOURCE_TYPE_DEPTH_ATTACHMENT | RESOURCE_TYPE_STENCIL_ATTACHMENT)
-    :($r::Texture) => (r => RESOURCE_TYPE_TEXTURE)
-    :($r::Image::Storage) => (r => RESOURCE_TYPE_IMAGE | RESOURCE_TYPE_STORAGE)
-    :($r::Input) => (r => RESOURCE_TYPE_INPUT_ATTACHMENT)
+    :($r::Buffer::Vertex) => (r => SHADER_RESOURCE_TYPE_VERTEX_BUFFER)
+    :($r::Buffer::Index) => (r => SHADER_RESOURCE_TYPE_INDEX_BUFFER)
+    :($r::Buffer::Storage) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_STORAGE)
+    :($r::Buffer::Uniform) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_UNIFORM)
+    :($r::Buffer) => (r => SHADER_RESOURCE_TYPE_BUFFER)
+    :($r::Color) => (r => SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT)
+    :($r::Depth) => (r => SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT)
+    :($r::Stencil) => (r => SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT)
+    :($r::Depth::Stencil) || :($_::Stencil::Depth) => (r => SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT | SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT)
+    :($r::Texture) => (r => SHADER_RESOURCE_TYPE_TEXTURE)
+    :($r::Image::Storage) => (r => SHADER_RESOURCE_TYPE_IMAGE | SHADER_RESOURCE_TYPE_STORAGE)
+    :($r::Input) => (r => SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT)
     ::Symbol => error("Resource type annotation required for $ex")
     _ => error("Invalid or unsupported resource type annotation for $ex")
   end
 end
 
-function clear_attachments(rg::RenderGraph, pass::UUID, color_clears, depth_clear = nothing, stencil_clear = nothing)
-  clears = Dictionary{ResourceUUID,Vk.ClearValue}()
-  for (resource, color) in color_clears
-    clear_value = Vk.ClearValue(Vk.ClearColorValue(convert(NTuple{4,Float32}, color)))
-    insert!(clears, resource, clear_value)
-  end
-  !isnothing(depth_clear)
-  for (resource, depth) in depth_clears
-    clear_value = Vk.ClearValue(Vk.ClearDepthStencilValue(depth, 0))
-    insert!(clears, resource, clear_value)
-  end
-  for (resource, stencil) in stencil_clears
-    clear_value = Vk.ClearValue(Vk.ClearDepthStencilValue(0.0, stencil))
-    insert!(clears, resource, clear_value)
-  end
-  for (resource, clear_value) in pairs(clears)
-    set_attribute(rg, pass, resource, :clear_value, clear_value)
-  end
-end
-
-function execution_graph(rg::RenderGraph)
+function execution_graph(rg::RenderGraph, node_uses)
   g = rg.resource_graph
   eg = SimpleDiGraph(length(rg.nodes))
   for node in rg.nodes
-    dst = rg.node_indices[node.uuid]
-    uses = rg.uses[node.uuid]
-    for collection in (uses.buffers, uses.images, uses.attachments)
-      for (uuid, usage) in pairs(collection)
-        WRITE in usage.access || continue
-        for src in neighbors(g, rg.resource_indices[uuid])
-          src == dst && continue
-          add_edge!(eg, src, dst)
-        end
+    dst = rg.node_indices[node.id]
+    for (; id, usage) in node_uses[node.id]
+      WRITE in usage.access || continue
+      for src in neighbors(g, rg.resource_indices[id])
+        src == dst && continue
+        add_edge!(eg, src, dst)
       end
     end
   end
   eg
 end
 
-function sort_nodes(rg::RenderGraph)
-  eg = execution_graph(rg)
+function sort_nodes(rg::RenderGraph, node_uses::Dictionary{NodeID, Dictionary{ResourceID, ResourceUsage}})
+  eg = execution_graph(rg, node_uses)
   !is_cyclic(eg) || error("The render graph is cyclical, cannot determine an execution order.")
   indices = topological_sort_by_dfs(eg)
   collect(rg.nodes)[indices]
 end
-
-ResourceUses(rg::RenderGraph) = merge(values(rg.uses)...)
 
 function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)
   for invocation in node.program_invocations
@@ -374,10 +328,10 @@ function generate_draw_infos!(rg::RenderGraph, node::RenderNode)
     program_invocations = nothing,
   ))
   for invocation in node.program_invocations
-    draw_info = draw_info!(rg.allocator, rg.device.logical_descriptors, invocation, node_id, rg.device)
+    draw_info = draw_info!(rg.allocator, rg.device.descriptors, invocation, node.id, rg.device)
     push!(generated_node.draw_infos, draw_info)
   end
-  rg.nodes[node.uuid] = generated_node
+  rg.nodes[node.id] = generated_node
 end
 
 function expand_program_invocations!(rg::RenderGraph)
@@ -389,88 +343,114 @@ function expand_program_invocations!(rg::RenderGraph)
 end
 
 function resolve_attachment_pairs(rg::RenderGraph)
-  resolve_pairs = Dictionary{ResourceUUID, LogicalAttachment}()
-  for attachment in rg.logical_resources.attachments
-    if is_multisampled(attachment)
-      insert!(resolve_pairs, uuid(attachment), LogicalAttachment(uuid(), attachment.format, attachment.dims))
+  resolve_pairs = Dictionary{Resource, Resource}()
+  for resource in rg.resources
+    resource_type(resource) == RESOURCE_TYPE_ATTACHMENT || continue
+    if islogical(resource)
+      resolve_attachment = nothing
+      for uses in rg.uses
+        resource_uses = get(uses, resource.id, nothing)
+        isnothing(resource_uses) && break
+        combined_uses = reduce(merge, resource_uses)
+        if combined_uses.usage.samples > 1
+          attachment = resource.data::LogicalAttachment
+          is_multisampled(attachment) || break
+          resolve_attachment = logical_attachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range)
+        end
+      end
+    else
+      attachment = resource.data::Attachment
+      is_multisampled(attachment) || continue
+      resolve_attachment = logical_attachment(attachment.view.format, attachment.view.image.dims; attachment.view.mip_range, attachment.view.layer_range)
     end
-  end
-  for attachment in rg.physical_resources.attachments
-    if is_multisampled(attachment)
-      (; info) = attachment
-      insert!(resolve_pairs, uuid(info), LogicalAttachment(uuid(), info.format, info.dims))
-    end
+    !isnothing(resolve_attachment) && insert!(resolve_pairs, resource, resolve_attachment)
   end
   resolve_pairs
 end
 
-function add_resolve_attachments(rg::RenderGraph, resolve_pairs::Dictionary{ResourceUUID, LogicalAttachment})
-  for (resource_uuid, resolve_attachment) in pairs(resolve_pairs)
+function add_resolve_attachments!(rg::RenderGraph, resolve_pairs::Dictionary{Resource, Resource})
+  for (resource, resolve_resource) in pairs(resolve_pairs)
     # Add resource in the render graph.
-    add_resource(rg, resolve_attachment)
-    i = rg.resource_indices[resource_uuid]
+    add_resource!(rg, resolve_resource)
 
     # Add resource usage for all nodes used by the destination attachment.
-    for j in neighbors(rg.resource_graph, i)
-      attachment_uses = rg.uses[rg.node_indices_inv[j]].attachments
-      usage = attachment_uses[resource_uuid]
-      insert!(attachment_uses, uuid(resolve_attachment), @set usage.samples = resolve_attachment.samples)
+    for j in neighbors(rg.resource_graph, rg.resource_indices[resource.id])
+      uses_by_node = rg.uses[rg.node_indices_inv[j]]
+      for use in uses_by_node[resource.id]
+        @reset use.id = resolve_resource.id
+        @reset use.usage.samples = 1
+        push!(get!(Vector{ResourceUsage}, uses_by_node, resolve_resource.id), use)
+      end
     end
   end
 end
 
-function materialize_logical_resources(rg::RenderGraph, uses::ResourceUses)
-  res = PhysicalResources()
-  for info in rg.logical_resources.buffers
-    usage = uses[info]
-    insert!(res, info.uuid, buffer(rg.device; info.size, usage.usage))
-  end
-  for info in rg.logical_resources.images
-    usage = uses[info]
-    dims = (info.dims[1], info.dims[2])
-    insert!(res, info.uuid, image(rg.device; info.format, dims, usage.usage))
-  end
-  for info in rg.logical_resources.attachments
-    usage = uses[info]
-    dims = isnothing(info.dims) ? nothing : (info.dims[1], info.dims[2])
-    if isnothing(info.dims)
-      # Try to inherit image dimensions from a render area in which the node is used.
-      for node in rg.nodes
-        !isnothing(node.render_area) || continue
-        if haskey(rg.uses[node.uuid].attachments, info.uuid)
-          ext = node.render_area.rect.extent
-          dims = (ext.width, ext.height)
-          break
+function materialize_logical_resources(rg::RenderGraph, combined_uses)
+  res = Dictionary{ResourceID, Resource}()
+  for use in combined_uses
+    resource = rg.resources[use.id]
+    islogical(resource) || continue
+    @switch resource_type(resource) begin
+      @case &RESOURCE_TYPE_BUFFER
+      usage = use.usage::BufferUsage
+      info = resource.data::LogicalBuffer
+      insert!(res, resource.id, promote_to_physical(resource, Buffer(rg.device; info.size, usage.usage_flags)))
+
+      @case &RESOURCE_TYPE_IMAGE
+      usage = use.usage::ImageUsage
+      info = resource.data::LogicalImage
+      insert!(res, resource.id, promote_to_physical(resource, Image(rg.device; info.format, info.dims, usage.usage_flags, info.mip_levels, array_layers = info.layers)))
+
+      @case &RESOURCE_TYPE_ATTACHMENT
+      usage = use.usage::AttachmentUsage
+      info = resource.data::LogicalAttachment
+      (; dims) = info
+      if isnothing(dims)
+        # Try to inherit image dimensions from a render area in which the node is used.
+        for node in rg.nodes
+          !isnothing(node.render_area) || continue
+          if haskey(rg.uses[node.id], resource.id)
+            ext = node.render_area.rect.extent
+            dims = [ext.width, ext.height]
+            break
+          end
         end
+        !isnothing(dims) || error(
+          "Could not determine the dimensions of the attachment $(resource.id). You must either provide them or use the attachment with a node that has a render area.",
+        )
       end
-      isnothing(dims) && error(
-        "Could not determine the dimensions of the attachment $(info.uuid). You must either provide them or use the attachment with a node that has a render area.",
-      )
+      insert!(res, resource.id, promote_to_physical(resource, Attachment(rg.device; info.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, info.mip_range, info.layer_range)))
     end
-    insert!(res, info.uuid, attachment(rg.device; info.format, dims, usage.samples, usage.aspect, usage.access, usage.usage))
   end
   res
 end
 
-function check_physical_resources(rg::RenderGraph, uses::ResourceUses)
-  (; physical_resources) = rg
-  for buffer in physical_resources.buffers
-    usage = uses[buffer]
-    usage.usage in buffer.usage || error("An existing buffer with usage $(buffer.usage) was provided, but a usage of $(usage.usage) is required.")
-  end
-  for image in physical_resources.images
-    usage = uses[image]
-    usage.usage in image.usage || error("An existing image with usage $(image.usage) was provided, but a usage of $(usage.usage) is required.")
-  end
-  for attachment in physical_resources.attachments
-    usage = uses[attachment]
-    usage.usage in attachment.usage ||
-      error("An existing attachment with usage $(attachment.usage) was provided, but a usage of $(usage.usage) is required.")
-    usage.samples == samples(attachment) ||
-      error(
-        "An existing attachment with a multisampling setting of $(samples(attachment)) samples was provided, but is used with $(usage.samples) samples.",
-      )
-    usage.aspect in attachment.aspect ||
-      error("An existing attachment with aspect $(attachment.aspect) was provided, but is used with an aspect of $(usage.aspect).")
+function check_physical_resources(rg::RenderGraph, uses)
+  for use in uses
+    resource = rg.resources[use.id]
+    isphysical(resource) || continue
+    @switch resource_type(resource) begin
+      @case &RESOURCE_TYPE_BUFFER
+      usage = use.usage::BufferUsage
+      buffer = resource.data::Buffer
+      usage.usage_flags in buffer.usage_flags || error("An existing buffer with usage $(buffer.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
+
+      @case &RESOURCE_TYPE_IMAGE
+      usage = use.usage::ImageUsage
+      image = resource.data::Image
+      usage.usage_flags in image.usage_flags || error("An existing image with usage $(image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
+
+      @case &RESOURCE_TYPE_ATTACHMENT
+      usage = use.usage::AttachmentUsage
+      attachment = resource.data::Attachment
+      usage.usage_flags in attachment.view.image.usage_flags ||
+        error("An existing attachment with usage $(attachment.view.image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
+      usage.samples == attachment.view.image.samples ||
+        error(
+          "An existing attachment with a multisampling setting of $(attachment.view.image.samples) samples was provided, but is used with $(usage.samples) samples.",
+        )
+      usage.aspect in attachment.view.aspect ||
+        error("An existing attachment with aspect $(attachment.view.aspect) was provided, but is used with an aspect of $(usage.aspect).")
+    end
   end
 end

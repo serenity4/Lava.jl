@@ -6,7 +6,7 @@ const to = TimerOutput()
 instance, device = init(; with_validation = false, debug = false)
 
 function f(device)
-  @timeit to "Buffer creation" ibuffer = buffer(device, collect(1:100))
+  @timeit to "Buffer creation" ibuffer = Buffer(device, collect(1:100))
   @timeit to "Destroy buffer" begin
     finalize(ibuffer.handle)
     finalize(ibuffer.memory[].handle)

@@ -1,6 +1,6 @@
 module Lava
 
-using Vulkan: Vk, VkCore
+using Vulkan: Vk, VkCore, @bitmask_flag
 
 using Reexport
 using Dictionaries
@@ -76,7 +76,6 @@ include("bake.jl")
 include("command.jl")
 include("procedural_api.jl")
 include("resources/resolution.jl")
-# include("transition.jl")
 include("debug.jl")
 include("precompile.jl")
 
@@ -101,21 +100,20 @@ export
   SubmissionInfo, sync_submission,
 
   # memory
-  Memory, DenseMemory, MemoryBlock, SubMemory,
-  memory,
+  Memory,
   MemoryDomain, MEMORY_DOMAIN_DEVICE, MEMORY_DOMAIN_HOST, MEMORY_DOMAIN_HOST_CACHED,
-  offset, ismapped,
+  ismapped,
 
   # allocators
   LinearAllocator, available_size,
 
   # buffers
-  Buffer, DenseBuffer, BufferBlock, SubBuffer,
+  Buffer,
   device_address, allocate!, isallocated, bind!,
   transfer,
 
   # images
-  Image, ImageBlock, View, ImageView,
+  Image, ImageView,
 
   # textures
   Texture, Sampling, DEFAULT_SAMPLING,
@@ -138,13 +136,12 @@ export
 
   # resources
   new!,
-  buffer, image, attachment,
-  LogicalBuffer, LogicalImage, LogicalAttachment,
-  PhysicalBuffer, PhysicalImage, PhysicalAttachment,
+  buffer_resource, image_resource, attachment_resource,
 
   # descriptors
-  PhysicalDescriptors, ResourceMetaConfig,
-  index,
+  Descriptor, DescriptorID,
+  storage_image_descriptor, sampler_descriptor, sampled_image_descriptor, texture_descriptor,
+  GlobalDescriptors, GlobalDescriptorsConfig,
 
   # render state
   RenderState,
@@ -152,28 +149,28 @@ export
   # commands
   CompactRecord, draw,
   DrawCommand, DrawInfo, DrawState, DrawDirect, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
-  allocate_data, request_descriptor_index, DescriptorIndex,
+  allocate_data, DescriptorIndex,
   DeviceAddressBlock, DeviceAddress,
   StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_data,
 
   # render graph
-  ResourceType,
-  RESOURCE_TYPE_VERTEX_BUFFER,
-  RESOURCE_TYPE_INDEX_BUFFER,
-  RESOURCE_TYPE_COLOR_ATTACHMENT,
-  RESOURCE_TYPE_DEPTH_ATTACHMENT,
-  RESOURCE_TYPE_STENCIL_ATTACHMENT,
-  RESOURCE_TYPE_INPUT_ATTACHMENT,
-  RESOURCE_TYPE_TEXTURE,
-  RESOURCE_TYPE_BUFFER,
-  RESOURCE_TYPE_IMAGE,
-  RESOURCE_TYPE_DYNAMIC,
-  RESOURCE_TYPE_STORAGE,
-  RESOURCE_TYPE_TEXEL,
-  RESOURCE_TYPE_UNIFORM,
-  RESOURCE_TYPE_SAMPLER,
-  RenderGraph, render,
-  RenderArea, RenderNode, add_node,
+  ShaderResourceType,
+  SHADER_RESOURCE_TYPE_VERTEX_BUFFER,
+  SHADER_RESOURCE_TYPE_INDEX_BUFFER,
+  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT,
+  SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT,
+  SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT,
+  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT,
+  SHADER_RESOURCE_TYPE_TEXTURE,
+  SHADER_RESOURCE_TYPE_BUFFER,
+  SHADER_RESOURCE_TYPE_IMAGE,
+  SHADER_RESOURCE_TYPE_DYNAMIC,
+  SHADER_RESOURCE_TYPE_STORAGE,
+  SHADER_RESOURCE_TYPE_TEXEL,
+  SHADER_RESOURCE_TYPE_UNIFORM,
+  SHADER_RESOURCE_TYPE_SAMPLER,
+  RenderGraph, render!,
+  RenderArea, RenderNode, add_node!,
   ResourceDependency, add_resource_dependency!, add_resource_dependencies!, @add_resource_dependencies, @resource_dependencies, clear_attachments,
 
   # WSI

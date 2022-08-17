@@ -1,9 +1,3 @@
-abstract type Memory <: LavaAbstraction end
-
-offset(memory::Memory) = 0
-
-abstract type DenseMemory <: Memory end
-
 """
 Memory domains:
 - `MEMORY_DOMAIN_HOST` is host-visible memory, ideal for uploads to the GPU. It is preferably coherent and non-cached.
@@ -17,44 +11,41 @@ Memory domains:
   MEMORY_DOMAIN_DEVICE_HOST
 end
 
-struct MemoryBlock <: DenseMemory
+struct Memory <: LavaAbstraction
   handle::Vk.DeviceMemory
+  offset::Int64
   size::Int64
-  properties::Vk.MemoryPropertyFlag
+  property_flags::Vk.MemoryPropertyFlag
   domain::MemoryDomain
   is_bound::RefValue{Bool}
-  ptr::RefValue{Ptr{Cvoid}}
+  host_ptr::RefValue{Ptr{Cvoid}}
 end
 
-vk_handle_type(::Type{MemoryBlock}) = Vk.DeviceMemory
+vk_handle_type(::Type{Memory}) = Vk.DeviceMemory
 
-Base.size(block::MemoryBlock) = block.size
+ismapped(memory::Memory) = memory.host_ptr[] ≠ C_NULL
+isbound(memory::Memory) = memory.is_bound[]
 
-properties(block::MemoryBlock) = block.properties
-
-ismapped(block::MemoryBlock) = block.ptr[] ≠ C_NULL
-isbound(block::MemoryBlock) = block.is_bound[]
-
-function Base.map(memory::DenseMemory, size::Integer = size(memory), offset::Integer = offset(memory))
-  if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
+function Base.map(memory::Memory, size::Integer = memory.size, offset::Integer = memory.offset)
+  if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ memory.property_flags
     unwrap(Vk.invalidate_mapped_memory_ranges(device(memory), [Vk.MappedMemoryRange(C_NULL, memory, offset, size)]))
   end
   ptr = unwrap(Vk.map_memory(device(memory), memory, offset, size))
-  memory.ptr[] = ptr
+  memory.host_ptr[] = ptr
   ptr
 end
 
-function unmap(memory::DenseMemory)
-  if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ properties(memory)
-    unwrap(Vk.flush_mapped_memory_ranges(device(memory), [Vk.MappedMemoryRange(C_NULL, memory, offset(memory), size(memory))]))
+function unmap(memory::Memory)
+  if Vk.MEMORY_PROPERTY_HOST_COHERENT_BIT ∉ memory.property_flags
+    unwrap(Vk.flush_mapped_memory_ranges(device(memory), [Vk.MappedMemoryRange(C_NULL, memory, memory.offset, memory.size)]))
   end
-  memory.ptr[] = C_NULL
+  memory.host_ptr[] = C_NULL
   Vk.unmap_memory(device(memory), memory)
 end
 
-function Base.map(f, memory::DenseMemory)
+function Base.map(f, memory::Memory)
   if ismapped(memory)
-    f(memory.ptr[])
+    f(memory.host_ptr[])
   else
     ptr = map(memory)
     ret = f(ptr)
@@ -63,23 +54,43 @@ function Base.map(f, memory::DenseMemory)
   end
 end
 
-function MemoryBlock(device, size::Integer, type::Integer, domain::MemoryDomain)
-  ret = memory_block(device, size, type, domain)
+struct OutOfDeviceMemoryError <: Exception
+  requested_size::Int64
+end
+
+function Base.showerror(io::IO, exc::OutOfDeviceMemoryError)
+  show(io, "OutOfDeviceMemoryError")
+  iszero(exc.requested_size) && return
+  show(io, " (requested allocation size: ", Base.format_bytes(exc.requested_size), ')')
+end
+
+function Memory(device, size::Integer, type::Integer, domain::MemoryDomain)
+  ret = allocate_memory(device, size, type, domain)
   !iserror(ret) && return unwrap(ret)
   err = unwrap_error(ret)
   if in(err.code, (Vk.ERROR_OUT_OF_DEVICE_MEMORY, Vk.ERROR_OUT_OF_HOST_MEMORY))
     GC.gc(false)
-    @propagate_errors memory_block(device, size, type, domain)
+    ret2 = allocate_memory(device, size, type, domain)
+    if iserror(ret2)
+      err2 = unwrap_error(ret2)
+      if err2.code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
+        throw(OutOfDeviceMemoryError(size))
+      elseif err2.code == Vk.ERROR_OUT_OF_HOST_MEMORY
+        throw(OutOfMemoryError())
+      else
+        unwrap(ret2)
+      end
+    end
   else
     unwrap(ret)
   end
 end
 
-function memory_block(device, size, type, domain)::ResultTypes.Result{MemoryBlock, Vk.VulkanError}
+function allocate_memory(device, size, type, domain, flags = Vk.MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT)::ResultTypes.Result{Memory, Vk.VulkanError}
   prop, i = find_memory_type(physical_device(device), type, domain)
-  next = Vk.MemoryAllocateFlagsInfo(0; flags = Vk.MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT)
-  @propagate_errors memory = create(MemoryBlock, device, Vk.MemoryAllocateInfo(size, i; next))
-  MemoryBlock(memory, size, prop.property_flags, domain, Ref(false), Ref(C_NULL))
+  next = Vk.MemoryAllocateFlagsInfo(0; flags)
+  @propagate_errors memory = create(Memory, device, Vk.MemoryAllocateInfo(size, i; next))
+  Memory(memory, 0, size, prop.property_flags, domain, Ref(false), Ref(C_NULL))
 end
 
 find_memory_type(physical_device, type_flag, domain::MemoryDomain) = find_memory_type(Base.Fix1(score, domain), physical_device, type_flag)
@@ -123,37 +134,22 @@ function find_memory_type(physical_device, type_flag, properties::Vk.MemoryPrope
   end
 end
 
-struct SubMemory{M<:DenseMemory} <: DenseMemory
-  memory::M
-  offset::Int64
-  size::Int64
-end
-
-function SubMemory(memory, size; offset = 0)
+function memory_view(memory::Memory, offset, size)
   size > 0 || error("Size must be positive")
-  offset + size > Lava.size(memory) || error("A SubMemory cannot extend beyond its underlying memory")
-  SubMemory(memory, offset, size)
+  offset + size ≤ memory.size || error("A memory view cannot extend beyond its underlying memory")
+  setproperties(memory, (; offset, size))
 end
 
-handle(sub::SubMemory) = handle(sub.memory)
-
-offset(sub::SubMemory) = sub.offset
-
-Base.size(sub::SubMemory) = sub.size
-
-function Base.view(memory::DenseMemory, range::UnitRange)
-  range_check(memory, range)
-  SubMemory(memory, range.start, range.stop - range.start)
+@inline function Base.view(memory::Memory, range::UnitRange)
+  @boundscheck checkbounds(memory, range)
+  memory_view(memory, range.start, range.stop - range.start)
 end
 
-range_check(domain, range) = range.stop ≤ size(domain) || throw(BoundsError(domain, range))
+Base.checkbounds(memory::Memory, range::UnitRange) = range.stop ≤ memory.size || throw(BoundsError(memory, range))
 
-Base.firstindex(memory::Memory) = offset(memory)
-Base.lastindex(memory::Memory) = size(memory)
+Base.firstindex(memory::Memory) = memory.offset
+Base.lastindex(memory::Memory) = memory.size
 
-"Memory that can't be accessed by the renderer."
-struct OpaqueMemory <: Memory end
-
-function Base.show(io::IO, block::MemoryBlock)
-  print(io, MemoryBlock, "($(Base.format_bytes(size(block))), $(block.domain))")
+function Base.show(io::IO, memory::Memory)
+  print(io, Memory, "($(Base.format_bytes(memory.size)), $(memory.domain))")
 end

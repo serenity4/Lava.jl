@@ -12,10 +12,8 @@ struct Device <: LavaAbstraction
   transfer_ops::Vector{Vk.SemaphoreSubmitInfo}
   command_pools::CommandPools
   spirv_features::SupportedFeatures
-  resources::PhysicalResources
   fence_pool::FencePool
-  logical_descriptors::LogicalDescriptors
-  descriptors::PhysicalDescriptors
+  descriptors::GlobalDescriptors
   layout::VulkanLayout
 end
 
@@ -51,18 +49,16 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     [],
     CommandPools(handle),
     spirv_features(physical_device, api_version, extensions, features),
-    PhysicalResources(),
     FencePool(handle),
-    LogicalDescriptors(),
-    PhysicalDescriptors(handle),
+    GlobalDescriptors(handle),
     VulkanLayout(),
   )
 end
 
 const QUEUE_GENERAL_BITS = Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT | Vk.QUEUE_TRANSFER_BIT
 
-function request_command_buffer(device::Device, usage::Vk.QueueFlag = QUEUE_GENERAL_BITS)
-  index = get_queue_family(device.queues, usage)
+function request_command_buffer(device::Device, queue_usage_bits::Vk.QueueFlag = QUEUE_GENERAL_BITS)
+  index = get_queue_family(device.queues, queue_usage_bits)
   pool = request_pool!(device.command_pools, index)
   handle = first(unwrap(Vk.allocate_command_buffers(device, Vk.CommandBufferAllocateInfo(pool, Vk.COMMAND_BUFFER_LEVEL_PRIMARY, 1))))
   # Inefficient, but will at least prevent memory leaks.
@@ -129,9 +125,9 @@ function create_pipelines(device::Device)
   ret
 end
 
-function pipeline_layout(device::Device, resources::PhysicalDescriptors)
+function pipeline_layout(device::Device)
   info = Vk.PipelineLayoutCreateInfo(
-    [resources.gset.layout],
+    [device.descriptors.gset.layout],
     [Vk.PushConstantRange(Vk.SHADER_STAGE_ALL, 0, sizeof(DeviceAddressBlock))],
   )
   get!(device.pipeline_layout_ht, info) do info
@@ -144,10 +140,46 @@ end
 
 pipeline_layout(device::Device, handle::Vk.PipelineLayout) = device.pipeline_layouts[handle]
 
-@forward Device.resources (new!, Base.delete!)
 @forward Device.fence_pool (fence,)
 @forward Device.queues (set_presentation_queue,)
 
 function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")
 end
+
+buffer_resource(size::Integer) = logical_buffer(size)
+
+function buffer_resource(device::Device, data; memory_domain::MemoryDomain = MEMORY_DOMAIN_DEVICE, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, submission = nothing, queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE)
+  buffer = Buffer(device; data, memory_domain, usage_flags, submission, queue_family_indices, sharing_mode)
+  Resource(RESOURCE_TYPE_BUFFER, buffer)
+end
+
+image_resource(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1) = logical_image(format, dims; mip_levels, layers)
+
+function image_resource(device::Device, data;
+  format = nothing,
+  memory_domain = MEMORY_DOMAIN_DEVICE,
+  optimal_tiling = true,
+  usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT,
+  dims = nothing,
+  samples = 1,
+  queue_family_indices = queue_family_indices(device),
+  sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
+  mip_levels = 1,
+  array_layers = 1,
+  layout::Optional{Vk.ImageLayout} = nothing,
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)))
+
+  image = Image(device; data, format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, layout, submission)
+  Resource(RESOURCE_TYPE_IMAGE, image)
+end
+
+function attachment_resource(format::Union{Vk.Format, DataType}, dims = nothing; kwargs...)
+  logical_attachment(format, dims; kwargs...)
+end
+
+function attachment_resource(device::Device, data; access::MemoryAccess = READ | WRITE, aspect::Vk.ImageAspectFlag = Vk.IMAGE_ASPECT_COLOR_BIT, kwargs...)
+  Resource(RESOURCE_TYPE_ATTACHMENT, Attachment(device, data; access, aspect, kwargs...))
+end
+
+attachment_resource(view::ImageView, access::MemoryAccess) = Resource(RESOURCE_TYPE_ATTACHMENT, Attachment(view, access))

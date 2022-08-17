@@ -22,7 +22,7 @@ end
 
 function apply(cb::CommandBuffer, draw::DrawIndirect)
   buffer = draw.parameters
-  Vk.cmd_draw_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
+  Vk.cmd_draw_indirect(cb, buffer, buffer.offset, draw.count, buffer.stride)
 end
 
 """
@@ -42,23 +42,23 @@ DrawIndexed(indices, instances = 1:1) = DrawIndexed(0, indices, instances)
 
 struct IndexData
   index_list::Vector{UInt32}
-  index_buffer::RefValue{BufferBlock{MemoryBlock}}
+  index_buffer::RefValue{Buffer}
   indices::IdDict{DrawIndexed,UnitRange{Int64}}
 end
 
-IndexData() = IndexData(UInt32[], Ref{BufferBlock{MemoryBlock}}(), IdDict())
+IndexData() = IndexData(UInt32[], Ref{Buffer}(), IdDict())
 
 function allocate_index_buffer(id::IndexData, device::Device)
   #TODO: Create index buffer in render graph to avoid excessive synchronization.
-  id.index_buffer[] = buffer(device, id.index_list .- 1U; usage = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
+  id.index_buffer[] = Buffer(device; data = id.index_list .- 1U, usage_flags = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 end
 
 "Append new indices to `idata`, returning the corresponding range of indices to be used for indexed draw calls."
 function Base.append!(id::IndexData, command::DrawIndexed)
-  first_index = lastindex(id.index_list) + 1
+  start = lastindex(id.index_list) + 1
+  stop = lastindex(id.index_list) + length(command.indices)
   append!(id.index_list, command.indices)
-  range = first_index:lastindex(id.index_list)
-  id.indices[command] = range
+  id.indices[command] = start:stop
   nothing
 end
 
@@ -81,14 +81,21 @@ end
 
 function apply(cb::CommandBuffer, draw::DrawIndexedIndirect)
   buffer = draw.parameters
-  Vk.cmd_draw_indexed_indirect(cb, buffer, offset(buffer), draw.count, stride(buffer))
+  Vk.cmd_draw_indexed_indirect(cb, buffer, buffer.offset, draw.count, buffer.stride)
 end
 
 @auto_hash_equals struct RenderTargets
-  color::Vector{Union{LogicalAttachment, PhysicalAttachment}}
-  depth::Optional{Union{LogicalAttachment, PhysicalAttachment}}
-  stencil::Optional{Union{LogicalAttachment, PhysicalAttachment}}
+  color::Vector{Resource}
+  depth::Optional{Resource}
+  stencil::Optional{Resource}
 end
 
 RenderTargets(color::AbstractVector; depth = nothing, stencil = nothing) = RenderTargets(color, depth, stencil)
 RenderTargets(color...; depth = nothing, stencil = nothing) = RenderTargets(collect(color); depth, stencil)
+
+function Vk.PipelineRenderingCreateInfo(targets::RenderTargets)
+  color_formats = [(c.data::Attachment).view.format for c in targets.color]
+  depth_format = isnothing(targets.depth) ? Vk.FORMAT_UNDEFINED : (targets.depth.data::Attachment).view.format
+  stencil_format = isnothing(targets.stencil) ? Vk.FORMAT_UNDEFINED : (targets.stencil.data::Attachment).view.format
+  Vk.PipelineRenderingCreateInfo(0, color_formats, depth_format, stencil_format)
+end

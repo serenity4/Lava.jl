@@ -42,7 +42,7 @@ Texture identified by UUID with sampling parameters.
 This texture is to be transformed into a texture index (to index into an array of sampled images or combined image-samplers depending on whether sampling parameters are provided) to be included in user-defined data storage to be accessible from a shader.
 """
 struct Texture
-  image::Union{LogicalImage,PhysicalImage}
+  image::Resource
   sampling::Union{Nothing,Sampling}
 end
 

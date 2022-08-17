@@ -3,16 +3,16 @@ function xcb_surface(instance, win::XCBWindow)
   Surface(handle, win)
 end
 
-function render_rectangle(device, image, uv)
+function render_rectangle(device, image, uv, normal_map)
   vdata = [
     TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
     TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
     TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
-  rg = program_2(device, vdata, PhysicalAttachment(Attachment(View(image), WRITE)), uv)
+  rg = program_2(device, vdata, attachment_resource(ImageView(image), WRITE), uv; normal_map)
   command_buffer = Lava.request_command_buffer(device)
-  baked = render(command_buffer, rg)
+  baked = render!(rg, command_buffer)
   Lava.transition_layout(command_buffer, image, Vk.IMAGE_LAYOUT_PRESENT_SRC_KHR)
   SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], release_after_completion = [baked])
 end
@@ -25,8 +25,9 @@ end
     Swapchain(device, xcb_surface(instance, win), Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT)
   end
   cycle = FrameCycle(device, swapchain)
+  normal_map = read_normal_map(device)
   set_presentation_queue(device, [swapchain.surface])
-  cycle_f(x, t) = render_rectangle(device, x, Vec2(0.1 + t * 0.9, 0.5cos(t)))
+  cycle_f(image, t) = render_rectangle(device, image, Vec2(0.1 + t * 0.9, 0.5cos(t)), normal_map)
   cycle_render(cycle, t) = wait(cycle!(Base.Fix2(cycle_f, t), cycle))
 
   test_validation_msg(x -> @test isempty(x)) do

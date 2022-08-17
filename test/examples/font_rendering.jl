@@ -23,7 +23,7 @@ function program_3(device, positions, ppm)
       Point(remapped[1], -remapped[2])
     end)
   end
-  curve_buffer = buffer(device, curves)
+  curve_buffer = Buffer(device, curves)
   vdata = [(pos..., UInt32(0), UInt32(length(curves))) for pos in positions]
   register(fg.frame, :curve_buffer, curve_buffer)
 
@@ -56,7 +56,7 @@ end
     (1.0f0, 1.0f0),
   ]
   fg = program_3(device, positions, 12.0f0)
-  render(fg)
+  render!(fg)
   # FIXME: debug why font shader fails
   data = collect(image(fg.frame.resources[:color].data), device)
   save_test_render("glyph_A.png", data, 0x2a62b795abd45046)

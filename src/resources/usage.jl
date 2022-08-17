@@ -1,114 +1,144 @@
-abstract type ResourceUsage end
-
-Base.@kwdef struct BufferUsage <: ResourceUsage
-  type::ResourceType = ResourceType(0)
-  access::MemoryAccess = MemoryAccess(0)
-  stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
-  usage::Vk.BufferUsageFlag = Vk.BufferUsageFlag(0)
+@bitmask_flag ShaderResourceType::UInt16 begin
+  SHADER_RESOURCE_TYPE_VERTEX_BUFFER = 1
+  SHADER_RESOURCE_TYPE_INDEX_BUFFER = 2
+  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT = 4
+  SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT = 8
+  SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT = 16
+  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT = 32
+  SHADER_RESOURCE_TYPE_TEXTURE = 64
+  SHADER_RESOURCE_TYPE_BUFFER = 128
+  SHADER_RESOURCE_TYPE_IMAGE = 256
+  SHADER_RESOURCE_TYPE_DYNAMIC = 512
+  SHADER_RESOURCE_TYPE_STORAGE = 1024
+  SHADER_RESOURCE_TYPE_TEXEL = 2048
+  SHADER_RESOURCE_TYPE_UNIFORM = 4096
+  SHADER_RESOURCE_TYPE_SAMPLER = 8192
 end
 
-Base.@kwdef struct ImageUsage <: ResourceUsage
-  type::ResourceType = ResourceType(0)
+Base.@kwdef struct BufferUsage
+  type::ShaderResourceType = ShaderResourceType(0)
   access::MemoryAccess = MemoryAccess(0)
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
-  usage::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
+  usage_flags::Vk.BufferUsageFlag = Vk.BufferUsageFlag(0)
+end
+
+combine(x::BufferUsage, y::BufferUsage) = BufferUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags)
+
+Base.@kwdef struct ImageUsage
+  type::ShaderResourceType = ShaderResourceType(0)
+  access::MemoryAccess = MemoryAccess(0)
+  stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
+  usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
   samples::Int64 = 1
+  function ImageUsage(type, access, stages, usage_flags, samples)
+    ispow2(samples) || error("The number of samples must be a power of two.")
+    new(type, access, stages, usage_flags, samples)
+  end
 end
 
-Base.merge(x::T, y::T) where {T <: Union{BufferUsage, ImageUsage}} = T(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage | y.usage, x.samples | y.samples)
+combine(x::ImageUsage, y::ImageUsage) = ImageUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.samples | y.samples)
 
-Base.@kwdef struct AttachmentUsage <: ResourceUsage
-  type::ResourceType = ResourceType(0)
+Base.@kwdef struct AttachmentUsage
+  type::ShaderResourceType = ShaderResourceType(0)
   access::MemoryAccess = MemoryAccess(0)
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
-  usage::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
+  usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
   aspect::Vk.ImageAspectFlag = Vk.ImageAspectFlag(0) # can be deduced
   samples::Int64 = 1
-  clear_value::Optional{NTuple{4,Float32}}
+  clear_value::Optional{NTuple{4,Float32}} = nothing
+  resolve_mode::Vk.ResolveModeFlag = Vk.RESOLVE_MODE_AVERAGE_BIT
+  function AttachmentUsage(type, access, stages, usage_flags, aspect, samples, clear_value, resolve_mode)
+    ispow2(samples) || error("The number of samples must be a power of two.")
+    new(type, access, stages, usage_flags, aspect, samples, clear_value, resolve_mode)
+  end
 end
 
 function Base.merge(x::AttachmentUsage, y::AttachmentUsage)
-  AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage | y.usage, x.aspect | y.aspect, x.samples | y.samples, nothing)
+  x.clear_value === y.clear_value || error("Different clear values across a single pass are not allowed.")
+  x.resolve_mode === y.resolve_mode || error("Different multisampling resolve modes across a single pass are not allowed.")
+  combine(x, y)
+end
+
+Base.merge(x::T, y::T) where {T <: Union{BufferUsage, ImageUsage}} = combine(x, y)
+
+function combine(x::AttachmentUsage, y::AttachmentUsage)
+  AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.aspect | y.aspect, x.samples | y.samples, x.clear_value, y.resolve_mode)
+end
+
+struct ResourceUsage
+  id::ResourceID
+  usage::Union{BufferUsage,ImageUsage,AttachmentUsage}
+end
+
+function Base.merge(x::ResourceUsage, y::ResourceUsage)
+  x.id == y.id || error("Resource uses for different resource IDs cannot be merged.")
+  ResourceUsage(x.id, merge(x.usage, y.usage))
+end
+
+function combine(x::ResourceUsage, y::ResourceUsage)
+  x.id == y.id || error("Resource uses for different resource IDs cannot be combined.")
+  ResourceUsage(x.id, combine(x.usage, y.usage))
 end
 
 const DEFAULT_CLEAR_VALUE = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
 
-function rendering_info(attachment::PhysicalAttachment, usage::AttachmentUsage)
+function rendering_info(attachment::Attachment, usage::AttachmentUsage)
   clear = !isnothing(usage.clear_value)
   Vk.RenderingAttachmentInfo(
-    image_layout(usage),
+    image_layout(usage.type, usage.access),
     Vk.IMAGE_LAYOUT_UNDEFINED,
     load_op(usage.access, clear),
     store_op(usage.access),
     Vk.ClearValue(Vk.ClearColorValue(something(usage.clear_value, DEFAULT_CLEAR_VALUE)));
-    image_view = attachment.view,
+    image_view = attachment.view.handle,
   )
 end
 
-function rendering_info(attachment::PhysicalAttachment, usage::AttachmentUsage, resolve_attachment::PhysicalAttachment, resolve_usage::AttachmentUsage)
+function rendering_info(attachment::Attachment, usage::AttachmentUsage, resolve_attachment::Attachment, resolve_usage::AttachmentUsage)
   info = rendering_info(attachment, usage)
-  setproperties(info, (; resolve_image_layout = image_layout(resolve_usage), attachment.info.resolve_mode, resolve_image_view = resolve_attachment.view))
-end
-
-struct ResourceUses
-  buffers::Dictionary{ResourceUUID,BufferUsage}
-  images::Dictionary{ResourceUUID,ImageUsage}
-  attachments::Dictionary{ResourceUUID,AttachmentUsage}
-end
-
-ResourceUses() = ResourceUses(Dictionary(), Dictionary(), Dictionary())
-
-function Base.merge(uses::ResourceUses, uses2::ResourceUses, other_uses::ResourceUses...)
-  other_uses = [uses2; collect(other_uses)]
-  ResourceUses(
-    reduce(mergewith(merge), getproperty.(other_uses, :buffers); init = uses.buffers),
-    reduce(mergewith(merge), getproperty.(other_uses, :images); init = uses.images),
-    reduce(mergewith(merge), getproperty.(other_uses, :attachments); init = uses.attachments),
-  )
+  setproperties(info, (; resolve_image_layout = image_layout(resolve_usage.type, resolve_usage.access), usage.resolve_mode, resolve_image_view = resolve_attachment.view.handle))
 end
 
 """
-Deduce the Vulkan usage, layout and access flags form a resource given its type, stage and access.
+Deduce the Vulkan usage, layout and access flags form a resource given its type and access.
 
 The idea is to reconstruct information like `Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT` and `Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` from a more decoupled description.
 """
-function image_layout(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag2)
+function image_layout(type::ShaderResourceType, access::MemoryAccess)
   @match (type, access) begin
-    (&RESOURCE_TYPE_COLOR_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    (&RESOURCE_TYPE_COLOR_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    (&RESOURCE_TYPE_COLOR_ATTACHMENT || &RESOURCE_TYPE_IMAGE || RESOURCE_TYPE_TEXTURE, &(READ | WRITE)) => Vk.IMAGE_LAYOUT_GENERAL
-    (&RESOURCE_TYPE_DEPTH_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
-    (&RESOURCE_TYPE_DEPTH_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
-    (&RESOURCE_TYPE_STENCIL_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL
-    (&RESOURCE_TYPE_STENCIL_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL
-    (&(RESOURCE_TYPE_DEPTH_ATTACHMENT | RESOURCE_TYPE_STENCIL_ATTACHMENT), &READ) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-    (&(RESOURCE_TYPE_DEPTH_ATTACHMENT | RESOURCE_TYPE_STENCIL_ATTACHMENT), &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    (&RESOURCE_TYPE_INPUT_ATTACHMENT || &RESOURCE_TYPE_TEXTURE || &RESOURCE_TYPE_IMAGE, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    (&SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    (&SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    (&SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT || &SHADER_RESOURCE_TYPE_IMAGE || SHADER_RESOURCE_TYPE_TEXTURE, &(READ | WRITE)) => Vk.IMAGE_LAYOUT_GENERAL
+    (&SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+    (&SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+    (&SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL
+    (&SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL
+    (&(SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT | SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT), &READ) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+    (&(SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT | SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT), &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    (&SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT || &SHADER_RESOURCE_TYPE_TEXTURE || &SHADER_RESOURCE_TYPE_IMAGE, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     _ => error("Unsupported combination of type $type and access $access")
   end
 end
 
-image_layout(usage::ResourceUsage) = image_layout(usage.type, usage.access, usage.stages)
-
-function buffer_usage_bits(type::ResourceType, access::MemoryAccess)
+function buffer_usage_flags(type::ShaderResourceType, access::MemoryAccess)
   bits = Vk.BufferUsageFlag(0)
 
-  RESOURCE_TYPE_BUFFER | RESOURCE_TYPE_STORAGE in type && (bits |= Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
-  RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT)
-  RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
-  RESOURCE_TYPE_BUFFER in type && access == READ && (bits |= Vk.BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+  SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_STORAGE in type && (bits |= Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
+  SHADER_RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT)
+  SHADER_RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
+  SHADER_RESOURCE_TYPE_BUFFER in type && access == READ && (bits |= Vk.BUFFER_USAGE_UNIFORM_BUFFER_BIT)
 
   bits
 end
 
-function image_usage_bits(type::ResourceType, access::MemoryAccess)
+function image_usage_flags(type::ShaderResourceType, access::MemoryAccess)
   bits = Vk.ImageUsageFlag(0)
 
-  RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-  (RESOURCE_TYPE_DEPTH_ATTACHMENT in type || RESOURCE_TYPE_STENCIL_ATTACHMENT in type) && (bits |= Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-  RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-  RESOURCE_TYPE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
-  RESOURCE_TYPE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
+  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+  (SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT in type || SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT in type) && (bits |= Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+  SHADER_RESOURCE_TYPE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
+  SHADER_RESOURCE_TYPE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
 
   bits
 end
@@ -122,35 +152,33 @@ const SHADER_STAGES = |(
   Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 )
 
-function access_bits(type::ResourceType, access::MemoryAccess, stage::Vk.PipelineStageFlag2)
+function access_flags(type::ShaderResourceType, access::MemoryAccess, stages::Vk.PipelineStageFlag2)
   bits = Vk.AccessFlag2(0)
-  RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT)
-  RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_2_INDEX_READ_BIT)
-  if RESOURCE_TYPE_COLOR_ATTACHMENT in type
+  SHADER_RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT)
+  SHADER_RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_2_INDEX_READ_BIT)
+  if SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT in type
     READ in access && (bits |= Vk.ACCESS_2_COLOR_ATTACHMENT_READ_BIT)
     WRITE in access && (bits |= Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
   end
-  if (RESOURCE_TYPE_DEPTH_ATTACHMENT in type || RESOURCE_TYPE_STENCIL_ATTACHMENT in type)
+  if (SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT in type || SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT in type)
     #TODO: support mixed access modes (depth write, stencil read and vice-versa)
     READ in access && (bits |= Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)
     WRITE in access && (bits |= Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
   end
-  RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.ACCESS_2_INPUT_ATTACHMENT_READ_BIT)
-  if RESOURCE_TYPE_BUFFER in type && !iszero(stage & SHADER_STAGES)
+  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.ACCESS_2_INPUT_ATTACHMENT_READ_BIT)
+  if SHADER_RESOURCE_TYPE_BUFFER in type && !iszero(stages & SHADER_STAGES)
     access == READ && (bits |= Vk.ACCESS_2_UNIFORM_READ_BIT)
     WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
   end
-  RESOURCE_TYPE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_2_SHADER_READ_BIT)
-  RESOURCE_TYPE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
+  SHADER_RESOURCE_TYPE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_2_SHADER_READ_BIT)
+  SHADER_RESOURCE_TYPE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
   bits
 end
 
-access_bits(usage::ResourceUsage) = access_bits(usage.type, usage.access, usage.stages)
-
-function aspect_bits(type::ResourceType)
+function aspect_flags(type::ShaderResourceType)
   bits = Vk.ImageAspectFlag(0)
-  RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_COLOR_BIT)
-  RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_DEPTH_BIT)
-  RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_STENCIL_BIT)
+  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_COLOR_BIT)
+  SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_DEPTH_BIT)
+  SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_STENCIL_BIT)
   bits
 end

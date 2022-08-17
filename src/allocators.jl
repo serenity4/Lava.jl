@@ -1,17 +1,16 @@
 mutable struct LinearAllocator
-  buffer::BufferBlock{MemoryBlock}
+  buffer::Buffer
   last_offset::Int64
   base_ptr::Ptr{Cvoid}
 end
 
-Base.size(la::LinearAllocator) = size(la.buffer)
-available_size(la::LinearAllocator, alignment = 0) = size(la) - get_offset(la, alignment)
+available_size(la::LinearAllocator, alignment = 0) = la.buffer.size - get_offset(la, alignment)
 
 device(la::LinearAllocator) = device(la.buffer)
 
 function LinearAllocator(device, size)
-  b = buffer(device; size, usage = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, memory_domain = MEMORY_DOMAIN_DEVICE_HOST)
-  LinearAllocator(b, 0, map(memory(b)))
+  b = Buffer(device; size, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, memory_domain = MEMORY_DOMAIN_DEVICE_HOST)
+  LinearAllocator(b, 0, map(b.memory[]))
 end
 
 device_address(la::LinearAllocator) = device_address(la.buffer)
@@ -28,8 +27,8 @@ Base.copyto!(la::LinearAllocator, data, alignment = 8) = copyto!(la, bytes(data)
 function Base.copyto!(la::LinearAllocator, data::Vector{UInt8}, alignment)
   offset = get_offset(la, alignment)
   data_size = sizeof(data)
-  if offset + data_size > size(la.buffer)
-    error("Data does not fit in memory (available: $(size(la.buffer) - offset), requested: $data_size).")
+  if offset + data_size > la.buffer.size
+    error("Data does not fit in memory (available: $(la.buffer.size - offset), requested: $data_size).")
   end
   ptrcopy!(la.base_ptr + offset, data)
   la.last_offset = offset + data_size

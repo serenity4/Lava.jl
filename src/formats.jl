@@ -1,3 +1,5 @@
+# Generated with formats_gen.jl
+
 function format_type(format::Vk.Format)
   @match format begin
     &Vk.FORMAT_R8G8B8_UNORM => RGB{N0f8}

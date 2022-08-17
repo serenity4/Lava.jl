@@ -1,64 +1,113 @@
-const DescriptorUUID = UUID
+primitive type DescriptorID 128 end
+
+DescriptorID(id::UInt128) = reinterpret(DescriptorID, id)
+Base.UInt128(id::DescriptorID) = reinterpret(UInt128, id)
+DescriptorID(id::UUID) = DescriptorID(UInt128(id))
+
+@enum DescriptorType::UInt8 begin
+  DESCRIPTOR_TYPE_STORAGE_IMAGE
+  DESCRIPTOR_TYPE_SAMPLER
+  DESCRIPTOR_TYPE_SAMPLED_IMAGE
+  DESCRIPTOR_TYPE_TEXTURE
+  DESCRIPTOR_TYPE_ATTACHMENT
+  DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE
+end
+
+function DescriptorID(type::DescriptorType)
+  id = UInt128(uuid())
+  DescriptorID((id << 8) >> 8 + (UInt128(type) << 120))
+end
+
+Vk.DescriptorType(id::DescriptorID) = Vk.DescriptorType(descriptor_type(id))
+function Vk.DescriptorType(t::DescriptorType)
+  @match t begin
+    &DESCRIPTOR_TYPE_STORAGE_IMAGE => Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE
+    &DESCRIPTOR_TYPE_SAMPLER => Vk.DESCRIPTOR_TYPE_SAMPLER
+    &DESCRIPTOR_TYPE_SAMPLED_IMAGE => Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE
+    &DESCRIPTOR_TYPE_TEXTURE => Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+    &DESCRIPTOR_TYPE_ATTACHMENT => Vk.DESCRIPTOR_TYPE_INPUT_ATTACHMENT
+    &DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE => Vk.DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR
+  end
+end
+
+# Not sure whether this is relevant.
+@bitmask_flag DescriptorFlags::UInt32 begin
+  DESCRIPTOR_IS_LOGICAL = 1
+end
+
+struct Descriptor
+  id::DescriptorID
+  data::Union{Resource,Sampling,Texture}
+  flags::DescriptorFlags
+  node_id::Optional{NodeID}
+  written_state::Union{Nothing,Vk.DescriptorImageInfo,Vk.DescriptorBufferInfo}
+end
+
+Descriptor(type::DescriptorType, data, node_id::Optional{NodeID} = nothing; flags = DescriptorFlags(0)) = Descriptor(DescriptorID(type), data, flags, node_id, nothing)
+
+Vk.DescriptorType(descriptor::Descriptor) = Vk.DescriptorType(descriptor.id)
+descriptor_type(id::DescriptorID) = DescriptorType(UInt8(UInt128(id) >> 120))
+descriptor_type(descriptor::Descriptor) = descriptor_type(descriptor.id)
+
+assert_type(descriptor::Descriptor, dtype::DescriptorType) = @assert descriptor_type(descriptor) == dtype "Descriptor type is $(descriptor_type(descriptor)) (expected $dtype)"
+
+storage_image_descriptor(image::Resource, node = nothing) = Descriptor(DESCRIPTOR_TYPE_STORAGE_IMAGE, image, node)
+sampler_descriptor(sampler::Sampling, node = nothing) = Descriptor(DESCRIPTOR_TYPE_SAMPLER, sampler, node)
+sampled_image_descriptor(image::Resource, node = nothing) = Descriptor(DESCRIPTOR_TYPE_SAMPLED_IMAGE, image, node)
+texture_descriptor(tex::Texture, node = nothing) = Descriptor(DESCRIPTOR_TYPE_TEXTURE, tex, node)
 
 struct DescriptorArray
-  descriptors::Dictionary{UInt32,DescriptorUUID}
-  indices::Dictionary{DescriptorUUID,UInt32}
+  descriptors::Dictionary{UInt32,DescriptorID}
+  indices::Dictionary{DescriptorID,UInt32}
   holes::Vector{UInt32}
 end
 
 DescriptorArray() = DescriptorArray(Dictionary(), Dictionary(), UInt32[])
 
-function new_descriptor!(arr::DescriptorArray, uuid::DescriptorUUID)
-  existing = get(arr.indices, uuid, nothing)
+function new_descriptor!(arr::DescriptorArray, id::DescriptorID)
+  existing = get(arr.indices, id, nothing)
   !isnothing(existing) && return existing
   index = isempty(arr.holes) ? UInt32(length(arr.descriptors)) : pop!(arr.holes)
-  insert!(arr.descriptors, index, uuid)
-  set!(arr.indices, uuid, index)
+  insert!(arr.descriptors, index, id)
+  set!(arr.indices, id, index)
   index
 end
 
-function delete_descriptor!(arr::DescriptorArray, uuid::DescriptorUUID)
-  index = arr.indices[uuid]
-  delete!(arr.indices, uuid)
+function delete_descriptor!(arr::DescriptorArray, id::DescriptorID)
+  index = arr.indices[id]
+  delete!(arr.indices, id)
   delete!(arr.descriptors, index)
   push!(arr.holes, index)
 end
 
-struct LogicalDescriptors
+struct GlobalDescriptors
+  pool::Vk.DescriptorPool
+  gset::DescriptorSet
   arrays::Dictionary{Vk.DescriptorType,DescriptorArray}
-  sampled_images::Dictionary{DescriptorUUID,Union{LogicalImage,PhysicalImage}}
-  storage_images::Dictionary{DescriptorUUID,Union{LogicalImage,PhysicalImage}}
-  samplers::Dictionary{DescriptorUUID,Sampling}
-  textures::Dictionary{DescriptorUUID,Texture}
-  render_nodes::Dictionary{DescriptorUUID,NodeUUID}
-  descriptor_types::Dictionary{DescriptorUUID, Vk.DescriptorType}
+  descriptors::Dictionary{DescriptorID, Descriptor}
+  delete_after_cycle::Set{DescriptorID}
 end
 
-LogicalDescriptors() = LogicalDescriptors(Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary())
+function Base.delete!(gdescs::GlobalDescriptors, id::DescriptorID)
+  descriptor = get(gdescs.descriptors, id, nothing)
+  isnothing(descriptor) && return
+  delete!(gdescs.descriptors, id)
+end
 
-function Base.empty!(logical_descriptors::LogicalDescriptors)
-  empty!(logical_descriptors.arrays)
-  empty!(logical_descriptors.sampled_images)
-  empty!(logical_descriptors.samplers)
-  empty!(logical_descriptors. textures)
-  empty!(logical_descriptors.render_nodes)
-  empty!(logical_descriptors.descriptor_types)
-  logical_descriptors
+function Base.empty!(gdescs::GlobalDescriptors)
+  empty!(gdescs.arrays)
+  empty!(gdescs.descriptors)
+  nothing
 end
 
 Base.@kwdef struct GlobalDescriptorsConfig
-  textures::Int64 = 2048
+  sampled_images::Int64 = 2048
   storage_images::Int64 = 512
   samplers::Int64 = 2048
+  textures::Int64 = 2048
 end
 
-struct PhysicalDescriptors
-  pool::Vk.DescriptorPool
-  gset::DescriptorSet
-  images::Dictionary{DescriptorUUID,Vk.DescriptorImageInfo}
-end
-
-function PhysicalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescriptorsConfig())
+function GlobalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescriptorsConfig())
   # MEMORY LEAK: This pool is never reset, and so its memory is never reclaimed.
   # Inserting a naive finalizer produces a segfault, needs another solution.
   pool = Vk.DescriptorPool(
@@ -74,14 +123,24 @@ function PhysicalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDes
 
   layout = Vk.DescriptorSetLayout(device,
     [
-      Vk.DescriptorSetLayoutBinding(0, Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.SHADER_STAGE_ALL; descriptor_count = config.textures),
+      Vk.DescriptorSetLayoutBinding(0, Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.SHADER_STAGE_ALL; descriptor_count = config.sampled_images),
       Vk.DescriptorSetLayoutBinding(1, Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, Vk.SHADER_STAGE_ALL; descriptor_count = config.storage_images),
       Vk.DescriptorSetLayoutBinding(2, Vk.DESCRIPTOR_TYPE_SAMPLER, Vk.SHADER_STAGE_ALL; descriptor_count = config.samplers),
       Vk.DescriptorSetLayoutBinding(3, Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, Vk.SHADER_STAGE_ALL; descriptor_count = config.textures),
     ], next = Vk.DescriptorSetLayoutBindingFlagsCreateInfo(repeat([Vk.DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT], 4)))
 
   set = DescriptorSet(first(unwrap(Vk.allocate_descriptor_sets(device, Vk.DescriptorSetAllocateInfo(pool, [layout])))), layout)
-  PhysicalDescriptors(pool, set, Dictionary())
+  GlobalDescriptors(pool, set, Dictionary(), Dictionary(), Set{DescriptorID}())
+end
+
+# Must only be called in-between cycles.
+function free_unused_descriptors!(gdescs::GlobalDescriptors)
+  for id in gdescs.delete_after_cycle
+    dtype = Vk.DescriptorType(id)
+    delete_descriptor!(gdescs.arrays[dtype], id)
+    delete!(gdescs.descriptors, id)
+  end
+  empty!(gdescs.delete_after_cycle)
 end
 
 primitive type DescriptorIndex 32 end

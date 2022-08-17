@@ -15,16 +15,15 @@ function program_3(device, vdata, color)
 end
 
 @testset "Multisampled triangle" begin
-  color_ms = attachment(device; format = Vk.FORMAT_R16G16B16A16_SFLOAT, samples = 4, usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, dims = (1920, 1080))
-  pcolor_ms = PhysicalAttachment(color_ms)
+  color_ms = attachment_resource(device, nothing; format = Vk.FORMAT_R16G16B16A16_SFLOAT, samples = 4, usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, dims = [1920, 1080])
   vdata = [
     PosColor(Vec2(0.0, 0.8), Arr{Float32}(1.0, 0.0, 0.0)),
     PosColor(Vec2(0.5, -0.8), Arr{Float32}(0.0, 0.0, 1.0)),
     PosColor(Vec2(-0.5, -0.8), Arr{Float32}(0.0, 1.0, 0.0)),
   ]
-  rg = program_3(device, vdata, pcolor_ms)
+  rg = program_3(device, vdata, color_ms)
 
-  render(rg)
-  data = collect(RGBA{Float16}, color_ms.view.image, device)
+  render!(rg)
+  data = collect(RGBA{Float16}, color_ms.data.view.image, device)
   save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
 end;

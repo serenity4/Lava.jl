@@ -1,81 +1,46 @@
-"""
-Buffer backed by memory of type `M`.
-
-Offsets, strides and sizes are always expressed in bytes.
-"""
-abstract type Buffer{M<:Memory} <: LavaAbstraction end
-
-memory_type(::Type{<:Buffer{M}}) where {M} = M
-memory_type(t) = memory_type(typeof(t))
-
-vk_handle_type(::Type{<:Buffer}) = Vk.Buffer
-
-Vk.bind_buffer_memory(buffer::Buffer, memory::Memory) = Vk.bind_buffer_memory(device(buffer), buffer, memory, offset(memory))
-
-# abstract type DataOperation end
-
-# abstract type Transfer <: DataOperation end
-# abstract type VideoDecode <: DataOperation end
-# abstract type VideoEncode <: DataOperation end
-
-# abstract type StorageType end
-
-# abstract type Vertex <: StorageType end
-# abstract type Index{T} <: StorageType end
-
-# abstract type SparsityType end
-
-# abstract type SparseResidency <: SparsityType end
-# abstract type SparseBinding <: SparsityType end
-
-# abstract type Sparse{T<:SparsityType,O<:LavaAbstraction} <: StorageType end
-
-abstract type DenseBuffer{M<:DenseMemory} <: Buffer{M} end
-
-isallocated(buffer::DenseBuffer) = isdefined(buffer.memory, 1)
-memory(buffer::DenseBuffer) = buffer.memory[]
-
-struct BufferBlock{M<:DenseMemory} <: DenseBuffer{M}
+struct Buffer <: LavaAbstraction
   handle::Vk.Buffer
   size::Int64
-  usage::Vk.BufferUsageFlag
+  offset::Int64
+  stride::Int64
+  usage_flags::Vk.BufferUsageFlag
   queue_family_indices::Vector{Int8}
   sharing_mode::Vk.SharingMode
-  memory::RefValue{M}
+  memory::RefValue{Memory}
 end
 
-Base.size(buffer::BufferBlock) = buffer.size
-usage(buffer::BufferBlock) = buffer.usage
+vk_handle_type(::Type{Buffer}) = Vk.Buffer
 
-device_address(buffer::BufferBlock) = Vk.get_buffer_device_address(device(buffer), Vk.BufferDeviceAddressInfo(handle(buffer)))
+Vk.bind_buffer_memory(buffer::Buffer, memory::Memory) = Vk.bind_buffer_memory(device(buffer), buffer, memory, memory.offset)
 
-function BufferBlock(
+isallocated(buffer::Buffer) = isdefined(buffer.memory, 1)
+
+device_address(buffer::Buffer) = Vk.get_buffer_device_address(device(buffer), Vk.BufferDeviceAddressInfo(handle(buffer))) + UInt64(buffer.offset)
+
+function Buffer(
   device,
-  size;
-  usage = Vk.BufferUsageFlag(0),
+  size::Integer;
+  usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
   queue_family_indices = queue_family_indices(device),
   sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
-  memory_type = MemoryBlock,
-  allocate = false,
 )
-  usage |= Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-  info = Vk.BufferCreateInfo(size, usage, sharing_mode, queue_family_indices)
-  handle = unwrap(create(BufferBlock, device, info))
-  buffer = BufferBlock(handle, size, usage, convert(Vector{Int8}, queue_family_indices), sharing_mode, Ref{memory_type}())
+  info = Vk.BufferCreateInfo(size, usage_flags, sharing_mode, queue_family_indices)
+  handle = unwrap(create(Buffer, device, info))
+  buffer = Buffer(handle, size, 0, 0, usage_flags, queue_family_indices, sharing_mode, Ref{Memory}())
 end
 
-function Base.show(io::IO, block::BufferBlock)
-  print(io, BufferBlock, "($(Base.format_bytes(size(block))), $(block.usage)")
-  if !isallocated(block)
+function Base.show(io::IO, buffer::Buffer)
+  print(io, Buffer, "($(Base.format_bytes(buffer.size))), $(buffer.usage_flags)")
+  if !isallocated(buffer)
     print(io, ", unallocated")
   end
   print(io, ')')
 end
 
-function Base.similar(buffer::BufferBlock{T}; memory_domain = nothing, usage = buffer.usage) where {T}
-  similar = BufferBlock(device(buffer), size(buffer); usage, buffer.queue_family_indices, buffer.sharing_mode, memory_type = T)
+function Base.similar(buffer::Buffer; memory_domain = nothing, usage_flags = buffer.usage_flags)
+  similar = Buffer(device(buffer), buffer.size; usage_flags, buffer.queue_family_indices, buffer.sharing_mode)
   if isallocated(buffer)
-    memory_domain = @something(memory_domain, memory(buffer).domain)
+    memory_domain = @something(memory_domain, buffer.memory[].domain)
     allocate!(similar, memory_domain)
   end
   similar
@@ -100,51 +65,34 @@ function check_isbits(@nospecialize(T))
   isbitstype(T) || error("Expected isbits type for a pointer copy operation, got data of type $T")
 end
 
-struct SubBuffer{B<:DenseBuffer} <: Buffer{SubMemory}
-  buffer::B
-  offset::Int64
-  stride::Int64
-  size::Int64
+@inline function Base.view(buffer::Buffer, range::StepRange)
+  @boundscheck checkbounds(buffer, range)
+  setproperties(buffer, (; offset = range.start, stride = range.step, size = range.stop - range.start))
 end
 
-@forward SubBuffer.buffer handle
-
-Base.size(sub::SubBuffer) = sub.size
-
-offset(buffer::Buffer) = 0
-offset(buffer::SubBuffer) = buffer.offset
-
-stride(buffer::Buffer) = 0
-stride(buffer::SubBuffer) = buffer.stride
-
-memory(sub::SubBuffer) = @view memory(sub.buffer)[offset(sub):(size(sub) - offset(sub))]
-
-device_address(sub::SubBuffer) = device_address(sub.buffer) + UInt64(sub.offset)
-
-function Base.view(buffer::DenseBuffer, range::StepRange)
-  range_check(buffer, range)
-  SubBuffer(buffer, range.start, range.step, range.stop - range.start)
+@inline function Base.view(buffer::Buffer, range::UnitRange)
+  @boundscheck checkbounds(buffer, range)
+  setproperties(buffer, (; offset = range.start, stride = 0, size = range.stop - range.start))
 end
 
-function Base.view(buffer::DenseBuffer, range::UnitRange)
-  range_check(buffer, range)
-  SubBuffer(buffer, range.start, 0, range.stop - range.start)
-end
+Base.checkbounds(buffer::Buffer, range::AbstractRange) = range.stop ≤ buffer.size || throw(BoundsError(buffer, range))
 
-Base.firstindex(buffer::Buffer) = offset(buffer)
-Base.lastindex(buffer::Buffer) = size(buffer)
+Base.firstindex(buffer::Buffer) = buffer.offset
+Base.lastindex(buffer::Buffer) = buffer.size
 
 """
-Allocate a `MemoryBlock` and bind it to the provided buffer.
+Allocate memory and bind it to the provided buffer.
 """
-function allocate!(buffer::DenseBuffer, domain::MemoryDomain)
-  _device = device(buffer)
-  reqs = Vk.get_buffer_memory_requirements(_device, buffer)
-  memory = MemoryBlock(_device, reqs.size, reqs.memory_type_bits, domain)
+function allocate!(buffer::Buffer, domain::MemoryDomain)
+  !isallocated(buffer) || error("Can't allocate memory for a buffer more than once.")
+  device = Lava.device(buffer)
+  reqs = Vk.get_buffer_memory_requirements(device, buffer)
+  memory = Memory(device, reqs.size, reqs.memory_type_bits, domain)
   bind!(buffer, memory)
 end
 
-function bind!(buffer::BufferBlock, memory::Memory)
+function bind!(buffer::Buffer, memory::Memory)
+  !isdefined(buffer.memory, 1) || error("Buffers can't be bound to memory twice.")
   unwrap(Vk.bind_buffer_memory(buffer, memory))
   buffer.memory[] = memory
   memory.is_bound[] = true

@@ -1,34 +1,42 @@
 @testset "Resources" begin
+  r = Resource(RESOURCE_TYPE_IMAGE, nothing)
+  assert_type(r, RESOURCE_TYPE_IMAGE)
+  @test_throws AssertionError assert_type(r, RESOURCE_TYPE_BUFFER)
+
   @testset "Logical resources" begin
-    resources = Lava.LogicalResources()
-    b = buffer(resources, 1024)
-    @test b isa LogicalBuffer
-    @test resources[b.uuid] === b
+    b = buffer_resource(1024)
+    @test islogical(b)
+    @test resource_type(b) == RESOURCE_TYPE_BUFFER
+    @test isa(b.data, LogicalBuffer)
 
-    im = image(resources, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
-    @test im isa LogicalImage
-    @test resources[im.uuid] === im
+    im = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+    @test islogical(im)
+    @test resource_type(im) == RESOURCE_TYPE_IMAGE
+    @test isa(im.data, LogicalImage)
 
-    att = attachment(resources, Vk.FORMAT_R32G32B32A32_SFLOAT, (16, 16))
-    @test att isa LogicalAttachment
-    @test resources[att.uuid] === att
+    att = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+    @test islogical(att)
+    @test resource_type(att) == RESOURCE_TYPE_ATTACHMENT
+    @test isa(att.data, LogicalAttachment)
   end
 
   @testset "Physical resources" begin
-    resources = Lava.PhysicalResources()
-    b = buffer(device; size = 1024)
-    r = buffer(resources, b)
-    @test r isa PhysicalBuffer
-    @test resources[r.uuid] === r
+    b = buffer_resource(device, ones(UInt8, 1024))
+    @test isphysical(b)
+    @test resource_type(b) == RESOURCE_TYPE_BUFFER
+    @test isa(b.data, Buffer)
+    @test isallocated(b.data)
 
-    im = image(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (16, 16))
-    r = image(resources, im)
-    @test r isa PhysicalImage
-    @test resources[r.uuid] === r
+    im = image_resource(device, fill(RGBA(0.1f0, 0.1f0, 0.1f0, 1f0), 16, 16))
+    @test isphysical(im)
+    @test resource_type(im) == RESOURCE_TYPE_IMAGE
+    @test isa(im.data, Image)
+    @test isallocated(im.data)
 
-    att = attachment(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (16, 16))
-    r = attachment(resources, att)
-    @test r isa PhysicalAttachment
-    @test resources[r.uuid] === r
+    att = attachment_resource(device, fill(RGBA(0.1f0, 0.1f0, 0.1f0, 1f0), 16, 16))
+    @test isphysical(att)
+    @test resource_type(att) == RESOURCE_TYPE_ATTACHMENT
+    @test isa(att.data, Attachment)
+    @test isallocated(att.data.view.image)
   end
-end
+end;

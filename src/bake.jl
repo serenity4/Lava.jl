@@ -4,40 +4,67 @@ mutable struct BakedRenderGraph
   allocator::LinearAllocator
   index_data::IndexData
   nodes::Vector{RenderNode}
-  resources::PhysicalResources
-  uses::Dictionary{NodeUUID,ResourceUses}
+  resources::Dictionary{ResourceID, Resource}
+  node_uses::Dictionary{NodeID,Dictionary{ResourceID, ResourceUsage}}
+  combined_uses::Dictionary{ResourceID, ResourceUsage}
   # Pairs att1 => att2 where att1 is a multisampled attachment resolved on att2.
-  resolve_pairs::Dictionary{ResourceUUID, ResourceUUID}
+  resolve_pairs::Dictionary{Resource, Resource}
 end
+
+function combine_resource_uses(uses)
+  combined_uses = Dictionary{ResourceID,ResourceUsage}()
+  for node_uses in uses
+    for (rid, resource_usage) in pairs(node_uses)
+      existing = get(combined_uses, rid, nothing)
+      if !isnothing(existing)
+        combined_uses[rid] = combine(existing, resource_usage)
+      else
+        insert!(combined_uses, rid, resource_usage)
+      end
+    end
+  end
+  combined_uses
+end
+
+combine_resource_uses_per_node(uses) = dictionary(nid => dictionary(rid => reduce(merge, ruses) for (rid, ruses) in pairs(nuses)) for (nid, nuses) in pairs(uses))
 
 function bake!(rg::RenderGraph)
   expand_program_invocations!(rg)
   resolve_pairs = resolve_attachment_pairs(rg)
-  add_resolve_attachments(rg, resolve_pairs)
-  uses = ResourceUses(rg)
-  check_physical_resources(rg, uses)
-  resources = merge(materialize_logical_resources(rg, uses), rg.physical_resources)
-  descriptors = materialize_logical_descriptors!(rg.device, resources, rg.uses)
-  baked = BakedRenderGraph(rg.device, rg.allocator, IndexData(), sort_nodes(rg), resources, rg.uses, uuid.(resolve_pairs))
-  finalizer(x -> free_logical_descriptors!(x.device, descriptors), baked)
+  add_resolve_attachments!(rg, resolve_pairs)
+
+  node_uses = combine_resource_uses_per_node(rg.uses)
+
+  # Materialize logical resources with properties derived from usage patterns.
+  combined_uses = combine_resource_uses(node_uses)
+  check_physical_resources(rg, combined_uses)
+  materialized_resources = materialize_logical_resources(rg, combined_uses)
+  resources = dictionary(r.id => islogical(r) ? materialized_resources[r.id] : r for r in rg.resources)
+  resolve_pairs = dictionary(resources[r.id] => resources[resolve_r.id] for (r, resolve_r) in pairs(resolve_pairs))
+
+  descriptors = write_descriptors!(rg.device.descriptors, node_uses, resources)
+  baked = BakedRenderGraph(rg.device, rg.allocator, IndexData(), sort_nodes(rg, node_uses), resources, node_uses, combined_uses, resolve_pairs)
+  finalizer(x -> free_unused_descriptors!(x.device.descriptors), baked)
 end
 
-function render(rg::Union{RenderGraph,BakedRenderGraph})
+function render!(rg::Union{RenderGraph,BakedRenderGraph})
   command_buffer = request_command_buffer(rg.device)
-  baked = render(command_buffer, rg)
-  wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device), release_after_completion = [baked])))
+  baked = render!(rg, command_buffer)
+  wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device), free_after_completion = [baked])))
 end
 
-render(command_buffer::CommandBuffer, rg::RenderGraph) = render(command_buffer, bake!(rg))
+render!(rg::RenderGraph, command_buffer::CommandBuffer) = render(command_buffer, bake!(rg))
 
 function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   records, pipeline_hashes = record_commands!(baked)
   create_pipelines(baked.device)
 
+
   # Fill command buffer with synchronization commands & recorded commands.
   fill_indices!(baked.index_data, records)
   initialize(command_buffer, baked.device, baked.index_data)
   flush(command_buffer, baked, records, pipeline_hashes)
+  isa(command_buffer, SimpleCommandBuffer) && push!(command_buffer.to_free, baked)
   baked
 end
 
@@ -75,44 +102,45 @@ function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipelin
   for (node, record) in zip(baked.nodes, records)
     synchronize_before!(state, cb, baked, node)
     begin_render_node(cb, baked, node)
-    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes, baked.device.descriptors, baked.index_data)
+    binding_state = flush(cb, record, baked.device, binding_state, pipeline_hashes, baked.index_data)
     end_render_node(cb, baked, node)
     synchronize_after!(state, cb, baked, node)
   end
 end
 
-function rendering_info(rg::BakedRenderGraph, node::RenderNode)
+function rendering_info(baked::BakedRenderGraph, node::RenderNode)
   color_attachments = Vk.RenderingAttachmentInfo[]
   depth_attachment = C_NULL
   stencil_attachment = C_NULL
-  resolve_uuids = Set{ResourceUUID}()
+  resolve_ids = Set{ResourceID}()
+  uses = baked.node_uses[node.id]
 
-  (; attachments) = rg.resources
-  attachment_uses = rg.uses[node.uuid].attachments
-
-  for (uuid, attachment_usage) in pairs(attachment_uses)
+  for use in uses
+    (; id) = use
+    in(id, resolve_ids) && continue
+    resource = baked.resources[id]
+    resource_type(resource) == RESOURCE_TYPE_ATTACHMENT || continue
+    attachment_usage = use.usage::AttachmentUsage
     # Resolve attachments are grouped with their destination attachment.
-    uuid in resolve_uuids && continue
-
-    attachment = attachments[uuid]
+    attachment = resource.data::Attachment
     (; aspect) = attachment_usage
-    info = if is_multisampled(attachment_usage)
-      resolve_uuid = rg.resolve_pairs[uuid]
-      push!(resolve_uuids, resolve_uuid)
-      rendering_info(attachment, attachment_usage, attachments[resolve_uuid], attachment_uses[resolve_uuid])
+    info = if attachment_usage.samples > 1
+      resolve_resource = baked.resolve_pairs[resource]
+      push!(resolve_ids, resolve_resource.id)
+      rendering_info(attachment, attachment_usage, resolve_resource.data::Attachment, uses[resolve_resource.id].usage::AttachmentUsage)
     else
       rendering_info(attachment, attachment_usage)
     end
     if Vk.IMAGE_ASPECT_COLOR_BIT in aspect
       push!(color_attachments, info)
     elseif Vk.IMAGE_ASPECT_DEPTH_BIT in aspect
-      depth_attachment == C_NULL || error("Multiple depth attachments detected (node: $(node.uuid))")
+      depth_attachment == C_NULL || error("Multiple depth attachments detected (node: $(node.id))")
       depth_attachment = info
     elseif Vk.IMAGE_ASPECT_STENCIL_BIT in aspect
-      stencil_attachment == C_NULL || error("Multiple stencil attachments detected (node: $(node.uuid))")
+      stencil_attachment == C_NULL || error("Multiple stencil attachments detected (node: $(node.id))")
       stencil_attachment = info
     else
-      error("Attachment is not a depth, color or stencil attachment as per its aspect value $aspect (node: $(node.uuid))")
+      error("Attachment is not a depth, color or stencil attachment as per its aspect value $aspect (node: $(node.id))")
     end
   end
   info = Vk.RenderingInfo(
@@ -131,20 +159,20 @@ struct SyncRequirements
 end
 
 SyncRequirements() = SyncRequirements(0, 0)
-SyncRequirements(usage::ResourceUsage) = SyncRequirements(access_bits(usage), usage.stages)
+SyncRequirements(usage) = SyncRequirements(access_flags(usage.type, usage.access, usage.stages), usage.stages)
 
 struct ResourceState
   sync_reqs::SyncRequirements
   last_accesses::Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}
-  current_layout::RefValue{Vk.ImageLayout}
+  current_layout::RefValue{Vk.ImageLayout} # for images and attachments only
 end
 
 ResourceState(usage::BufferUsage) = ResourceState(SyncRequirements(usage), Dictionary(), Ref{Vk.ImageLayout}())
-ResourceState(usage::ResourceUsage, layout) = ResourceState(SyncRequirements(usage), Dictionary(), layout)
+ResourceState(usage, layout) = ResourceState(SyncRequirements(usage), Dictionary(), layout)
 ResourceState(layout::Ref{Vk.ImageLayout} = Ref{Vk.ImageLayout}()) = ResourceState(SyncRequirements(), Dictionary(), layout)
 
 struct SynchronizationState
-  resources::Dictionary{ResourceUUID,ResourceState}
+  resources::Dictionary{ResourceID,ResourceState}
 end
 
 SynchronizationState() = SynchronizationState(Dictionary())
@@ -152,17 +180,18 @@ SynchronizationState() = SynchronizationState(Dictionary())
 must_synchronize(sync_reqs::SyncRequirements, usage) = WRITE in usage.access || iszero(sync_reqs.stages)
 must_synchronize(sync_reqs::SyncRequirements, usage, from_layout, to_layout) = must_synchronize(sync_reqs, usage) || from_layout ≠ to_layout
 
-function synchronize!(state::SynchronizationState, resource::PhysicalBuffer, usage::BufferUsage)
-  rstate = get!(ResourceState, state.resources, resource.uuid)
+function synchronize_buffer_access!(state::SynchronizationState, resource::Resource, usage::BufferUsage)
+  rstate = get!(ResourceState, state.resources, resource.id)
   sync_reqs = restrict_sync_requirements(rstate.last_accesses, SyncRequirements(usage))
   must_synchronize(sync_reqs, usage) || return
-  WRITE in usage.access && (state.resources[resource.uuid] = ResourceState(usage))
+  WRITE in usage.access && (state.resources[resource.id] = ResourceState(usage))
+  buffer = resource.data::Buffer
   Vk.BufferMemoryBarrier2(
     0,
     0,
-    resource.buffer,
-    resource.offset,
-    resource.size;
+    buffer,
+    buffer.offset,
+    buffer.size;
     src_access_mask = rstate.sync_reqs.access,
     dst_access_mask = sync_reqs.access,
     src_stage_mask = rstate.sync_reqs.stages,
@@ -181,21 +210,29 @@ function restrict_sync_requirements(last_accesses, sync_reqs)
   @set sync_reqs.stages = remaining_sync_stages
 end
 
-function synchronize!(state::SynchronizationState, resource::PhysicalResource, usage::ResourceUsage)
-  rstate = get!(() -> ResourceState(resource.layout), state.resources, resource.uuid)
+function synchronize_image_access!(state::SynchronizationState, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
+  image = @match usage begin
+    ::ImageUsage => resource.data::Image
+    ::AttachmentUsage => (resource.data::Attachment).view.image
+  end
+  rstate = get!(() -> ResourceState(image.layout), state.resources, resource.id)
   sync_reqs = restrict_sync_requirements(rstate.last_accesses, rstate.sync_reqs)
   from_layout = rstate.current_layout[]
-  to_layout = image_layout(usage)
+  to_layout = image_layout(usage.type, usage.access)
   must_synchronize(sync_reqs, usage, from_layout, to_layout) || return
   rstate.current_layout[] = to_layout
-  WRITE in usage.access && (state.resources[resource.uuid] = ResourceState(usage, resource.layout))
+  WRITE in usage.access && (state.resources[resource.id] = ResourceState(usage, rstate.current_layout))
+  subresource = @match usage begin
+    ::ImageUsage => subresource_range(image)
+    ::AttachmentUsage => subresource_range((resource.data::Attachment).view)
+  end
   Vk.ImageMemoryBarrier2(
     from_layout,
     to_layout,
     0,
     0,
-    resource.image,
-    subresource_range(resource);
+    image.handle,
+    subresource;
     src_access_mask = rstate.sync_reqs.access,
     dst_access_mask = sync_reqs.access,
     src_stage_mask = rstate.sync_reqs.stages,
@@ -203,23 +240,24 @@ function synchronize!(state::SynchronizationState, resource::PhysicalResource, u
   )
 end
 
-add_barrier!(info::Vk.DependencyInfo, barrier::Vk.BufferMemoryBarrier2) = push!(info.buffer_memory_barriers, barrier)
-add_barrier!(info::Vk.DependencyInfo, barrier::Vk.ImageMemoryBarrier2) = push!(info.image_memory_barriers, barrier)
-
 function dependency_info!(state::SynchronizationState, baked::BakedRenderGraph, node::RenderNode)
   info = Vk.DependencyInfo([], [], [])
-  uses = baked.uses[node.uuid]
-  for (resource_uuid, usage) in pairs(uses.buffers)
-    barrier = synchronize!(state, baked.resources.buffers[resource_uuid], usage)
-    !isnothing(barrier) && add_barrier!(info, barrier)
-  end
-  for (resource_uuid, usage) in pairs(uses.images)
-    barrier = synchronize!(state, baked.resources.images[resource_uuid], usage)
-    !isnothing(barrier) && add_barrier!(info, barrier)
-  end
-  for (resource_uuid, usage) in pairs(uses.attachments)
-    barrier = synchronize!(state, baked.resources.attachments[resource_uuid], usage)
-    !isnothing(barrier) && add_barrier!(info, barrier)
+  uses = baked.node_uses[node.id]
+  for use in uses
+    resource = baked.resources[use.id]
+    @switch resource_type(resource) begin
+      @case &RESOURCE_TYPE_BUFFER
+      barrier = synchronize_buffer_access!(state, resource, use.usage::BufferUsage)
+      !isnothing(barrier) && push!(info.buffer_memory_barriers, barrier)
+
+      @case &RESOURCE_TYPE_IMAGE
+      barrier = synchronize_image_access!(state, resource, use.usage::ImageUsage)
+      !isnothing(barrier) && push!(info.image_memory_barriers, barrier)
+
+      @case &RESOURCE_TYPE_ATTACHMENT
+      barrier = synchronize_image_access!(state, resource, use.usage::AttachmentUsage)
+      !isnothing(barrier) && push!(info.image_memory_barriers, barrier)
+    end
   end
   info
 end

@@ -48,9 +48,9 @@ end
     PosColor(Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
     PosColor(Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
   ]
-  rg = program_1(device, vdata, pcolor)
+  rg = program_1(device, vdata, color)
 
-  render(rg)
-  data = collect(RGBA{Float16}, color.view.image, device)
+  render!(rg)
+  data = collect(RGBA{Float16}, color.data.view.image, device)
   save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
 end;

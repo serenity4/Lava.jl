@@ -39,15 +39,15 @@ function texture_program(device)
   Program(device, vert, frag)
 end
 
-function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0); prog = texture_program(device))
+function read_normal_map(device)
+  normal = convert(Matrix{RGBA{Float16}}, load(texture_file("normal.png")))
+  normal_map = image_resource(device, normal; usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT)
+end
+
+function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0); prog = texture_program(device), normal_map = nothing)
   rg = RenderGraph(device)
-
-  normal = load(texture_file("normal.png"))
-  normal = convert(Matrix{RGBA{Float16}}, normal)
-  normal_map = image(device, normal; usage = Vk.IMAGE_USAGE_SAMPLED_BIT)
-  normal_map = PhysicalImage(normal_map)
-
-  graphics = RenderNode(render_area = RenderArea(Lava.dims(color)...), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+  normal_map = @something(normal_map, read_normal_map(device))
+  graphics = RenderNode(render_area = RenderArea(color.data.view.image.dims...), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
   @add_resource_dependencies rg begin
     (color => (0.08, 0.05, 0.1, 1.0))::Color = graphics(normal_map::Texture)
@@ -63,7 +63,7 @@ function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0); pr
   coords_ptr = allocate_data(rec, rg, vdata)
   drawing_ptr = allocate_data(rec, rg, TextureDrawing(
     uv, # uv scaling coefficients
-    request_descriptor_index(rg, graphics, tex),
+    request_index!(device, texture_descriptor(tex, graphics)),
   ))
   set_data(rec, rg, TextureData(coords_ptr, drawing_ptr))
   draw(graphics, rec, collect(1:4), color)
@@ -78,9 +78,9 @@ end
     TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
-  rg = program_2(device, vdata, pcolor)
+  rg = program_2(device, vdata, color)
 
-  render(rg)
-  data = collect(RGBA{Float16}, color.view.image, device)
+  render!(rg)
+  data = collect(RGBA{Float16}, color.data.view.image, device)
   save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
 end;

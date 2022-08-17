@@ -18,6 +18,8 @@ using OpenType
 # XCB must be loaded prior to creating the instance that will use VK_KHR_xcb_surface.
 using XCB: XCB, Connection, current_screen, XCBWindow, XWindowManager
 
+using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, Resource, RESOURCE_TYPE_IMAGE, RESOURCE_TYPE_BUFFER, RESOURCE_TYPE_ATTACHMENT, assert_type, LogicalImage, LogicalBuffer, LogicalAttachment, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, new_descriptor!, delete_descriptor!, NodeID, free_unused_descriptors!, fence_status, compact!, FencePool, request_command_buffer, ShaderCache, combine_resource_uses_per_node, combine_resource_uses, isbuffer, isimage, isattachment
+
 include("utils.jl")
 instance, device = init(; with_validation = !is_ci, instance_extensions = ["VK_KHR_xcb_surface"])
 
@@ -37,117 +39,118 @@ instance, device = init(; with_validation = !is_ci, instance_extensions = ["VK_K
   end
 
   @testset "Buffers & Memory" begin
-    b = BufferBlock(device, 100)
+    b = Buffer(device, 100)
+    @test_throws UndefRefError b.memory[]
     @test !isallocated(b)
 
     sb = similar(b)
     @test sb.size == b.size
     @test sb.sharing_mode == b.sharing_mode
     @test sb.queue_family_indices == b.queue_family_indices
-    @test sb.usage == b.usage
+    @test sb.usage_flags == b.usage_flags
     @test !isallocated(sb)
+    @test sb.memory ≠ b.memory
 
     sub = @view b[2:4:end]
-    @test sub isa SubBuffer
     @test sub.offset == 2
     @test sub.stride == 4
     @test sub.size == 96
-    @test_throws UndefRefError memory(sub)
 
     sub = @view b[2:end]
-    @test sub isa SubBuffer
     @test sub.offset == 2
     @test sub.stride == 0
-    @test sub.size == size(b) - 2
+    @test sub.size == b.size - 2
 
-    mem = MemoryBlock(device, 100, 7, MEMORY_DOMAIN_HOST_CACHED)
-    submem = @view mem[2:4]
-    @test submem isa SubMemory
+    mem = Memory(device, 100, 7, MEMORY_DOMAIN_HOST_CACHED)
+    submem = @view mem[2:5]
+    @test submem.offset == 2
+    @test submem.size == 3
     yield()
     test_validation_msg(x -> @test startswith(x, "┌ Error: Validation")) do
-      too_much = Lava.memory_block(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
+      too_much = Lava.allocate_memory(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
       @test iserror(too_much)
       @test unwrap_error(too_much).code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
+
+      @test_throws Lava.OutOfDeviceMemoryError(100000000000000000) Memory(device, 100000000000000000, 7, MEMORY_DOMAIN_DEVICE)
+      @test_throws Lava.OutOfDeviceMemoryError(100000000000000000) Memory(device, 100000000000000000, 7, MEMORY_DOMAIN_HOST)
     end
 
     allocate!(b, MEMORY_DOMAIN_HOST_CACHED)
     @test isallocated(b)
     @test device_address(b) ≠ C_NULL
     @test device_address(sub) == device_address(b) + sub.offset
-    @test memory(b) isa MemoryBlock
-    @test memory(sub) isa SubMemory
-    mem2 = MemoryBlock(device, 1000, 7, MEMORY_DOMAIN_HOST_CACHED)
-    b2 = BufferBlock(device, 100)
+    mem2 = Memory(device, 1000, 7, MEMORY_DOMAIN_HOST_CACHED)
+    b2 = Buffer(device, 100)
     bind!(b2, mem2)
-    @test memory(b2) === mem2
+    @test b2.memory[] === mem2
 
     sb = similar(b, memory_domain = MEMORY_DOMAIN_DEVICE)
     @test isallocated(sb)
-    @test memory(sb) ≠ memory(b)
+    @test sb.memory[] ≠ b.memory[]
 
-    @test buffer(device, collect(1:1000); memory_domain = MEMORY_DOMAIN_HOST) isa Buffer
-    @test buffer(device, collect(1:1000)) isa Buffer
-    @test buffer(device; size = 800) isa Buffer
-    @test_throws ErrorException buffer(device)
+    @test isallocated(Buffer(device; data = collect(1:1000), memory_domain = MEMORY_DOMAIN_HOST))
+    @test isallocated(Buffer(device; data = collect(1:1000)))
+    @test isallocated(Buffer(device; size = 800))
+    @test_throws "must be provided" Buffer(device)
 
     @testset "Allocators" begin
       la = LinearAllocator(device, 1000)
-      @test size(la) == available_size(la) == 1000
+      @test la.buffer.size == available_size(la) == 1000
       @test device_address(la) ≠ C_NULL
 
       sub = copyto!(la, [1, 2, 3])
-      @test offset(sub) == 0
-      @test size(sub) == 24
-      @test available_size(la) == size(la) - size(sub) == 976
+      @test sub.offset == 0
+      @test sub.size == 24
+      @test available_size(la) == la.buffer.size - sub.size == 976
       @test available_size(la, 16) == 968
       sub = copyto!(la, (4.0f0, 5.0f0, 6.0f0))
-      @test offset(sub) == 24
-      @test size(sub) == 12
+      @test sub.offset == 24
+      @test sub.size == 12
       sub = copyto!(la, (4.0f0, 5.0f0, 6.0f0))
       # 8-byte alignment requirement
-      @test offset(sub) == 40
+      @test sub.offset == 40
 
       Lava.reset!(la)
+      @test la.last_offset == 0
     end
 
     @testset "Images" begin
-      img = ImageBlock(device, (512, 512), Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+      img = Image(device, [512, 512], Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
       @test !isallocated(img)
       @test !isallocated(similar(img))
       allocate!(img, MEMORY_DOMAIN_DEVICE)
       @test isallocated(img)
       @test isallocated(similar(img))
-      @test memory(img) isa MemoryBlock
 
-      v = View(img)
-      @test v isa ImageView
+      v = ImageView(img)
+      @test isa(v, ImageView)
 
-      img = image(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = (512, 512))
+      img = Image(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = [512, 512])
       @test img isa Lava.Image
       @test eltype(img) == RGBA{Float32}
-      img = image(device, rand(RGBA{Float32}, 512, 512))
+      img = Image(device; data = rand(RGBA{Float32}, 512, 512))
       @test isallocated(img)
     end
 
     @testset "Data transfer" begin
-      b1 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
-      b2 = buffer(device; size = 8000, usage = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+      b1 = Buffer(device; data = collect(1:1000), usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
+      b2 = Buffer(device; size = 8000, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b1)) == collect(1:1000)
       transfer(device, b1, b2; submission = sync_submission(device))
       @test reinterpret(Int64, collect(b2, device)) == collect(1:1000)
 
-      b3 = buffer(device, collect(1:1000); usage = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+      b3 = Buffer(device; data = collect(1:1000), usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)
 
       data = rand(RGBA{Float16}, 100, 100)
-      usage = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-      img1 = image(device, data; memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage)
+      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
+      img1 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage_flags)
       @test collect(img1, device) == data
-      img2 = image(device, data; memory_domain = MEMORY_DOMAIN_HOST, usage)
+      img2 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, usage_flags)
       @test collect(img2, device) == data
-      img3 = image(device, data; optimal_tiling = false, usage)
+      img3 = Image(device; data, optimal_tiling = false, usage_flags)
       @test collect(img3, device) == data
-      img4 = image(device, data; usage)
+      img4 = Image(device; data, usage_flags)
       @test collect(img4, device) == data
     end
   end

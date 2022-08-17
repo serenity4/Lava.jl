@@ -5,9 +5,9 @@ end
 @testset "Shader cache" begin
   frag_shader = @fragment device.spirv_features test_shader(::Output::Vec{4,Float32})
 
-  cache = Lava.ShaderCache(device)
+  cache = ShaderCache(device)
   @test cache.diagnostics.misses == cache.diagnostics.hits == 0
-  Shader(Lava.ShaderCache(device), frag_shader) # trigger JIT compilation
+  Shader(ShaderCache(device), frag_shader) # trigger JIT compilation
   t1 = @elapsed Shader(cache, frag_shader)
   @test cache.diagnostics.hits == 0
   @test cache.diagnostics.misses == 1

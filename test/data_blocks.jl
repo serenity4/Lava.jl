@@ -1,5 +1,5 @@
 using Lava, Test, Dictionaries
-using Lava: LogicalDescriptors, patch_descriptors!, patch_pointers!, device_address_block!, uuid
+
 using SPIRV: TypeInfo, VulkanLayout, align
 
 layout = VulkanLayout()
@@ -75,30 +75,35 @@ end
 end
 
 # `tex` is put in global scope to test for the hygiene of `@invocation_data`.
-img = Lava.LogicalImage(Vk.FORMAT_UNDEFINED, [1920, 1080], 1, 1)
+img = image_resource(Vk.FORMAT_UNDEFINED, [1920, 1080])
 tex = Texture(img)
+desc = texture_descriptor(tex)
 
 pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view block.bytes[address_byte]))) for address_byte in block.pointer_addresses]
 
 
 @testset "Program invocation data & block transforms" begin
   b1, b2, b3 = data_blocks()
-  descriptors = [tex]
+  descriptors = [desc]
   foreach(test_align_block, [b1, b2, b3])
 
-  ldescs = LogicalDescriptors()
+  gdescs = GlobalDescriptors(device)
   @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 1U
-  patch_descriptors!(b2, ldescs, descriptors, uuid())
+  patch_descriptors!(b2, gdescs, descriptors, NodeID())
   @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 0U
 
   addresses = Dictionary(objectid.([b1, b2]), UInt64[1, 2])
   patch_pointers!(b3, addresses)
   @test pointer_addresses(b3) == [1, 2]
+  @test_throws "Bad pointer dependency order" patch_pointers!(b3, addresses)
+  @test pointer_addresses(b3) == [1, 2]
 
   allocator = LinearAllocator(device, 1_000)
   data = ProgramInvocationData(data_blocks(), descriptors, 3)
   @test data.postorder_traversal == [1, 2, 3]
-  address = device_address_block!(allocator, ldescs, uuid(), data, type_info, layout)
+  @test_throws "different descriptor" device_address_block!(allocator, gdescs, NodeID(), data, type_info, layout)
+  empty!(gdescs)
+  address = device_address_block!(allocator, gdescs, NodeID(), data, type_info, layout)
   @test isa(address, DeviceAddressBlock)
 
   b1, b2, b3 = data_blocks_3()
@@ -108,7 +113,7 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
 
   data2 = @invocation_data begin
     b1 = @block (1, 0x02, 3)
-    b2 = @block (3U, 0x01, @descriptor(tex))
+    b2 = @block (3U, 0x01, @descriptor(desc))
     # The last block index will be set as root.
     b3 = @block (@address(b1), @address(b2), 3)
   end
@@ -123,7 +128,7 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
   M = Module()
   ex = macroexpand(M, :($(@__MODULE__).@invocation_data begin
       b1 = @block (1, 0x02, 3)
-      b2 = @block (3 * $(@__MODULE__).U, 0x01, @descriptor($(@__MODULE__).tex))
+      b2 = @block (3 * $(@__MODULE__).U, 0x01, @descriptor($(@__MODULE__).desc))
       # The last block index will be set as root.
       b3 = @block (@address(b1), @address(b2), 3)
     end))
@@ -133,11 +138,12 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
   allocator = LinearAllocator(device, 1_000)
   data3 = @invocation_data begin
     b1 = @block [(1, 2), (2, 3)]
-    @block [(@address(b1), @descriptor(tex))]
+    @block [(@address(b1), @descriptor(desc))]
   end
   @test data3.postorder_traversal == [1, 2]
   type_info2 = TypeInfo(getproperty.(data3.blocks, :type), layout)
-  address = device_address_block!(allocator, ldescs, uuid(), data3, type_info2, layout)
+  empty!(gdescs)
+  address = device_address_block!(allocator, gdescs, NodeID(), data3, type_info2, layout)
   @test isa(address, DeviceAddressBlock)
 
   data4 = @invocation_data begin
@@ -147,7 +153,7 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
       (Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
       (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
     ]
-    b2 = @block((Vec2(0.1, 1.0), @descriptor tex))
+    b2 = @block((Vec2(0.1, 1.0), @descriptor desc))
     @block ((@address(b1), @address(b2)))
   end
   @test data4.blocks[3].pointer_addresses == [1, 9]
