@@ -39,7 +39,6 @@ CommandPools(device) = CommandPools(device, Dictionary())
 function request_pool!(pools::CommandPools, queue_family_index)
   haskey(pools.available, queue_family_index) && return pools.available[queue_family_index]
   pool = Vk.CommandPool(pools.device, queue_family_index)
-  finalizer(x -> Vk.reset_command_pool(x.device, x), pool)
   insert!(pools.available, queue_family_index, pool)
   pool
 end
