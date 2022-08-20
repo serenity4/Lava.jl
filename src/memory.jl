@@ -77,10 +77,9 @@ function Memory(device, size::Integer, type::Integer, domain::MemoryDomain)
         throw(OutOfDeviceMemoryError(size))
       elseif err2.code == Vk.ERROR_OUT_OF_HOST_MEMORY
         throw(OutOfMemoryError())
-      else
-        unwrap(ret2)
       end
     end
+    unwrap(ret2)
   else
     unwrap(ret)
   end
