@@ -1,13 +1,6 @@
-is_ci = get(ENV, "JULIA_CI", "false") == "true"
-if is_ci
-  import SwiftShader_jll
-  ENV["JULIA_VULKAN_LIBNAME"] = basename(SwiftShader_jll.libvulkan)
-end
-
 using Lava, Dictionaries
 using SPIRV: SPIRV, Pointer, ShaderInterface, U, F
 
-is_ci && Vk.@set_driver :SwiftShader
 using Test
 using GeometryExperiments
 using FixedPointNumbers
@@ -21,7 +14,7 @@ using XCB: XCB, Connection, current_screen, XCBWindow, XWindowManager
 using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, Resource, RESOURCE_TYPE_IMAGE, RESOURCE_TYPE_BUFFER, RESOURCE_TYPE_ATTACHMENT, assert_type, LogicalImage, LogicalBuffer, LogicalAttachment, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, new_descriptor!, delete_descriptor!, NodeID, free_unused_descriptors!, fence_status, compact!, FencePool, request_command_buffer, ShaderCache, combine_resource_uses_per_node, combine_resource_uses, isbuffer, isimage, isattachment
 
 include("utils.jl")
-instance, device = init(; with_validation = !is_ci, instance_extensions = ["VK_KHR_xcb_surface"])
+instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR_xcb_surface"])
 
 @testset "Lava.jl" begin
   @testset "Initialization" begin
