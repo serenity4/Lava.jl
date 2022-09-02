@@ -1,4 +1,5 @@
-using Lava, Dictionaries
+using Lava
+using Dictionaries
 using SPIRV: SPIRV, Pointer, ShaderInterface, U, F
 
 using Test

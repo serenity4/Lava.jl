@@ -113,24 +113,9 @@ end
 function find_memory_type(f, physical_device, type_flag)
   mem_props = Vk.get_physical_device_memory_properties(physical_device)
   memtypes = mem_props.memory_types[1:(mem_props.memory_type_count)]
-  candidate_indices = findall(i -> type_flag & (1 << i) ≠ 0, 0:(length(memtypes) - 1))
+  candidate_indices = findall(i -> type_flag & (1 << i) ≠ 0, 0:(mem_props.memory_type_count - 1))
   index = argmax(i -> f(memtypes[i].property_flags), candidate_indices)
   memtypes[index], index - 1
-end
-
-function find_memory_type(physical_device, type_flag, properties::Vk.MemoryPropertyFlag)
-  mem_props = Vk.get_physical_device_memory_properties(physical_device)
-  indices = findall(x -> properties in x.property_flags, mem_props.memory_types[1:(mem_props.memory_type_count)]) .- 1
-  if isempty(indices)
-    error("Could not find memory with properties $properties")
-  else
-    ind = findfirst(i -> type_flag & (1 << i) ≠ 0, indices)
-    if isnothing(ind)
-      error("Could not find memory with type $type_flag")
-    else
-      indices[ind], mem_props[indices[ind]]
-    end
-  end
 end
 
 function memory_view(memory::Memory, offset, size)

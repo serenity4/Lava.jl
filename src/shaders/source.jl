@@ -13,7 +13,7 @@ function Base.show(io::IO, source::ShaderSource)
 end
 
 function ShaderSource(fname::AbstractString; stage = shader_stage(fname), entry_point = :main)
-  ShaderSource(read(fname), stage, entry_point)
+  ShaderSource(read(fname), stage, entry_point, TypeInfo())
 end
 
 function ShaderSource(io::IO, stage::Vk.ShaderStageFlag, entry_point = :main)
