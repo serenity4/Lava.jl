@@ -1,5 +1,5 @@
 function test_program_vert(position, index, data_address::DeviceAddressBlock)
-  pos = Pointer{Vector{Vec2}}(data_address)[index]
+  pos = @load data_address[index]::Vec2
   position[] = Vec(pos.x, pos.y, 0F, 1F)
 end
 

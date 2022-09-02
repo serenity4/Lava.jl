@@ -14,16 +14,16 @@ struct TextureData
 end
 
 function texture_vert(uv, position, index, data_address::DeviceAddressBlock)
-  data = Pointer{TextureData}(data_address)[]
-  coords = Pointer{Vector{TextureCoordinates}}(data.coords)[index]
+  data = @load data_address::TextureData
+  coords = @load data.coords[index]::TextureCoordinates
   (; pos) = coords
   position[] = Vec(pos.x, pos.y, 0F, 1F)
   uv[] = coords.uv
 end
 
 function texture_frag(out_color, uv, data_address, images)
-  data = Pointer{TextureData}(data_address)[]
-  drawing = Pointer{TextureDrawing}(data.drawing)[]
+  data = @load data_address::TextureData
+  drawing = @load data.drawing::TextureDrawing
   (; uv_scaling, img_index) = drawing
   texcolor = images[img_index](uv * uv_scaling)
   out_color[] = Vec(texcolor.r, texcolor.g, texcolor.b, 1F)
