@@ -58,7 +58,7 @@ Base.show(io::IO, record::CompactRecord) = print(
 
 function DrawInfo(program::Program, data_address, idata, color...; depth = nothing, stencil = nothing, instances = 1:1, render_state::RenderState = RenderState(), invocation_state::ProgramInvocationState = ProgramInvocationState())
   state = DrawState(render_state, invocation_state, data_address)
-  command = DrawIndexed(idata, instances)
+  command = DrawIndexed(idata; instances)
   targets = RenderTargets(color...; depth, stencil)
   DrawInfo(command, program, targets, state)
 end

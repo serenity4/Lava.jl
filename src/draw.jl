@@ -33,12 +33,12 @@ These are vertex indices, which will later be allocated contiguously inside a si
 The corresponding buffer range will be kept in memory for each indexed draw in the `indices` field of `IndexData`.
 """
 struct DrawIndexed <: DrawCommand
-  vertex_offset::Int64
-  indices::Vector{Int64}
+  vertex_offset::Int32
+  indices::Vector{UInt32}
   instances::UnitRange{Int64}
 end
 
-DrawIndexed(indices, instances = 1:1) = DrawIndexed(0, indices, instances)
+DrawIndexed(indices; instances = 1:1, vertex_offset::Integer = -1) = DrawIndexed(vertex_offset, indices, instances)
 
 struct IndexData
   index_list::Vector{UInt32}
@@ -50,7 +50,7 @@ IndexData() = IndexData(UInt32[], Ref{Buffer}(), IdDict())
 
 function allocate_index_buffer(id::IndexData, device::Device)
   #TODO: Create index buffer in render graph to avoid excessive synchronization.
-  id.index_buffer[] = Buffer(device; data = id.index_list .- 1U, usage_flags = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
+  id.index_buffer[] = Buffer(device; data = id.index_list, usage_flags = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 end
 
 "Append new indices to `idata`, returning the corresponding range of indices to be used for indexed draw calls."

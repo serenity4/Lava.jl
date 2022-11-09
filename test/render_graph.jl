@@ -170,7 +170,7 @@ using Graphs: nv, ne
       @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [device.descriptors.gset], []]
       @test _cmd_push_constants.args[1:2] == [pipeline.layout, Vk.SHADER_STAGE_ALL]
       @test _cmd_push_constants.args[4] == sizeof(DeviceAddressBlock)
-      @test _cmd_draw_indexed.args == [4, 1, 0, 0, 0]
+      @test _cmd_draw_indexed.args == [4, 1, 0, -1, 0]
       @test _cmd_end_rendering.args == []
 
       test_validation_msg(x -> @test isempty(x)) do
