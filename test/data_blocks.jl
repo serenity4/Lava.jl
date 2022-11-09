@@ -81,7 +81,6 @@ desc = texture_descriptor(tex)
 
 pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view block.bytes[address_byte]))) for address_byte in block.pointer_addresses]
 
-
 @testset "Program invocation data & block transforms" begin
   b1, b2, b3 = data_blocks()
   descriptors = [desc]

@@ -1,8 +1,8 @@
 using Lava
-using Dictionaries
-using SPIRV: SPIRV, Pointer, ShaderInterface, U, F
-
 using Test
+using Random: MersenneTwister
+using Dictionaries
+using SPIRV: SPIRV, ShaderInterface, U, F
 using GeometryExperiments
 using FixedPointNumbers
 using FileIO
@@ -11,6 +11,7 @@ using Accessors
 using OpenType
 # XCB must be loaded prior to creating the instance that will use VK_KHR_xcb_surface.
 using XCB: XCB, Connection, current_screen, XCBWindow, XWindowManager
+using ImageMagick: clamp01nan
 
 using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, Resource, RESOURCE_TYPE_IMAGE, RESOURCE_TYPE_BUFFER, RESOURCE_TYPE_ATTACHMENT, assert_type, LogicalImage, LogicalBuffer, LogicalAttachment, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, new_descriptor!, delete_descriptor!, NodeID, free_unused_descriptors!, fence_status, compact!, FencePool, request_command_buffer, ShaderCache, combine_resource_uses_per_node, combine_resource_uses, isbuffer, isimage, isattachment
 

@@ -26,10 +26,9 @@ function ShaderSource(f, argtypes, interface::ShaderInterface)
   target = SPIRVTarget(f, argtypes, inferred = true)
   try
     ir = IR(target, interface)
-    shader = SPIRV.Shader(ir)
-    ret = validate(shader)
+    ret = validate_shader(ir)
     !iserror(ret) || throw(unwrap_error(ret))
-    ShaderSource(reinterpret(UInt8, assemble(shader)), shader_stage(interface.execution_model), :main, TypeInfo(ir))
+    ShaderSource(reinterpret(UInt8, assemble(ir)), shader_stage(interface.execution_model), :main, TypeInfo(ir))
   catch
     @error """
     Shader compilation failed. Showing inferred code:

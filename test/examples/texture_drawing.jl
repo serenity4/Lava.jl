@@ -1,8 +1,3 @@
-struct TextureCoordinates
-  pos::Vec{2,Float32}
-  uv::Vec{2,Float32}
-end
-
 struct TextureDrawing
   uv_scaling::Vec{2,Float32}
   img_index::DescriptorIndex
@@ -30,12 +25,12 @@ function texture_frag(out_color, uv, data_address, images)
 end
 
 function texture_program(device)
-  vert = @vertex device.spirv_features texture_vert(::Output::Vec{2,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddressBlock)
+  vert = @vertex device.spirv_features texture_vert(::Output::Vec2, ::Output{Position}::Vec4, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddressBlock)
   frag = @fragment device.spirv_features texture_frag(
-    ::Output::Vec{4,Float32},
-    ::Input::Vec{2,Float32},
+    ::Output::Vec4,
+    ::Input::Vec2,
     ::PushConstant::DeviceAddressBlock,
-    ::UniformConstant{DescriptorSet = 0, Binding = 3}::Arr{2048,SPIRV.SampledImage{SPIRV.Image{Float32,SPIRV.Dim2D,0,false,false,1,SPIRV.ImageFormatRgba16f}}})
+    ::UniformConstant{DescriptorSet = 0, Binding = 3}::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)}})
   Program(device, vert, frag)
 end
 

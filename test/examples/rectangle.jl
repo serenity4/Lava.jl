@@ -15,8 +15,8 @@ function rectangle_frag(out_color, frag_color)
 end
 
 function rectangle_program(device)
-  vert = @vertex device.spirv_features rectangle_vert(::Output::Vec{4,Float32}, ::Output{Position}::Vec{4,Float32}, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddressBlock)
-  frag = @fragment device.spirv_features rectangle_frag(::Output::Vec{4,Float32}, ::Input::Vec{4,Float32})
+  vert = @vertex device.spirv_features rectangle_vert(::Output::Vec4, ::Output{Position}::Vec4, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddressBlock)
+  frag = @fragment device.spirv_features rectangle_frag(::Output::Vec4, ::Input::Vec4)
   Program(device, vert, frag)
 end
 

@@ -22,13 +22,13 @@ end
 function retrieve_type_info(shaders)
   info = TypeInfo()
   for shader in shaders
-    (; mapping, offsets, strides) = shader.type_info
-    for (T, t) in pairs(mapping)
-      existing = get(info.mapping, T, nothing)
+    (; tmap, offsets, strides) = shader.type_info
+    for (T, t) in pairs(tmap)
+      existing = get(info.tmap, T, nothing)
       if !isnothing(existing) && existing ≠ t
         existing ≈ t || error("Julia type $T maps to different SPIR-V types: $existing and $t.")
       else
-        set!(info.mapping, T, t)
+        info.tmap[T] = t
         existing = t
       end
       if isa(t, StructType)
@@ -118,7 +118,7 @@ end
 Align a data block according to the type layout information provided by `type_info`.
 """
 function SPIRV.align(block::DataBlock, type_info::TypeInfo)
-  t = type_info.mapping[block.type]
+  t = type_info.tmap[block.type]
   isa(t, StructType) || isa(t, ArrayType) || return copy(block)
   isempty(block.descriptor_ids) && isempty(block.pointer_addresses) && return @set block.bytes = align(block.bytes, t, type_info)
 
@@ -236,7 +236,7 @@ function device_address_block!(allocator::LinearAllocator, gdescs::GlobalDescrip
     aligned = align(block, type_info)
     patch_descriptors!(aligned, gdescs, data.descriptors, node_id)
     patch_pointers!(aligned, addresses)
-    address = allocate_data!(allocator, type_info, aligned.bytes, type_info.mapping[aligned.type], layout, false)
+    address = allocate_data!(allocator, type_info, aligned.bytes, type_info.tmap[aligned.type], layout, false)
     insert!(addresses, objectid(block), address)
     i == data.root && (root_address = address)
   end
@@ -360,14 +360,14 @@ end
 
 data_alignment(layout::VulkanLayout, t::SPIRType) = alignment(layout, t, [SPIRV.StorageClassPhysicalStorageBuffer], false)
 
-allocate_data!(allocator::LinearAllocator, data::T, type_info::TypeInfo, layout::VulkanLayout) where {T} = allocate_data!(allocator, type_info, extract_bytes(data), type_info.mapping[T], layout)
-allocate_data!(allocator::LinearAllocator, data, shader::Shader, layout::VulkanLayout) where {T} = allocate_data!(allocator, data, shader.source.type_info, layout)
+allocate_data!(allocator::LinearAllocator, data::T, type_info::TypeInfo, layout::VulkanLayout) where {T} = allocate_data!(allocator, type_info, extract_bytes(data), type_info.tmap[T], layout)
+allocate_data!(allocator::LinearAllocator, data, shader::Shader, layout::VulkanLayout) = allocate_data!(allocator, data, shader.source.type_info, layout)
 
 function allocate_data(allocator::LinearAllocator, program::Program, data::T, layout::VulkanLayout) where {T}
   # TODO: Look up what shaders use the data and create pointer resource accordingly, instead of using this weird heuristic.
   # TODO: Make sure that the offsets and load alignment are consistent across all shaders that use this data.
   shader = vertex_shader(program)
-  !haskey(shader.source.type_info.mapping, T) && (shader = fragment_shader(program))
+  !haskey(shader.source.type_info.tmap, T) && (shader = fragment_shader(program))
   allocate_data!(allocator, data, shader, layout)
 end
 
