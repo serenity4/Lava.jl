@@ -29,7 +29,11 @@ function data_blocks_3()
   [b1, b2, b3]
 end
 
-type_info = TypeInfo(getproperty.([data_blocks(); data_blocks_2(); data_blocks_3()], :type), layout)
+infer_type_info(blocks) = TypeInfo(getproperty.(blocks, :type), layout)
+infer_type_info(block::DataBlock) = infer_type_info([block])
+infer_type_info(data::ProgramInvocationData) = infer_type_info(data.blocks)
+
+type_info = infer_type_info([data_blocks(); data_blocks_2(); data_blocks_3()])
 
 function test_align_block(b::DataBlock, type_info::TypeInfo = type_info)
   aligned = align(b, type_info)
@@ -159,4 +163,14 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
   @test data4.blocks[2].descriptor_ids == [9]
   @test align(data4.blocks[3], type_info).pointer_addresses == [1, 9]
   @test align(data4.blocks[2], type_info).descriptor_ids == [9]
+
+  data5 = @invocation_data begin
+    b1 = @block Vec2(1.0, 1.0)
+    b2 = @block TextureDrawing(Vec2(1, 1), @descriptor desc)
+    tex = TextureData(@address(b1), @address(b2))
+    @block (tex, 4)
+  end
+  empty!(gdescs)
+  address = device_address_block!(allocator, gdescs, NodeID(), data5, infer_type_info(data5), layout)
+  @test isa(address, DeviceAddressBlock)
 end;

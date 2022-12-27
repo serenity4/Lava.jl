@@ -34,11 +34,6 @@ function texture_program(device)
   Program(device, vert, frag)
 end
 
-function read_normal_map(device)
-  normal = convert(Matrix{RGBA{Float16}}, load(texture_file("normal.png")))
-  normal_map = image_resource(device, normal; usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT)
-end
-
 function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0); prog = texture_program(device), normal_map = nothing)
   rg = RenderGraph(device)
   normal_map = @something(normal_map, read_normal_map(device))

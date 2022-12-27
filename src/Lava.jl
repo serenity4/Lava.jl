@@ -22,7 +22,7 @@ const to = TimerOutput()
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
-@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load
+@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, extract_bytes
 
 const Optional{T} = Union{T,Nothing}
 

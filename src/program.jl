@@ -111,7 +111,7 @@ function extract_leaf!(block::DataBlock, x::T) where {T}
   elseif T === DescriptorIndex
     push!(block.descriptor_ids, lastindex(block.bytes) + 1)
   end
-  append!(block.bytes, SPIRV.extract_bytes(x))
+  append!(block.bytes, extract_bytes(x))
 end
 
 """
@@ -120,6 +120,8 @@ Align a data block according to the type layout information provided by `type_in
 function SPIRV.align(block::DataBlock, type_info::TypeInfo)
   t = type_info.tmap[block.type]
   isa(t, StructType) || isa(t, ArrayType) || return copy(block)
+  # Don't bother if we don't have to keep an external mapping for descriptors/pointers.
+  # Perform the alignment and return the result.
   isempty(block.descriptor_ids) && isempty(block.pointer_addresses) && return @set block.bytes = align(block.bytes, t, type_info)
 
   aligned = DataBlock(UInt8[], Int[], Int[], block.type)
@@ -174,12 +176,19 @@ struct ProgramInvocationData
   postorder_traversal::Vector{Int}
 end
 
+function read_block_id(block::DataBlock, i::Int)
+  byte_idx = block.pointer_addresses[i]
+  bytes = @view block.bytes[byte_idx:byte_idx + 7]
+  only(reinterpret(UInt64, bytes))
+end
+
 function ProgramInvocationData(blocks::AbstractVector{DataBlock}, descriptors, root)
   g = SimpleDiGraph{Int}(length(blocks))
   for (i, block) in enumerate(blocks)
-    for byte_idx in block.pointer_addresses
-      block_id = only(reinterpret(UInt64, @view block.bytes[byte_idx:byte_idx + 7]))
-      j = findfirst(==(block_id) ∘ objectid, blocks)::Int
+    for p in eachindex(block.pointer_addresses)
+      id = read_block_id(block, p)
+      j = findfirst(==(id) ∘ objectid, blocks)
+      isnothing(j) && error("Block id $(repr(id)) is used, but does not match any provided block.")
       add_edge!(g, i, j)
     end
   end
@@ -221,10 +230,10 @@ end
 
 function patch_pointers!(block::DataBlock, addresses::Dictionary{UInt64, UInt64})
   ptr = pointer(block.bytes)
-  for byte_idx in block.pointer_addresses
-    block_id = only(reinterpret(UInt64, @view block.bytes[byte_idx:byte_idx + 7]))
-    @assert haskey(addresses, block_id) "Bad pointer dependency order detected."
-    unsafe_store!(Ptr{UInt64}(ptr + byte_idx - 1), addresses[block_id])
+  for i in eachindex(block.pointer_addresses)
+    id = read_block_id(block, i)
+    @assert haskey(addresses, id) "Bad pointer dependency order detected."
+    unsafe_store!(Ptr{UInt64}(ptr + 8(i - 1)), addresses[id])
   end
 end
 
@@ -295,7 +304,8 @@ macro invocation_data(ex)
     $(esc(descriptor_d)) = IdDict{Descriptor,Int}()
     $(esc(block_counter)) = 0
     $(esc(descriptor_counter)) = 0
-    ans = $(esc(transformed))::DataBlock
+    ans = $(esc(transformed))
+    isa(ans, DataBlock) || error("A data block must be provided as the last instruction to @invocation_data. Such a block can be obtained with @block.")
     blocks = first.(sort(collect($(esc(block_d))); by = last))
     descriptors = first.(sort(collect($(esc(descriptor_d))); by = last))
     ProgramInvocationData(blocks, descriptors, $(esc(block_d))[ans])

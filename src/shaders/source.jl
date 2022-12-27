@@ -28,7 +28,7 @@ function ShaderSource(f, argtypes, interface::ShaderInterface)
     ir = IR(target, interface)
     ret = validate_shader(ir)
     !iserror(ret) || throw(unwrap_error(ret))
-    ShaderSource(reinterpret(UInt8, assemble(ir)), shader_stage(interface.execution_model), :main, TypeInfo(ir))
+    ShaderSource(reinterpret(UInt8, assemble(ir)), shader_stage(interface.execution_model), :main, TypeInfo(ir, interface.layout))
   catch
     @error """
     Shader compilation failed. Showing inferred code:

@@ -28,4 +28,5 @@ color = attachment_resource(device, nothing; format = Vk.FORMAT_R16G16B16A16_SFL
   include("examples/texture_drawing.jl")
   include("examples/multisampling.jl")
   include("examples/displacement.jl")
+  include("examples/blur.jl")
 end
