@@ -2,7 +2,7 @@ using Lava
 using Test
 using Random: MersenneTwister
 using Dictionaries
-using SPIRV: SPIRV, ShaderInterface, U, F
+using SPIRV: SPIRV, ShaderInterface, U, F, @mat
 using GeometryExperiments
 using FixedPointNumbers
 using FileIO

@@ -14,6 +14,11 @@ end
 
 displace_height_frag(out_color) = out_color[] = Vec4(0.2, 0.2, 0.2, 1.0)
 
+function fresnel_shading(n₁, n₂, cosθ)
+  R₀ = ((n₁ - n₂) / (n₁ + n₂))^2
+  R₀ + (1 - R₀) * (1 - cosθ)^5
+end
+
 function scalar_displacement_program(device)
   vert = @vertex device.spirv_features displace_height_vert(
     ::Output{Position}::Vec4,
@@ -63,7 +68,13 @@ end
   vmesh = VertexMesh(mesh)
   height_map = rand(MersenneTwister(0), Float32, 1920, 1080)
   height_map = image_resource(device, height_map; usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT, format = Vk.FORMAT_R32_SFLOAT)
-  invocation = scalar_displacement(device, vmesh, color, height_map, zero(Mat4))
+  camera = @mat Float32[
+    1 0 0 0
+    0 1 0 0
+    0 0 1 0
+    0 0 0 1
+  ]
+  invocation = scalar_displacement(device, vmesh, color, height_map, camera)
   render_graphics(device, graphics_node(invocation))
   data = collect(RGBA{Float16}, color.data.view.image, device)
   h = save_test_render("displacement.png", data)
