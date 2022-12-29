@@ -1,34 +1,24 @@
-using Lava
-
 struct GaussianBlur
-  scale::Float32
-  strength::Float32
+  σ::Float32
 end
 
-function compute_blur(blur::GaussianBlur, reference, direction, uv)
-  weights = Arr{Float32}(0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216)
-  tex_offset = 1F ./ size(SPIRV.Image(reference), 0U) .* blur.scale
-  res = zero(Vec3)
-  for i in eachindex(weights)
-    vec = direction == 1U ? Vec2(tex_offset.x * i, 0F) : Vec2(0F, tex_offset.y * i)
-    res .+= reference(uv .+ vec).rgb .* weights[i] .* blur.strength
-    res .+= reference(uv .- vec).rgb .* weights[i] .* blur.strength
-  end
-  res
+function gaussian_1d(t, σ)
+  exp(-t^2 / 2σ^2) / sqrt(2 * (π)F * σ^2)
 end
+gaussian_2d((x, y), σ) = gaussian_1d(x, σ) * gaussian_1d(y, σ)
 
-function compute_blur(blur::GaussianBlur, reference, uv)
+function compute_blur((; σ)::GaussianBlur, reference, uv)
   res = zero(Vec3)
   imsize = size(SPIRV.Image(reference), 0U)
-  pixel_size = 1F ./ imsize # Size of one pixel in UV coordinates.
-  radius = UInt32.(ceil.(imsize .* 0.5F .* blur.scale))
-  rx, ry = radius
+  pixel_size = 1F ./ imsize # size of one pixel in UV coordinates.
+  rx, ry = Int32.(min.(ceil.(3σ .* imsize), imsize))
   for i in -rx:rx
     for j in -ry:ry
-      uv_offset = Vec(i, j) .* pixel_size
-      #TODO: Use blur strength parameter to control the falloff.
-      weight = 0.25 .* rx .^ 2 .* ry .^ 2
-      res .+= reference(uv .+ uv_offset).rgb .* weight
+      uv_offset = Vec2(i, j) .* pixel_size
+      weight = gaussian_2d(uv_offset, σ) * 0.5(pixel_size[1]^2 + pixel_size[2]^2)
+      sampled = reference(uv .+ uv_offset)
+      color = sampled.rgb
+      res .+= color .* weight
     end
   end
   res
@@ -112,18 +102,16 @@ end
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
 
-  blur = GaussianBlur(0.1, 1.0)
+  blur = GaussianBlur(0.01)
   reference = SPIRV.SampledImage(IT(zeros(32, 32)))
   @test compute_blur(blur, reference, zero(Vec2)) == zero(Vec3)
-  uv_scale = Vec2(1.0, 0.1)
-  @test_skip begin
-    invocation = blur_invocation(device, vdata, color, blur, uv_scale)
-    graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
-    push!(graphics.program_invocations, invocation)
-    rg = RenderGraph(device)
-    add_node!(rg, graphics)
-    render!(rg)
-    data = collect(RGBA{Float16}, color.data.view.image, device)
-    @show save_test_render("blurred_normal_map.png", data)
-  end
+  uv_scale = Vec2(1.0, 1.0)
+  invocation = blur_invocation(device, vdata, color, blur, uv_scale)
+  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+  push!(graphics.program_invocations, invocation)
+  rg = RenderGraph(device)
+  add_node!(rg, graphics)
+  render!(rg)
+  data = clamp01nan.(collect(RGBA{Float16}, color.data.view.image, device))
+  save_test_render("blurred_normal_map.png", data, 0x5114a2d55a9aff00)
 end;
