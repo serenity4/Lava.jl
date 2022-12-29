@@ -107,11 +107,6 @@ end
   @test compute_blur(blur, reference, zero(Vec2)) == zero(Vec3)
   uv_scale = Vec2(1.0, 1.0)
   invocation = blur_invocation(device, vdata, color, blur, uv_scale)
-  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
-  push!(graphics.program_invocations, invocation)
-  rg = RenderGraph(device)
-  add_node!(rg, graphics)
-  render!(rg)
-  data = clamp01nan.(collect(RGBA{Float16}, color.data.view.image, device))
+  data = render_graphics(device, graphics_node(invocation))
   save_test_render("blurred_normal_map.png", data, 0x5114a2d55a9aff00)
 end;

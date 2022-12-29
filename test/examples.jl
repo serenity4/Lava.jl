@@ -17,7 +17,12 @@ function render_graphics(device, node::RenderNode)
   rg = RenderGraph(device)
   add_node!(rg, node)
   render!(rg)
+  invocation = node.program_invocations[end]
+  color = only(invocation.targets.color)
+  read_data(device, color)
 end
+
+read_data(device, color) = clamp01nan!(collect(RGBA{Float16}, color.data.view.image, device))
 
 include("examples/textures.jl")
 
@@ -29,4 +34,4 @@ color = attachment_resource(device, nothing; format = Vk.FORMAT_R16G16B16A16_SFL
   include("examples/multisampling.jl")
   include("examples/displacement.jl")
   include("examples/blur.jl")
-end
+end;

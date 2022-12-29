@@ -54,17 +54,12 @@ end
     PosColor(Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
   ]
   invocation = invocation_cycles_rectangle(device, vdata, color)
-  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
-  push!(graphics.program_invocations, invocation)
+  graphics = graphics_node(invocation)
 
   hashes = UInt64[]
   for i in 1:5
-    rg = RenderGraph(device)
-    # Collect the previous render graph.
-    GC.gc()
-    add_node!(rg, graphics)
-    render!(rg)
-    push!(hashes, hash(collect(RGBA{Float16}, color.data.view.image, device)))
+    data = render_graphics(device, graphics)
+    push!(hashes, hash(data))
   end
   @test all(==(0x9430efd8e0911300), hashes)
 
@@ -77,13 +72,10 @@ end
   hashes = UInt64[]
   normal_map = read_normal_map(device)
   invocation = invocation_cycles_texture(device, vdata, color, normal_map)
-  graphics = @set graphics.program_invocations = [invocation]
+  graphics = graphics_node(invocation)
   for i in 1:5
-    rg = RenderGraph(device)
-    # Collect the previous render graph.
-    add_node!(rg, graphics)
-    render!(rg)
-    push!(hashes, hash(collect(RGBA{Float16}, color.data.view.image, device)))
+    data = render_graphics(device, graphics)
+    push!(hashes, hash(data))
   end
   @test all(==(0x9eda4cb9b969b269), hashes)
 end;

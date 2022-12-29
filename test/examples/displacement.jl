@@ -75,8 +75,7 @@ end
     0 0 0 1
   ]
   invocation = scalar_displacement(device, vmesh, color, height_map, camera)
-  render_graphics(device, graphics_node(invocation))
-  data = collect(RGBA{Float16}, color.data.view.image, device)
+  data = render_graphics(device, graphics_node(invocation))
   h = save_test_render("displacement.png", data)
   @test isa(h, UInt64)
 end;

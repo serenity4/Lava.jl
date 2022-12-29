@@ -24,6 +24,6 @@ end
   rg = program_3(device, vdata, color_ms)
 
   render!(rg)
-  data = collect(RGBA{Float16}, color_ms.data.view.image, device)
+  data = read_data(device, color_ms)
   save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
 end;

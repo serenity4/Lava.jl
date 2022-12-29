@@ -51,6 +51,6 @@ end
   rg = program_1(device, vdata, color)
 
   render!(rg)
-  data = collect(RGBA{Float16}, color.data.view.image, device)
+  data = read_data(device, color)
   save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
 end;

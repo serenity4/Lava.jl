@@ -71,6 +71,6 @@ end
   rg = program_2(device, vdata, color)
 
   render!(rg)
-  data = collect(RGBA{Float16}, color.data.view.image, device)
+  data = read_data(device, color)
   save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
 end;
