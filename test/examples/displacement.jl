@@ -30,7 +30,7 @@ function scalar_displacement_program(device)
   Program(device, vert, frag)
 end
 
-function scalar_displacement(device, vmesh::VertexMesh, color::Resource, height_map::Resource, camera::Mat4, prog = scalar_displacement_program(device))
+function displacement_invocation(device, vmesh::VertexMesh, color::Resource, height_map::Resource, camera::Mat4, prog = scalar_displacement_program(device))
   height_map_texture = texture_descriptor(Texture(height_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
   invocation_data = @invocation_data begin
     @block DisplacementData(@address(@block vmesh.vertex_data), @descriptor(height_map_texture), camera)
@@ -74,7 +74,7 @@ end
     0 0 1 0
     0 0 0 1
   ]
-  invocation = scalar_displacement(device, vmesh, color, height_map, camera)
+  invocation = displacement_invocation(device, vmesh, color, height_map, camera)
   data = render_graphics(device, graphics_node(invocation))
   h = save_test_render("displacement.png", data)
   @test isa(h, UInt64)

@@ -1,17 +1,17 @@
-function program_3(device, vdata, color)
-  rg = RenderGraph(device)
-
-  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
-
-  @add_resource_dependencies rg begin
-    (color * 4 => (0.08, 0.05, 0.1, 1.0))::Color = graphics()
-  end
-
-  rec = StatefulRecording()
-  set_program(rec, rectangle_program(device))
-  set_data(rec, rg, vdata)
-  draw(graphics, rec, collect(1:3), color)
-  rg
+function multisampling_invocation(device, vdata, color; prog = rectangle_program(device))
+  invocation_data = @invocation_data @block vdata
+  ProgramInvocation(
+    prog,
+    DrawIndexed(1:3),
+    RenderTargets(color),
+    invocation_data,
+    RenderState(),
+    ProgramInvocationState(),
+    @resource_dependencies begin
+      @write
+      (color * 4 => (0.08, 0.05, 0.1, 1.0))::Color
+    end
+  )
 end
 
 @testset "Multisampled triangle" begin
@@ -21,9 +21,7 @@ end
     PosColor(Vec2(0.5, -0.8), Arr{Float32}(0.0, 0.0, 1.0)),
     PosColor(Vec2(-0.5, -0.8), Arr{Float32}(0.0, 1.0, 0.0)),
   ]
-  rg = program_3(device, vdata, color_ms)
-
-  render!(rg)
-  data = read_data(device, color_ms)
+  invocation = multisampling_invocation(device, vdata, color_ms)
+  data = render_graphics(device, graphics_node(invocation))
   save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
 end;

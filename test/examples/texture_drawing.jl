@@ -34,31 +34,31 @@ function texture_program(device)
   Program(device, vert, frag)
 end
 
-function program_2(device, vdata, color, uv::Vec{2,Float32} = Vec2(0.1, 1.0); prog = texture_program(device), normal_map = nothing)
-  rg = RenderGraph(device)
+function texture_invocation(device, vdata, color; prog = texture_program(device), normal_map = nothing)
   normal_map = @something(normal_map, read_normal_map(device))
-  graphics = RenderNode(render_area = RenderArea(color.data.view.image.dims...), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
-
-  @add_resource_dependencies rg begin
-    (color => (0.08, 0.05, 0.1, 1.0))::Color = graphics(normal_map::Texture)
+  normal_map_texture = texture_descriptor(Texture(normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
+  invocation_data = @invocation_data begin
+    b1 = @block vdata
+    b2 = @block TextureDrawing(Vec2(0.1, 1.0), @descriptor normal_map_texture)
+    @block TextureData(@address(b1), @address(b2))
   end
-
-  rec = StatefulRecording()
-  set_program(rec, texture_program(device))
-  set_invocation_state(rec, setproperties(invocation_state(rec), (;
-    primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
-    triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,
-  )))
-  tex = Texture(normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
-  coords_ptr = allocate_data(rec, rg, vdata)
-  drawing_ptr = allocate_data(rec, rg, TextureDrawing(
-    uv, # uv scaling coefficients
-    request_index!(device, texture_descriptor(tex, graphics)),
-  ))
-  set_data(rec, rg, TextureData(coords_ptr, drawing_ptr))
-  draw(graphics, rec, collect(1:4), color)
-
-  rg
+  ProgramInvocation(
+    prog,
+    DrawIndexed(1:4),
+    RenderTargets(color),
+    invocation_data,
+    RenderState(),
+    setproperties(ProgramInvocationState(), (;
+      primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+      triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,
+    )),
+    @resource_dependencies begin
+      @read
+      normal_map::Texture
+      @write
+      (color => (0.08, 0.05, 0.1, 1.0))::Color
+    end
+  )
 end
 
 @testset "Texture drawing" begin
@@ -68,9 +68,7 @@ end
     TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
-  rg = program_2(device, vdata, color)
-
-  render!(rg)
-  data = read_data(device, color)
+  invocation = texture_invocation(device, vdata, color)
+  data = render_graphics(device, graphics_node(invocation))
   save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
 end;

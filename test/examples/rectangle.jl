@@ -20,25 +20,23 @@ function rectangle_program(device)
   Program(device, vert, frag)
 end
 
-function program_1(device, vdata, color; prog = rectangle_program(device))
-  rg = RenderGraph(device)
-
-  graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
-
-  @add_resource_dependencies rg begin
-    (color => (0.08, 0.05, 0.1, 1.0))::Color = graphics()
-  end
-
-  rec = StatefulRecording()
-  set_program(rec, prog)
-  set_invocation_state(rec, setproperties(invocation_state(rec), (;
-    primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
-    triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,
-  )))
-  set_data(rec, rg, vdata)
-  draw(graphics, rec, collect(1:4), color)
-
-  rg
+function rectangle_invocation(device, vdata, color, prog = rectangle_program(device))
+  invocation_data = @invocation_data @block vdata
+  ProgramInvocation(
+    prog,
+    DrawIndexed(1:4),
+    RenderTargets(color),
+    invocation_data,
+    RenderState(),
+    setproperties(ProgramInvocationState(), (;
+      primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+      triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,
+    )),
+    @resource_dependencies begin
+      @write
+      (color => (0.08, 0.05, 0.1, 1.0))::Color
+    end
+  )
 end
 
 @testset "Rectangle" begin
@@ -48,9 +46,7 @@ end
     PosColor(Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
     PosColor(Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
   ]
-  rg = program_1(device, vdata, color)
-
-  render!(rg)
-  data = read_data(device, color)
+  invocation = rectangle_invocation(device, vdata, color)
+  data = render_graphics(device, graphics_node(invocation))
   save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
 end;
