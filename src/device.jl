@@ -4,10 +4,12 @@ struct Device <: LavaAbstraction
   extensions::Vector{String}
   features::Vk.PhysicalDeviceFeatures2
   queues::QueueDispatch
-  pipeline_ht::HashTable{Pipeline}
+  pipeline_ht_graphics::HashTable{Pipeline}
+  pipeline_ht_compute::HashTable{Pipeline}
   pipeline_layout_ht::HashTable{PipelineLayout}
   pipeline_layouts::Dictionary{Vk.PipelineLayout,PipelineLayout}
-  pending_pipelines::Vector{Vk.GraphicsPipelineCreateInfo}
+  pending_pipelines_graphics::Vector{Vk.GraphicsPipelineCreateInfo}
+  pending_pipelines_compute::Vector{Vk.ComputePipelineCreateInfo}
   shader_cache::ShaderCache
   transfer_ops::Vector{Vk.SemaphoreSubmitInfo}
   command_pools::CommandPools
@@ -42,9 +44,11 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     features,
     queues,
     HashTable{Pipeline}(),
+    HashTable{Pipeline}(),
     HashTable{PipelineLayout}(),
     Dictionary(),
-    [],
+    Vk.GraphicsPipelineCreateInfo[],
+    Vk.ComputePipelineCreateInfo[],
     ShaderCache(handle),
     [],
     CommandPools(handle),
@@ -57,10 +61,10 @@ end
 
 function Base.empty!(device::Device)
   Vk.device_wait_idle(device)
-  empty!(device.pipeline_ht)
+  empty!(device.pipeline_ht_graphics)
   empty!(device.pipeline_layout_ht)
   empty!(device.pipeline_layouts)
-  empty!(device.pending_pipelines)
+  empty!(device.pending_pipelines_graphics)
   empty!(device.transfer_ops)
   empty!(device.fence_pool)
   empty!(device.descriptors)
@@ -113,7 +117,7 @@ function pmap(f, collection, init)
   res
 end
 
-function create_pipelines(device::Device, infos)
+function create_graphics_pipelines!(device::Device, infos)
   # Assume that each available thread will be able to create a set of pipelines in batch mode.
   # We don't create individual pipelines for performance reasons as the implementation is
   # likely to setup internal mutexes for each batch which allow pipeline creation to be concurrent.
@@ -130,12 +134,33 @@ function create_pipelines(device::Device, infos)
   map((x, y) -> graphics_pipeline(device, x, y), handles, infos)
 end
 
+function create_compute_pipelines!(device::Device, infos)
+  # Assume that each available thread will be able to create a set of pipelines in batch mode.
+  # We don't create individual pipelines for performance reasons as the implementation is
+  # likely to setup internal mutexes for each batch which allow pipeline creation to be concurrent.
+
+  #FIXME: This segfaults at second try.
+  # infos_vec = split_vec(infos, Threads.nthreads())
+  # handles_vec = pmap(infos_vec, Vk.Pipeline[]) do infos
+  #   isempty(infos) && return Vk.Pipeline[]
+  #   first(unwrap(Vk.create_compute_pipelines(device, infos)))
+  # end
+  # handles = reduce(vcat, handles_vec)
+  handles = first(unwrap(Vk.create_compute_pipelines(device, infos)))
+
+  map((x, y) -> compute_pipeline(device, x, y), handles, infos)
+end
+
 graphics_pipeline(device::Device, handle::Vk.Pipeline, info::Vk.GraphicsPipelineCreateInfo) =
   Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_GRAPHICS), pipeline_layout(device, info.layout))
+compute_pipeline(device::Device, handle::Vk.Pipeline, info::Vk.ComputePipelineCreateInfo) =
+  Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_COMPUTE), pipeline_layout(device, info.layout))
 
-function create_pipelines(device::Device)
-  ret = batch_create!(Base.Fix1(create_pipelines, device), device.pipeline_ht, device.pending_pipelines)
-  empty!(device.pending_pipelines)
+function create_pipelines!(device::Device)
+  ret = batch_create!(infos -> create_graphics_pipelines!(device, infos), device.pipeline_ht_graphics, device.pending_pipelines_graphics)
+  ret = batch_create!(infos -> create_compute_pipelines!(device, infos), device.pipeline_ht_compute, device.pending_pipelines_compute)
+  empty!(device.pending_pipelines_graphics)
+  empty!(device.pending_pipelines_compute)
   ret
 end
 

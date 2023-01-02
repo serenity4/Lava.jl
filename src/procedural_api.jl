@@ -19,7 +19,7 @@ set_data(rec::StatefulRecording, rg::RenderGraph, data) = set_data(rec, DeviceAd
 
 allocate_data(rec::StatefulRecording, rg::RenderGraph, data) = allocate_data(rg, rec.program[], data)
 
-function DrawInfo(rec::StatefulRecording, color...; depth = nothing, stencil = nothing, instances = 1:1)
+function draw_command(rec::StatefulRecording, color...; depth = nothing, stencil = nothing, instances = 1:1)
   isdefined(rec.program, 1) || error("A program must be set before drawing.")
-  DrawInfo(rec.program[], rec.data_address[], color...; depth, stencil, instances, invocation_state = invocation_state(rec), render_state = render_state(rec))
+  draw_command(rec.program[], rec.data_address[], color...; depth, stencil, instances, invocation_state = invocation_state(rec), render_state = render_state(rec))
 end

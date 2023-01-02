@@ -1,20 +1,36 @@
+@enum ProgramType::UInt8 begin
+  PROGRAM_TYPE_COMPUTE = 1
+  PROGRAM_TYPE_GRAPHICS = 2
+  PROGRAM_TYPE_RAY_TRACING = 3
+  # ... other types of programs can be defined as needed
+end
+
 """
 Computation unit that uses shaders as part of a graphics or compute pipeline.
 
 It exposes a program interface through its shader interfaces and its shader resources.
 """
 @auto_hash_equals struct Program
-  shaders::Dictionary{Vk.ShaderStageFlag,Shader}
+  type::ProgramType
+  data::Any
   type_info::TypeInfo
 end
 
-vertex_shader(prog::Program) = prog.shaders[Vk.SHADER_STAGE_VERTEX_BIT]
-fragment_shader(prog::Program) = prog.shaders[Vk.SHADER_STAGE_FRAGMENT_BIT]
+struct GraphicsProgram
+  vertex_shader::Shader
+  fragment_shader::Shader
+  # ... other fields to be defined, such as geometry/tessellation and/or mesh shaders.
+end
 
-function Program(cache::ShaderCache, shaders...)
-  type_info = retrieve_type_info(shaders)
-  shaders = shader_stage.(shaders) .=> shaders
-  Program(dictionary(shaders), type_info)
+function Program(compute::Shader)
+  compute.info.interface.execution_model == SPIRV.ExecutionModelGLCompute || error("A compute shader is required to form a compute program.")
+  Program(PROGRAM_TYPE_COMPUTE, compute, compute.info.type_info)
+end
+
+Program(vertex_shader::Shader, fragment_shader::Shader) = Program(GraphicsProgram(vertex_shader, fragment_shader))
+function Program(graphics::GraphicsProgram)
+  type_info = retrieve_type_info((graphics.vertex_shader, graphics.fragment_shader))
+  Program(PROGRAM_TYPE_GRAPHICS, graphics, type_info)
 end
 
 function retrieve_type_info(shaders)
@@ -54,8 +70,6 @@ function retrieve_type_info(shaders)
   end
   info
 end
-
-Program(device, shaders...) = Program(device.shader_cache, shaders...)
 
 primitive type DeviceAddress 64 end
 
@@ -321,69 +335,4 @@ ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceD
 function Base.merge(x::ResourceDependency, y::ResourceDependency)
   @assert x.id === y.id
   ResourceDependency(x.id, x.type | y.type, x.access | y.access)
-end
-
-"""
-Cycle-independent specification of a program invocation for graphics operations.
-"""
-struct ProgramInvocation
-  program::Program
-  # TODO: Generalize to other kinds of commands.
-  command::DrawCommand
-  targets::RenderTargets
-  invocation_data::ProgramInvocationData
-  render_state::RenderState
-  invocation_state::ProgramInvocationState
-  resource_dependencies::Dictionary{Resource, ResourceDependency}
-end
-
-function draw_info!(allocator::LinearAllocator, gdescs::GlobalDescriptors, program_invocation::ProgramInvocation, node_id::NodeID, device::Device)
-  address_block = device_address_block!(allocator, gdescs, node_id, program_invocation.invocation_data, program_invocation.program.type_info, device.layout)
-  draw_state = DrawState(program_invocation.render_state, program_invocation.invocation_state, address_block)
-  DrawInfo(program_invocation.command, program_invocation.program, program_invocation.targets, draw_state)
-end
-
-"""
-Allocate the provided bytes respecting the specified alignment.
-
-The data must have been properly padded before hand with the correct shader offsets for it to be usable inside shaders.
-"""
-function allocate_data!(allocator::LinearAllocator, bytes::AbstractVector{UInt8}, load_alignment::Integer)
-  sub = copyto!(allocator, bytes, load_alignment)
-  device_address(sub)
-end
-
-"""
-Allocate the provided bytes with an alignment computed from `layout`.
-
-Padding will be applied to composite and array types using the offsets specified in the shader.
-"""
-function allocate_data!(allocator::LinearAllocator, type_info::TypeInfo, bytes::AbstractVector{UInt8}, t::SPIRType, layout::VulkanLayout, align_bytes = isa(t, StructType) || isa(t, ArrayType))
-  align_bytes && (bytes = align(bytes, t, type_info))
-  # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
-  # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
-  load_alignment = data_alignment(layout, t)
-  allocate_data!(allocator, bytes, load_alignment)
-end
-
-data_alignment(layout::VulkanLayout, t::SPIRType) = alignment(layout, t, [SPIRV.StorageClassPhysicalStorageBuffer], false)
-
-allocate_data!(allocator::LinearAllocator, data::T, type_info::TypeInfo, layout::VulkanLayout) where {T} = allocate_data!(allocator, type_info, extract_bytes(data), type_info.tmap[T], layout)
-allocate_data!(allocator::LinearAllocator, data, shader::Shader, layout::VulkanLayout) = allocate_data!(allocator, data, shader.info.type_info, layout)
-
-function allocate_data(allocator::LinearAllocator, program::Program, data::T, layout::VulkanLayout) where {T}
-  # TODO: Look up what shaders use the data and create pointer resource accordingly, instead of using this weird heuristic.
-  # TODO: Make sure that the offsets and load alignment are consistent across all shaders that use this data.
-  shader = vertex_shader(program)
-  !haskey(shader.info.type_info.tmap, T) && (shader = fragment_shader(program))
-  allocate_data!(allocator, data, shader, layout)
-end
-
-"""
-Program to be compiled into a pipeline with a specific state.
-"""
-@auto_hash_equals struct ProgramInstance
-  program::Program
-  state::DrawState
-  targets::RenderTargets
 end

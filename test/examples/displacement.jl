@@ -27,7 +27,7 @@ function scalar_displacement_program(device)
     ::DeviceAddressBlock::PushConstant,
   )
   frag = @fragment device displace_height_frag(::Vec4::Output)
-  Program(device, vert, frag)
+  Program(vert, frag)
 end
 
 function displacement_invocation(device, vmesh::VertexMesh, color::Resource, height_map::Resource, camera::Mat4, prog = scalar_displacement_program(device))
@@ -38,8 +38,8 @@ function displacement_invocation(device, vmesh::VertexMesh, color::Resource, hei
   ProgramInvocation(
     prog,
     DrawIndexed(foldl(vcat, vmesh.indices.indices); vertex_offset = 0),
-    RenderTargets(color),
     invocation_data,
+    RenderTargets(color),
     RenderState(),
     setproperties(ProgramInvocationState(), (;
       primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,

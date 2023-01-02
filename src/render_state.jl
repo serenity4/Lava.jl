@@ -29,8 +29,7 @@ SPIRV.Pointer{T}(addr::DeviceAddressBlock) where {T} = SPIRV.Pointer{T}(addr.add
 
 struct DrawState
   render_state::RenderState
-  program_invocation_state::ProgramInvocationState
-  program_invocation_data::DeviceAddressBlock
+  invocation_state::ProgramInvocationState
 end
 
-DrawState() = DrawState(RenderState(), ProgramInvocationState(), DeviceAddressBlock(0))
+DrawState() = DrawState(RenderState(), ProgramInvocationState())

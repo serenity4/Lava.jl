@@ -10,5 +10,5 @@ end
 function simple_program(device)
   vert_shader = @vertex device test_program_vert(::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
   frag_shader = @fragment device test_program_frag(::Vec4::Output)
-  Program(device, vert_shader, frag_shader)
+  Program(vert_shader, frag_shader)
 end

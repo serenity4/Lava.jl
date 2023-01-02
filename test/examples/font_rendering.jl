@@ -11,7 +11,7 @@ remap(values::AbstractArray, to; from = extrema(values)) = remap.(values, Ref(fr
 remap(low1, high1, low2, high2) = x -> remap(x, low1, high1, low2, high2)
 
 function program_3(device, positions, ppm)
-  prog = Program(device, ShaderSource(shader_file("glyph.vert.spv")), ShaderSource(shader_file("glyph.frag.spv")))
+  prog = Program(ShaderSource(shader_file("glyph.vert.spv")), ShaderSource(shader_file("glyph.frag.spv")))
 
   fg = FrameGraph(device)
   add_color_attachment(fg)
@@ -30,14 +30,14 @@ function program_3(device, positions, ppm)
   add_pass!(fg, :main, RenderPass((0, 0, 1920, 1080))) do rec
     set_program(rec, prog)
     ds = draw_state(rec)
-    set_draw_state(rec, @set ds.program_invocation_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
+    set_draw_state(rec, @set ds.invocation_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
     set_material(rec,
       RGBA{Float32}(1.0, 1.0, 0.0, 1.0), # text color
       device_address(curve_buffer),
       ppm, # pixel per em
       alignment = 8,
     )
-    draw(rec, RenderTargets([:color]), vdata, collect(1:4); alignment = 8)
+    draw!(rec, RenderTargets([:color]), vdata, collect(1:4); alignment = 8)
   end
 
   usage = @resource_dependencies begin

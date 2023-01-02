@@ -127,7 +127,6 @@ function boids_invocation(device, boids::BoidSimulation; prog = boids_program(de
   ProgramInvocation(
     prog,
     Dispatch(8, 1, 1),
-    invocation_data,
     data,
   )
 end
@@ -164,8 +163,10 @@ end
   end
 
   @testset "GPU implementation" begin
-    # boids = BoidSimulation(Arr(Tuple(rand(BoidAgent, 512))))
-    # invocation = boids_invocation(device, boids)
-    # node = compute_node(invocation)
+    boids = BoidSimulation(Arr(Tuple(rand(BoidAgent, 512))))
+    invocation = boids_invocation(device, boids)
+    node = compute_node(invocation)
+    @test isa(node, RenderNode)
+    # TODO: render
   end
 end;

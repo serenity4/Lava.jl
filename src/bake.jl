@@ -57,12 +57,14 @@ render!(rg::RenderGraph, command_buffer::CommandBuffer) = render(command_buffer,
 
 function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   records, pipeline_hashes = record_commands!(baked)
-  create_pipelines(baked.device)
+  create_pipelines!(baked.device)
 
-
+  if any(!isempty(record.draws) for record in records)
+    # Allocate index buffer.
+    fill_indices!(baked.index_data, records)
+    initialize(command_buffer, baked.device, baked.index_data)
+  end
   # Fill command buffer with synchronization commands & recorded commands.
-  fill_indices!(baked.index_data, records)
-  initialize(command_buffer, baked.device, baked.index_data)
   flush(command_buffer, baked, records, pipeline_hashes)
   isa(command_buffer, SimpleCommandBuffer) && push!(command_buffer.to_free, baked)
   baked
@@ -70,11 +72,11 @@ end
 
 function fill_indices!(index_data::IndexData, records)
   for record in records
-    for draws in record.programs
+    for draws in record.draws
       for calls in draws
         for (command, target) in calls
-          if isa(command, DrawIndexed)
-            append!(index_data, command)
+          if command.type == COMMAND_TYPE_DRAW_INDEXED
+            append!(index_data, command.impl::DrawIndexed)
           end
         end
       end
@@ -94,6 +96,48 @@ function record_commands!(baked::BakedRenderGraph)
   end
 
   records, pipeline_hashes
+end
+
+function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
+  rec = CompactRecord(node, Dictionary(), Dictionary())
+  for info in node.command_infos
+    if is_graphics_command(info.command)
+      @reset info.targets = materialize(baked, info.targets)
+      draw!(rec, info)
+    else
+      dispatch!(rec, info)
+    end
+  end
+  rec
+end
+
+function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
+  (; device) = baked
+  pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
+  for (program, calls) in pairs(record.draws)
+    for ((data, state), draws) in pairs(calls)
+      for targets in unique!(last.(draws))
+        info = pipeline_info_graphics(device, record.node.render_area::RenderArea, program, state.render_state, state.invocation_state, targets)
+        hash = request_pipeline(device, info)
+        set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
+      end
+    end
+  end
+  for (program, calls) in pairs(record.dispatches)
+    info = pipeline_info_compute(device, program)
+    hash = request_pipeline(device, info)
+    set!(pipeline_hashes, ProgramInstance(program, nothing, nothing), hash)
+  end
+  pipeline_hashes
+end
+
+function materialize(baked::BakedRenderGraph, targets::RenderTargets)
+  color = map(targets.color) do resource
+    islogical(resource) ? baked.resources[resource.id] : resource
+  end
+  depth = isnothing(targets.depth) ? nothing : islogical(targets.depth) ? baked.resources[targets.depth.id] : targets.depth
+  stencil = isnothing(targets.stencil) ? nothing : islogical(targets.stencil) ? baked.resources[targets.stencil.id] : targets.stencil
+  RenderTargets(color, depth, stencil)
 end
 
 function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipeline_hashes)

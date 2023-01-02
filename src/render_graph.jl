@@ -5,30 +5,31 @@ end
 RenderArea(x, y) = RenderArea(Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(x, y)))
 RenderArea(x, y, offset_x, offset_y) = RenderArea(Vk.Rect2D(Vk.Offset2D(offset_x, offset_y), Vk.Extent2D(x, y)))
 
-struct DrawInfo
-  command::DrawCommand
+struct CommandInfo
+  command::Command
   program::Program
-  targets::RenderTargets
-  state::DrawState
+  data::DeviceAddressBlock
+  targets::Optional{RenderTargets}
+  state::Optional{DrawState}
 end
 
 Base.@kwdef struct RenderNode
   id::NodeID = NodeID()
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
   render_area::Optional{RenderArea} = nothing
-  "Data required for issuing draw calls that will only be valid for a given cycle."
-  draw_infos::Optional{Vector{DrawInfo}} = DrawInfo[]
-  "Program invocations, that will generate [`DrawInfo`](@ref) calls at every cycle."
+  "Data required for issuing dispatches and draw calls that will only be valid for a given cycle."
+  command_infos::Optional{Vector{CommandInfo}} = CommandInfo[]
+  "Program invocations, that will generate [`CommandInfo`](@ref) calls at every cycle."
   program_invocations::Optional{Vector{ProgramInvocation}} = ProgramInvocation[]
 end
 
 function Base.copy(node::RenderNode)
-  RenderNode(node.id, node.stages, node.render_area, isnothing(node.draw_infos) ? nothing : copy(node.draw_infos), isnothing(node.program_invocations) ? nothing : copy(node.program_invocations))
+  RenderNode(node.id, node.stages, node.render_area, isnothing(node.command_infos) ? nothing : copy(node.command_infos), isnothing(node.program_invocations) ? nothing : copy(node.program_invocations))
 end
 
 Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
 
-draw(node::RenderNode, args...; kwargs...) = push!(node.draw_infos, DrawInfo(args...; kwargs...))
+draw!(node::RenderNode, args...; kwargs...) = push!(node.command_infos, draw_command(args...; kwargs...))
 
 function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDependency)
   usage = @match resource_type(resource) begin
@@ -315,21 +316,21 @@ end
 
 """
 Expand all program invocations of all render nodes, generating
-[`DrawInfo`](@ref) structures to be used during baking.
+[`CommandInfo`](@ref) structures to be used during baking.
 
 Render nodes will not be mutated; instead, copies which contain the
 generated draw infos will be reinserted into the render graph.
 """
-function generate_draw_infos!(rg::RenderGraph, node::RenderNode)
+function generate_command_infos!(rg::RenderGraph, node::RenderNode)
   isempty(node.program_invocations) && return
   # Do not mutate nodes so that they can be reused in other render graphs.
   generated_node = setproperties(node, (;
-    draw_infos = DrawInfo[],
+    command_infos = CommandInfo[],
     program_invocations = nothing,
   ))
   for invocation in node.program_invocations
-    draw_info = draw_info!(rg.allocator, rg.device.descriptors, invocation, node.id, rg.device)
-    push!(generated_node.draw_infos, draw_info)
+    command_info = command_info!(rg.allocator, rg.device.descriptors, invocation, node.id, rg.device)
+    push!(generated_node.command_infos, command_info)
   end
   rg.nodes[node.id] = generated_node
 end
@@ -338,7 +339,7 @@ function expand_program_invocations!(rg::RenderGraph)
   for node in rg.nodes
     !isnothing(node.program_invocations) || continue
     add_resource_dependencies!(rg, node)
-    generate_draw_infos!(rg, node)
+    generate_command_infos!(rg, node)
   end
 end
 

@@ -17,7 +17,7 @@ end
 function rectangle_program(device)
   vert = @vertex device rectangle_vert(::Vec4::Output, ::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
   frag = @fragment device rectangle_frag(::Vec4::Output, ::Vec4::Input)
-  Program(device, vert, frag)
+  Program(vert, frag)
 end
 
 function rectangle_invocation(device, vdata, color, prog = rectangle_program(device))
@@ -25,8 +25,8 @@ function rectangle_invocation(device, vdata, color, prog = rectangle_program(dev
   ProgramInvocation(
     prog,
     DrawIndexed(1:4),
-    RenderTargets(color),
     invocation_data,
+    RenderTargets(color),
     RenderState(),
     setproperties(ProgramInvocationState(), (;
       primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,

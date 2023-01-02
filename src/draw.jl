@@ -1,22 +1,7 @@
-abstract type DrawCommand end
+abstract type DrawCommand <: CommandImplementation end
 
-struct DrawDirect <: DrawCommand
-  vertices::Vector{Int64}
-  instances::Vector{Int64}
-end
-
-function apply(cb::CommandBuffer, draw::DrawDirect)
-  Vk.cmd_draw(
-    cb,
-    1 + draw.vertices.stop - draw.vertices.start,
-    1 + draw.instances.stop - draw.instances.start,
-    draw.vertices.start - 1,
-    draw.instances.start - 1,
-  )
-end
-
-struct DrawIndirect{B<:Buffer} <: DrawCommand
-  parameters::B
+struct DrawIndirect <: DrawCommand
+  parameters::Buffer
   count::Int64
 end
 
@@ -74,8 +59,8 @@ function apply(cb::CommandBuffer, draw::DrawIndexed, index_data::IndexData)
   )
 end
 
-struct DrawIndexedIndirect{B<:Buffer} <: DrawCommand
-  parameters::B
+struct DrawIndexedIndirect <: DrawCommand
+  parameters::Buffer
   count::Int64
 end
 

@@ -120,7 +120,7 @@ using Graphs: nv, ne
 
     set_program(rec, prog)
     set_data(rec, rg, [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)])
-    info = draw(graphics, rec, collect(1:4), color; depth)
+    info = draw!(graphics, rec, collect(1:4), color; depth)
 
     @add_resource_dependencies rg begin
       (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
@@ -144,14 +144,14 @@ using Graphs: nv, ne
     end
 
     @testset "Recording commands" begin
-      empty!(device.pipeline_ht)
-      empty!(device.pending_pipelines)
-      @test isempty(device.pipeline_ht)
+      empty!(device.pipeline_ht_graphics)
+      empty!(device.pending_pipelines_graphics)
+      @test isempty(device.pipeline_ht_graphics)
       records, pipeline_hashes = Lava.record_commands!(baked)
-      @test isempty(device.pipeline_ht)
-      Lava.create_pipelines(device)
-      @test !isempty(device.pipeline_ht)
-      pipeline = device.pipeline_ht[only(pipeline_hashes)]
+      @test isempty(device.pipeline_ht_graphics)
+      Lava.create_pipelines!(device)
+      @test !isempty(device.pipeline_ht_graphics)
+      pipeline = device.pipeline_ht_graphics[only(pipeline_hashes)]
 
       command_buffer = Lava.SnoopCommandBuffer()
       Lava.fill_indices!(baked.index_data, records)
@@ -195,7 +195,7 @@ using Graphs: nv, ne
       (color => (0.0, 0.0, 0.0, 1.0))::Color
       depth::Depth
     end
-    invocation = ProgramInvocation(prog, cmd, RenderTargets(color; depth), @invocation_data(@block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderState(), ProgramInvocationState(), dependencies)
+    invocation = ProgramInvocation(prog, cmd, @invocation_data(@block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
     push!(graphics.program_invocations, invocation)
 
     rg = RenderGraph(device)

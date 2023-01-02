@@ -56,7 +56,7 @@ function blur_program(device)
     ::Vec2::Input,
     ::DeviceAddressBlock::PushConstant,
     ::Arr{2048,SPIRV.SampledImage{IT}}::UniformConstant{DescriptorSet = 0, Binding = 3})
-  Program(device, vert, frag)
+  Program(vert, frag)
 end
 
 function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec{2,Float32} = Vec2(0.1, 1.0); prog = blur_program(device), normal_map = read_normal_map(device))
@@ -86,8 +86,8 @@ function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec
   ProgramInvocation(
     prog,
     DrawIndexed(1:4),
-    RenderTargets(color),
     invocation_data,
+    RenderTargets(color),
     RenderState(),
     invocation_state,
     deps

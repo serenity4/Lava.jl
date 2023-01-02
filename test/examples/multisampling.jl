@@ -3,8 +3,8 @@ function multisampling_invocation(device, vdata, color; prog = rectangle_program
   ProgramInvocation(
     prog,
     DrawIndexed(1:3),
-    RenderTargets(color),
     invocation_data,
+    RenderTargets(color),
     RenderState(),
     ProgramInvocationState(),
     @resource_dependencies begin

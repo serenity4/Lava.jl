@@ -23,7 +23,7 @@ const to = TimerOutput()
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
-@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, extract_bytes
+@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, extract_bytes, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions
 
 const Optional{T} = Union{T,Nothing}
 
@@ -67,15 +67,16 @@ include("descriptors.jl")
 include("pipeline.jl")
 include("render_state.jl")
 include("device.jl")
-include("draw.jl")
 include("program.jl")
 include("resources/creation.jl")
 include("binding_state.jl")
 include("wsi.jl")
 include("frame.jl")
-include("render_graph.jl")
-include("bake.jl")
 include("command.jl")
+include("program_invocation.jl")
+include("render_graph.jl")
+include("command_records.jl")
+include("bake.jl")
 include("procedural_api.jl")
 include("resources/resolution.jl")
 include("debug.jl")
@@ -149,8 +150,9 @@ export
   RenderState,
 
   # commands
-  CompactRecord, draw,
-  DrawCommand, DrawInfo, DrawState, DrawDirect, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
+  CompactRecord, Command, CommandInfo,
+  draw!, DrawState, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
+  dispatch!, Dispatch, DispatchIndirect,
   allocate_data, DescriptorIndex,
   DeviceAddressBlock, DeviceAddress,
   StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_data,

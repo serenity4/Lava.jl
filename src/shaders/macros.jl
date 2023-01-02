@@ -1,18 +1,18 @@
 propagate_source(__source__, ex) = Expr(:block, LineNumberNode(__source__.line, __source__.file), ex)
 
-macro vertex(device, ex)
-  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelVertex)))
+macro vertex(device, ex, options = nothing)
+  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelVertex, options)))
 end
 
-macro fragment(device, ex)
-  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelFragment)))
+macro fragment(device, ex, options = nothing)
+  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelFragment, options)))
 end
 
-macro compute(device, ex)
-  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelGLCompute)))
+macro compute(device, ex, options = nothing)
+  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelGLCompute, options)))
 end
 
-function shader(device, ex::Expr, execution_model::SPIRV.ExecutionModel)
+function shader(device, ex::Expr, execution_model::SPIRV.ExecutionModel, options)
   f, args = @match ex begin
     :($f($(args...))) => (f, args)
   end
@@ -60,6 +60,7 @@ function shader(device, ex::Expr, execution_model::SPIRV.ExecutionModel)
     variable_decorations = $(deepcopy(variable_decorations)),
     features = $device.spirv_features,
   ))
+  !isnothing(options) && push!(interface.args[2].args, :(execution_options = $options))
   call = Expr(:call, f, Expr.(:(::), argtypes)...)
   shader(device, call, interface)
 end

@@ -31,7 +31,7 @@ function texture_program(device)
     ::Vec2::Input,
     ::DeviceAddressBlock::PushConstant,
     ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)}}::UniformConstant{DescriptorSet = 0, Binding = 3})
-  Program(device, vert, frag)
+  Program(vert, frag)
 end
 
 function texture_invocation(device, vdata, color; prog = texture_program(device), normal_map = nothing)
@@ -45,8 +45,8 @@ function texture_invocation(device, vdata, color; prog = texture_program(device)
   ProgramInvocation(
     prog,
     DrawIndexed(1:4),
-    RenderTargets(color),
     invocation_data,
+    RenderTargets(color),
     RenderState(),
     setproperties(ProgramInvocationState(), (;
       primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
