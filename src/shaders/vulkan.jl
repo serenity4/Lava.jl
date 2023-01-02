@@ -1,41 +1,41 @@
-@auto_hash_equals struct Shader
-  source::ShaderSource
+mutable struct Shader
   shader_module::Vk.ShaderModule
+  info::ShaderInfo
   push_constant_ranges::Vector{Vk.PushConstantRange}
   specialization_constants::Vector{Vk.SpecializationInfo}
 end
 
 device(shader::Shader) = shader.shader_module.device
 
-Shader(source, shader_module) = Shader(source, shader_module, [], [])
-
-mutable struct CacheDiagnostics
-  hits::Int
-  misses::Int
+function Shader(device, source::ShaderSource)
+  shader_module = Vk.ShaderModule(device, source)
+  Shader(shader_module, source.info, Vk.PushConstantRange[], Vk.SpecializationInfo[])
 end
+
+shader_stage(shader::Shader) = shader_stage(shader.info.interface.execution_model)
 
 struct ShaderCache
   device::Vk.Device
-  shaders::Dictionary{ShaderSource,Shader}
-  diagnostics::CacheDiagnostics
+  # This could be reused across devices, if we want to avoid going through codegen again.
+  # However the supported features would have to be taken as the intersection of all the supported
+  # ones on each hypothetical device.
+  compiled::Cache{Dict{ShaderSpec,ShaderSource}}
+  shaders::Cache{IdDict{ShaderSource,Shader}}
 end
 
-ShaderCache(device) = ShaderCache(device, Dictionary(), CacheDiagnostics(0, 0))
-
-Shader(cache::ShaderCache, source::ShaderSource) = find_shader!(cache, source)
-
-function find_shader!(cache::ShaderCache, source::ShaderSource)
-  if haskey(cache.shaders, source)
-    cache.diagnostics.hits += 1
-    cache.shaders[source]
-  else
-    cache.diagnostics.misses += 1
-    shader_module = Vk.ShaderModule(cache.device, source)
-    shader = Shader(source, shader_module)
-    insert!(cache.shaders, source, shader)
-    shader
-  end
+function Base.empty!(cache::ShaderCache)
+  empty!(cache.compiled)
+  empty!(cache.shaders)
+  cache
 end
+
+ShaderCache(device) = ShaderCache(device, Cache{Dict{ShaderSpec,ShaderSource}}(), Cache{IdDict{ShaderSource,Shader}}())
+
+Shader(cache::ShaderCache, source::ShaderSource) = get!(cache, source)
+ShaderSource(cache::ShaderCache, spec::ShaderSpec) = get!(cache, spec)
+
+Base.get!(cache::ShaderCache, spec::ShaderSpec) = get!(() -> ShaderSource(spec), cache.compiled, spec)
+Base.get!(cache::ShaderCache, source::ShaderSource) = get!(() -> Shader(cache.device, source), cache.shaders, source)
 
 function Vk.ShaderModule(device, source::ShaderSource)
   length(source.code) % 4 == 0 || pad_shader_code!(source.code)
@@ -55,5 +55,5 @@ end
 
 function Vk.PipelineShaderStageCreateInfo(shader::Shader)
   specialization_info = isempty(shader.specialization_constants) ? C_NULL : shader.specialization_constants
-  Vk.PipelineShaderStageCreateInfo(shader.source.stage, shader.shader_module, string(shader.source.entry_point); specialization_info)
+  Vk.PipelineShaderStageCreateInfo(shader_stage(shader), shader.shader_module, "main"; specialization_info)
 end

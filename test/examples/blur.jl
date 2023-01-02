@@ -50,12 +50,12 @@ function blur_frag(out_color, uv, data_address, images)
 end
 
 function blur_program(device)
-  vert = @vertex device.spirv_features blur_vert(::Output::Vec2, ::Output{Position}::Vec4, ::Input{VertexIndex}::UInt32, ::PushConstant::DeviceAddressBlock)
-  frag = @fragment device.spirv_features blur_frag(
-    ::Output::Vec4,
-    ::Input::Vec2,
-    ::PushConstant::DeviceAddressBlock,
-    ::UniformConstant{DescriptorSet = 0, Binding = 3}::Arr{2048,SPIRV.SampledImage{IT}})
+  vert = @vertex device blur_vert(::Vec2::Output, ::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+  frag = @fragment device blur_frag(
+    ::Vec4::Output,
+    ::Vec2::Input,
+    ::DeviceAddressBlock::PushConstant,
+    ::Arr{2048,SPIRV.SampledImage{IT}}::UniformConstant{DescriptorSet = 0, Binding = 3})
   Program(device, vert, frag)
 end
 

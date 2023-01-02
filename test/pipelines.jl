@@ -1,6 +1,6 @@
 @testset "Graphics pipelines" begin
-  vertex_shader = @vertex device.spirv_features test_shader(::Output{Position}::Vec{4,Float32})
-  fragment_shader = @fragment device.spirv_features test_shader(::Output::Vec{4,Float32})
+  vertex_shader = @vertex device test_shader(::Vec{4,Float32}::Output{Position})
+  fragment_shader = @fragment device test_shader(::Vec{4,Float32}::Output)
   program = Program(device, vertex_shader, fragment_shader)
   color = attachment_resource(device, nothing; format = Lava.format(BGRA{N0f8}), dims = [1920, 1080])
 

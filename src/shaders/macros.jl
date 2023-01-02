@@ -1,4 +1,18 @@
-function shader(features, ex, execution_model)
+propagate_source(__source__, ex) = Expr(:block, LineNumberNode(__source__.line, __source__.file), ex)
+
+macro vertex(device, ex)
+  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelVertex)))
+end
+
+macro fragment(device, ex)
+  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelFragment)))
+end
+
+macro compute(device, ex)
+  propagate_source(__source__, esc(shader(device, ex, SPIRV.ExecutionModelGLCompute)))
+end
+
+function shader(device, ex::Expr, execution_model::SPIRV.ExecutionModel)
   f, args = @match ex begin
     :($f($(args...))) => (f, args)
   end
@@ -8,7 +22,7 @@ function shader(features, ex, execution_model)
   variable_decorations = Dictionary{Int,Decorations}()
   for (i, arg) in enumerate(args)
     @switch arg begin
-      @case :(::$C::$T)
+      @case :(::$T::$C)
       sc = C
       decs = []
       has_decorations = Meta.isexpr(sc, :curly)
@@ -37,25 +51,25 @@ function shader(features, ex, execution_model)
       end
       push!(argtypes, T)
       @case _
-      error("Expected argument type to be in the form '::<Class>::<Type>")
+      error("Expected argument type to be in the form `::<Type>::<Class>` at location $i (got $(repr(arg)))")
     end
   end
 
+  interface = :($ShaderInterface($execution_model;
+    storage_classes = $(copy(storage_classes)),
+    variable_decorations = $(deepcopy(variable_decorations)),
+    features = $device.spirv_features,
+  ))
+  call = Expr(:call, f, Expr.(:(::), argtypes)...)
+  shader(device, call, interface)
+end
+
+function shader(device, ex::Expr, interface)
+  args = SPIRV.get_signature(ex)
   quote
-    interface = SPIRV.ShaderInterface(
-      execution_model = $execution_model,
-      storage_classes = $(copy(storage_classes)),
-      variable_decorations = $(deepcopy(variable_decorations)),
-      features = $(esc(features)),
-    )
-    $Lava.@shader interface $(esc(f))($((:(::$(esc(T))) for T in argtypes)...))
+    isa($device, $Device) || throw(ArgumentError(string("`Device` expected as first argument, got a value of type `", typeof($device), '`')))
+    spec = $ShaderSpec($(args...), $interface)
+    source = $ShaderSource($device, spec)
+    $Shader($device, source)
   end
-end
-
-macro fragment(features, ex)
-  shader(features, ex, SPIRV.ExecutionModelFragment)
-end
-
-macro vertex(features, ex)
-  shader(features, ex, SPIRV.ExecutionModelVertex)
 end

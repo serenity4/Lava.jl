@@ -12,6 +12,7 @@ function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp
 end
 
 graphics_node(invocation = nothing) = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, program_invocations = isnothing(invocation) ? ProgramInvocation[] : ProgramInvocation[invocation])
+compute_node(invocation = nothing) = RenderNode(stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, program_invocations = isnothing(invocation) ? ProgramInvocation[] : ProgramInvocation[invocation])
 
 function render_graphics(device, node::RenderNode)
   rg = RenderGraph(device)

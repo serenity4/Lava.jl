@@ -8,25 +8,7 @@ function test_program_frag(out_color)
 end
 
 function simple_program(device)
-  vert_interface = ShaderInterface(
-    storage_classes = [SPIRV.StorageClassOutput, SPIRV.StorageClassInput, SPIRV.StorageClassPushConstant],
-    variable_decorations = dictionary([
-      1 => Decorations(SPIRV.DecorationBuiltIn, SPIRV.BuiltInPosition),
-      2 => Decorations(SPIRV.DecorationBuiltIn, SPIRV.BuiltInVertexIndex),
-    ]),
-    features = device.spirv_features,
-  )
-
-  frag_interface = ShaderInterface(
-    execution_model = SPIRV.ExecutionModelFragment,
-    storage_classes = [SPIRV.StorageClassOutput],
-    variable_decorations = dictionary([
-      1 => Decorations(SPIRV.DecorationLocation, 0),
-    ]),
-    features = device.spirv_features,
-  )
-
-  vert_shader = @shader vert_interface test_program_vert(::Vec4, ::UInt32, ::DeviceAddressBlock)
-  frag_shader = @shader frag_interface test_program_frag(::Vec4)
+  vert_shader = @vertex device test_program_vert(::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+  frag_shader = @fragment device test_program_frag(::Vec4::Output)
   Program(device, vert_shader, frag_shader)
 end

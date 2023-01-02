@@ -1,6 +1,6 @@
 using Lava
 using Test
-using Random: MersenneTwister
+using Random: Random, MersenneTwister, AbstractRNG
 using Dictionaries
 using SPIRV: SPIRV, ShaderInterface, U, F, @mat, image_type
 using GeometryExperiments

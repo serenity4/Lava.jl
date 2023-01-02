@@ -1,5 +1,6 @@
 module Lava
 
+using Core: MethodInstance
 using Vulkan: Vk, VkCore, @bitmask_flag
 
 using Reexport
@@ -40,6 +41,7 @@ include("handles.jl")
 include("queue_dispatch.jl")
 include("synchronization.jl")
 include("hashtable.jl")
+include("cache.jl")
 
 const debug_callback_c = Ref{Ptr{Cvoid}}(C_NULL)
 
@@ -130,7 +132,7 @@ export
 
   # shaders
   ShaderSource, @shader,
-  @fragment, @vertex,
+  @fragment, @vertex, @compute,
   ShaderCache,
   Shader,
 

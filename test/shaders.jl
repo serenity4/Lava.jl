@@ -3,24 +3,31 @@ function test_shader(position)
 end
 
 @testset "Shader cache" begin
-  frag_shader = @fragment device.spirv_features test_shader(::Output::Vec{4,Float32})
+  @test_throws "`Device` expected" @eval @fragment "hello" test_shader(::Vec4::Output)
+  frag_shader = @fragment device test_shader(::Vec4::Output)
+  @test isa(frag_shader, Shader)
 
-  cache = ShaderCache(device)
-  @test cache.diagnostics.misses == cache.diagnostics.hits == 0
-  sh = Shader(cache, frag_shader)
-  @test cache.diagnostics.hits == 0
-  @test cache.diagnostics.misses == 1
-  sh = Shader(cache, frag_shader)
-  @test cache.diagnostics.hits == 1
-  @test cache.diagnostics.misses == 1
+  cache = device.shader_cache
+  empty!(cache)
+  @test cache.compiled.diagnostics.misses == cache.compiled.diagnostics.hits == 0
+  @test cache.shaders.diagnostics.misses == cache.shaders.diagnostics.hits == 0
+  sh = @fragment device test_shader(::Vec4::Output)
+  @test cache.compiled.diagnostics.hits == 0
+  @test cache.compiled.diagnostics.misses == 1
+  @test cache.shaders.diagnostics.hits == 0
+  @test cache.shaders.diagnostics.misses == 1
+  sh = @fragment device test_shader(::Vec4::Output)
+  @test cache.compiled.diagnostics.hits == 1
+  @test cache.compiled.diagnostics.misses == 1
+  @test cache.shaders.diagnostics.hits == 1
+  @test cache.shaders.diagnostics.misses == 1
+  @test length(cache.compiled) == 1
   @test length(cache.shaders) == 1
-
-  # Test that caching is based on equality and not identity.
-  # Note that this means caching is slow at the moment since it
-  # has to hash the whole source code. An appropriate caching by
-  # object ID could be implemented as an optimization option in the future.
-  frag_shader = @fragment device.spirv_features test_shader(::Output::Vec{4,Float32})
-  sh = Shader(cache, frag_shader)
-  @test length(cache.shaders) == 1
-  @test cache.diagnostics.hits == 2
+  sh = @fragment device test_shader(::Vec{4,Float64}::Output)
+  @test cache.compiled.diagnostics.hits == 1
+  @test cache.compiled.diagnostics.misses == 2
+  @test cache.shaders.diagnostics.hits == 1
+  @test cache.shaders.diagnostics.misses == 2
+  @test length(cache.compiled) == 2
+  @test length(cache.shaders) == 2
 end;

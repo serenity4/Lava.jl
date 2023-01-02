@@ -55,6 +55,20 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
   )
 end
 
+function Base.empty!(device::Device)
+  Vk.device_wait_idle(device)
+  empty!(device.pipeline_ht)
+  empty!(device.pipeline_layout_ht)
+  empty!(device.pipeline_layouts)
+  empty!(device.pending_pipelines)
+  empty!(device.transfer_ops)
+  empty!(device.fence_pool)
+  empty!(device.descriptors)
+end
+
+Shader(device::Device, source::ShaderSource) = Shader(device.shader_cache, source)
+ShaderSource(device::Device, spec::ShaderSpec) = ShaderSource(device.shader_cache, spec)
+
 const QUEUE_GENERAL_BITS = Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT | Vk.QUEUE_TRANSFER_BIT
 
 function request_command_buffer(device::Device, queue_usage_bits::Vk.QueueFlag = QUEUE_GENERAL_BITS)

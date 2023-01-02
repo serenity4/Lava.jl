@@ -20,13 +20,13 @@ function fresnel_shading(n₁, n₂, cosθ)
 end
 
 function scalar_displacement_program(device)
-  vert = @vertex device.spirv_features displace_height_vert(
-    ::Output{Position}::Vec4,
-    ::Input{VertexIndex}::UInt32,
-    ::UniformConstant{DescriptorSet = 0, Binding = 3}::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatR16f,SPIRV.Dim2D,0,false,false,1)}},
-    ::PushConstant::DeviceAddressBlock,
+  vert = @vertex device displace_height_vert(
+    ::Vec4::Output{Position},
+    ::UInt32::Input{VertexIndex},
+    ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatR16f,SPIRV.Dim2D,0,false,false,1)}}::UniformConstant{DescriptorSet = 0, Binding = 3},
+    ::DeviceAddressBlock::PushConstant,
   )
-  frag = @fragment device.spirv_features displace_height_frag(::Output::Vec4)
+  frag = @fragment device displace_height_frag(::Vec4::Output)
   Program(device, vert, frag)
 end
 

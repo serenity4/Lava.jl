@@ -166,8 +166,8 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
 
   data5 = @invocation_data begin
     b1 = @block Vec2(1.0, 1.0)
-    b2 = @block TextureDrawing(Vec2(1, 1), @descriptor desc)
-    tex = TextureData(@address(b1), @address(b2))
+    b2 = @block (Vec2(1, 1), @descriptor desc)
+    tex = (@address(b1), @address(b2))
     @block (tex, 4)
   end
   empty!(gdescs)

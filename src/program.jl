@@ -13,16 +13,14 @@ fragment_shader(prog::Program) = prog.shaders[Vk.SHADER_STAGE_FRAGMENT_BIT]
 
 function Program(cache::ShaderCache, shaders...)
   type_info = retrieve_type_info(shaders)
-  shaders = map(shaders) do shader
-    shader.stage => find_shader!(cache, shader)
-  end
+  shaders = shader_stage.(shaders) .=> shaders
   Program(dictionary(shaders), type_info)
 end
 
 function retrieve_type_info(shaders)
   info = TypeInfo()
   for shader in shaders
-    (; tmap, offsets, strides) = shader.type_info
+    (; tmap, offsets, strides) = shader.info.type_info
     for (T, t) in pairs(tmap)
       existing = get(info.tmap, T, nothing)
       if !isnothing(existing) && existing ≠ t
@@ -371,13 +369,13 @@ end
 data_alignment(layout::VulkanLayout, t::SPIRType) = alignment(layout, t, [SPIRV.StorageClassPhysicalStorageBuffer], false)
 
 allocate_data!(allocator::LinearAllocator, data::T, type_info::TypeInfo, layout::VulkanLayout) where {T} = allocate_data!(allocator, type_info, extract_bytes(data), type_info.tmap[T], layout)
-allocate_data!(allocator::LinearAllocator, data, shader::Shader, layout::VulkanLayout) = allocate_data!(allocator, data, shader.source.type_info, layout)
+allocate_data!(allocator::LinearAllocator, data, shader::Shader, layout::VulkanLayout) = allocate_data!(allocator, data, shader.info.type_info, layout)
 
 function allocate_data(allocator::LinearAllocator, program::Program, data::T, layout::VulkanLayout) where {T}
   # TODO: Look up what shaders use the data and create pointer resource accordingly, instead of using this weird heuristic.
   # TODO: Make sure that the offsets and load alignment are consistent across all shaders that use this data.
   shader = vertex_shader(program)
-  !haskey(shader.source.type_info.tmap, T) && (shader = fragment_shader(program))
+  !haskey(shader.info.type_info.tmap, T) && (shader = fragment_shader(program))
   allocate_data!(allocator, data, shader, layout)
 end
 
