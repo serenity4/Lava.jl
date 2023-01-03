@@ -308,6 +308,10 @@ end
 
 function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)
   for invocation in node.program_invocations
+    if isempty(invocation.resource_dependencies)
+      insert!(rg.uses, node.id, Dictionary{ResourceID, Vector{ResourceUsage}}())
+      continue
+    end
     for (resource_id, resource_dependency) in pairs(invocation.resource_dependencies)
       add_resource_dependency!(rg, node, resource_id, resource_dependency)
     end

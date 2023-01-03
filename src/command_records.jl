@@ -23,7 +23,7 @@ function draw!(record::CompactRecord, command::Command, program::Program, data::
 end
 dispatch!(record::CommandRecord, info::CommandInfo) = dispatch!(record, info.command, info.program, info.data)
 function dispatch!(record::CompactRecord, command::Command, program::Program, data::DeviceAddressBlock)
-  program_dispatches = get!(Dictionary, record.dispatch, program)
+  program_dispatches = get!(Dictionary, record.dispatches, program)
   dispatches = get!(Vector{Command}, program_dispatches, data)
   push!(dispatches, command)
   nothing
@@ -164,34 +164,6 @@ end
 function request_pipeline(device::Device, info::Vk.ComputePipelineCreateInfo)
   push!(device.pending_pipelines_compute, info)
   hash(info)
-end
-
-function Base.flush(cb::CommandBuffer, record::CompactRecord, device::Device, binding_state::BindState, pipeline_hashes, index_data::IndexData)
-  for (program, calls) in pairs(record.draws)
-    for ((data, state), draws) in pairs(calls)
-      for (draw, targets) in draws
-        hash = pipeline_hashes[ProgramInstance(program, state, targets)]
-        pipeline = device.pipeline_ht_graphics[hash]
-        reqs = BindRequirements(pipeline, data, device.descriptors.gset)
-        bind(cb, reqs, binding_state)
-        binding_state = reqs
-        draw.type == COMMAND_TYPE_DRAW_INDEXED ? apply(cb, draw.impl::DrawIndexed, index_data) : apply(cb, draw.impl::Union{DrawIndirect, DrawIndexedIndirect})
-      end
-    end
-  end
-  for (program, calls) in pairs(record.dispatches)
-    hash = pipeline_hashes[ProgramInstance(program, nothing, nothing)]
-    pipeline = device.pipeline_ht_compute[hash]
-    for (data, dispatches) in pairs(calls)
-      reqs = BindRequirements(pipeline, data, device.descriptors.gset)
-      bind(cb, reqs, binding_state)
-      binding_state = reqs
-      for dispatch in dispatches
-        apply(cb, dispatch.impl::Union{Dispatch, DispatchIndirect})
-      end
-    end
-  end
-  binding_state
 end
 
 function initialize(cb::CommandBuffer, device::Device, id::IndexData)

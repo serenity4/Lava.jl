@@ -69,7 +69,7 @@ include("render_state.jl")
 include("device.jl")
 include("program.jl")
 include("resources/creation.jl")
-include("binding_state.jl")
+include("bind_state.jl")
 include("wsi.jl")
 include("frame.jl")
 include("command.jl")
@@ -173,7 +173,7 @@ export
   SHADER_RESOURCE_TYPE_TEXEL,
   SHADER_RESOURCE_TYPE_UNIFORM,
   SHADER_RESOURCE_TYPE_SAMPLER,
-  RenderGraph, render!,
+  RenderGraph, render!, render,
   RenderArea, RenderNode, add_node!,
   ResourceDependency, add_resource_dependency!, add_resource_dependencies!, @add_resource_dependencies, @resource_dependencies, clear_attachments,
 

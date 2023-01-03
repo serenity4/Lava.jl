@@ -39,4 +39,6 @@ function Base.bind(cbuffer::CommandBuffer, reqs::BindRequirements, state::BindSt
     ref = Ref(push_data)
     GC.@preserve ref Vk.cmd_push_constants(cbuffer, pipeline.layout, Vk.SHADER_STAGE_ALL, 0, sizeof(push_data), Base.unsafe_convert(Ptr{Cvoid}, ref))
   end
+
+  BindState(pipeline, push_data)
 end

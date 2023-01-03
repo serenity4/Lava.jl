@@ -167,6 +167,6 @@ end
     invocation = boids_invocation(device, boids)
     node = compute_node(invocation)
     @test isa(node, RenderNode)
-    # TODO: render
+    @test render(device, node)
   end
 end;
