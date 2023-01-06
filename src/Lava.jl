@@ -23,7 +23,7 @@ const to = TimerOutput()
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
-@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, extract_bytes, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions
+@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, @store, extract_bytes, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions
 
 const Optional{T} = Union{T,Nothing}
 

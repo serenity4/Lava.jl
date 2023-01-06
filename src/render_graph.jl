@@ -57,6 +57,12 @@ referenced by passes. They are turned into physical resources for the actual exe
 The render graph uses two graph structures: a resource graph and an execution graph. The execution graph is computed from the resource
 graph during baking.
 
+!!! note
+    The execution order will be computed from read and write dependencies. Any node reading a given resource will be executed after all nodes which
+    have written to it. This disallows the *reuse* of resources; if you want to write to a resource, then read it, and finally write to it again, *you must use
+    a new resource* for the latter. It is planned that resource optimizations will be performed exclusively by the render graph, and should automatically reuse
+    the resource that was written to in this specific situation.
+
 ## Resource graph (bipartite, directed)
 
 This bipartite graph has two types of vertices: passes and resources.
@@ -218,18 +224,35 @@ end
   pbr::Color
   depth::Depth
 end
+
+@resource_dependencies @read albedo::Color
+
+@resource_dependencies @write albedo::Color
+
+@resource_dependencies begin
+  @read normal::Color
+  @write albedo::Color
+end
+
+@resource_dependencies begin
+  @read normal::Color
+  @write
+  albedo::Color
+  pbr::Color
+end
 ```
 """
 macro resource_dependencies(ex)
   reads = []
   writes = []
   ret = Expr(:vect)
-  @match ex begin
+  args = @match ex begin
     Expr(:block, _...) => ex.args
+    Expr(:macrocall, &Symbol("@read") || &Symbol("@write"), _...) => [ex]
     _ => error("Expected block declaration, got $ex")
   end
   mode = nothing
-  for line in ex.args
+  for line in args
     isa(line, LineNumberNode) && continue
     if Meta.isexpr(line, :macrocall)
       mode = @match line.args[1] begin
@@ -237,6 +260,8 @@ macro resource_dependencies(ex)
         &Symbol("@write") => :write
         m => error("Expected call to @read or @write macro, got a call to macro $m instead")
       end
+      mode === :read && length(line.args) > 2 && (append!(reads, line.args[3:end]); mode = nothing)
+      mode === :write && length(line.args) > 2 && (append!(writes, line.args[3:end]); mode = nothing)
     else
       !isnothing(mode) || error("Expected @read or @write macrocall, got $line")
       mode === :read ? push!(reads, line) : mode === :write ? push!(writes, line) : error("Unexpected unknown mode '$mode'")
@@ -252,9 +277,7 @@ function extract_special_usage(ex)
   clear_value = nothing
   samples = 1
   if Meta.isexpr(ex, :call) && ex.args[1] == :(=>)
-    # Don't rely on the conversion from the constructor.
-    # See https://github.com/JuliaLang/julia/issues/45485
-    clear_value = :(Base.convert(NTuple{4, Float32}, $(esc(ex.args[3]))))
+    clear_value = ex.args[3]
     ex = ex.args[2]
   end
   if Meta.isexpr(ex, :call) && ex.args[1] == :(*)

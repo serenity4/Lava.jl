@@ -33,7 +33,7 @@ function program_3(device, positions, ppm)
     set_draw_state(rec, @set ds.invocation_state.primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP)
     set_material(rec,
       RGBA{Float32}(1.0, 1.0, 0.0, 1.0), # text color
-      device_address(curve_buffer),
+      DeviceAddress(curve_buffer),
       ppm, # pixel per em
       alignment = 8,
     )

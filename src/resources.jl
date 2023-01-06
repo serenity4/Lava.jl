@@ -35,9 +35,13 @@ struct Resource
 end
 
 Resource(type::ResourceType, data, flags = ResourceFlags(0)) = Resource(ResourceID(type), data, flags)
+Resource(data::Union{Buffer,Image,Attachment}, flags = ResourceFlags(0)) = Resource(resource_type(data), data, flags)
 
 resource_type(id::ResourceID) = ResourceType(UInt8(UInt128(id) >> 120))
 resource_type(resource::Resource) = resource_type(resource.id)
+resource_type(resource::Buffer) = RESOURCE_TYPE_BUFFER
+resource_type(resource::Image) = RESOURCE_TYPE_IMAGE
+resource_type(resource::Attachment) = RESOURCE_TYPE_ATTACHMENT
 
 assert_type(resource::Resource, rtype::ResourceType) = @assert resource_type(resource) == rtype "Resource type is $(resource_type(resource)) (expected $rtype)"
 

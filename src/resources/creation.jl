@@ -61,7 +61,8 @@ end
 
 Base.collect(buffer::Buffer) = collect(buffer.memory[], buffer.size)
 Base.collect(buffer::Buffer, device::Device) = collect(buffer.memory[], buffer.size, device)
-Base.collect(::Type{T}, buffer::Buffer, device::Optional{Device} = nothing) where {T} = reinterpret(T, collect(buffer, device))
+Base.collect(::Type{T}, buffer::Buffer) where {T} = reinterpret(T, collect(buffer))
+Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = reinterpret(T, collect(buffer, device))
 
 # # Images
 

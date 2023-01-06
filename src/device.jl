@@ -190,7 +190,7 @@ buffer_resource(size::Integer) = logical_buffer(size)
 
 function buffer_resource(device::Device, data; memory_domain::MemoryDomain = MEMORY_DOMAIN_DEVICE, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, submission = nothing, queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE)
   buffer = Buffer(device; data, memory_domain, usage_flags, submission, queue_family_indices, sharing_mode)
-  Resource(RESOURCE_TYPE_BUFFER, buffer)
+  Resource(buffer)
 end
 
 image_resource(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1) = logical_image(format, dims; mip_levels, layers)
@@ -210,7 +210,7 @@ function image_resource(device::Device, data;
   submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)))
 
   image = Image(device; data, format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, layout, submission)
-  Resource(RESOURCE_TYPE_IMAGE, image)
+  Resource(image)
 end
 
 function attachment_resource(format::Union{Vk.Format, DataType}, dims = nothing; kwargs...)
@@ -218,7 +218,7 @@ function attachment_resource(format::Union{Vk.Format, DataType}, dims = nothing;
 end
 
 function attachment_resource(device::Device, data; access::MemoryAccess = READ | WRITE, aspect::Vk.ImageAspectFlag = Vk.IMAGE_ASPECT_COLOR_BIT, kwargs...)
-  Resource(RESOURCE_TYPE_ATTACHMENT, Attachment(device, data; access, aspect, kwargs...))
+  Resource(Attachment(device, data; access, aspect, kwargs...))
 end
 
-attachment_resource(view::ImageView, access::MemoryAccess) = Resource(RESOURCE_TYPE_ATTACHMENT, Attachment(view, access))
+attachment_resource(view::ImageView, access::MemoryAccess) = Resource(Attachment(view, access))

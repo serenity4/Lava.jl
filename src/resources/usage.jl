@@ -126,7 +126,6 @@ function buffer_usage_flags(type::ShaderResourceType, access::MemoryAccess)
   SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_STORAGE in type && (bits |= Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
   SHADER_RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT)
   SHADER_RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
-  SHADER_RESOURCE_TYPE_BUFFER in type && access == READ && (bits |= Vk.BUFFER_USAGE_UNIFORM_BUFFER_BIT)
 
   bits
 end

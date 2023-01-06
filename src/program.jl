@@ -71,16 +71,6 @@ function retrieve_type_info(shaders)
   info
 end
 
-primitive type DeviceAddress 64 end
-
-DeviceAddress(address::UInt64) = reinterpret(DeviceAddress, address)
-
-Base.convert(::Type{UInt64}, address::DeviceAddress) = reinterpret(UInt64, address)
-Base.convert(::Type{DeviceAddress}, address::UInt64) = reinterpret(DeviceAddress, address)
-
-SPIRV.primitive_type_to_spirv(::Type{DeviceAddress}) = SPIRV.IntegerType(64, 0)
-SPIRV.Pointer{T}(address::DeviceAddress) where {T} = Pointer{T}(convert(UInt64, address))
-
 const BlockUUID = UUID
 
 mutable struct DataBlock
@@ -257,7 +247,7 @@ function device_address_block!(allocator::LinearAllocator, gdescs::GlobalDescrip
     aligned = align(block, type_info)
     patch_descriptors!(aligned, gdescs, data.descriptors, node_id)
     patch_pointers!(aligned, addresses)
-    address = allocate_data!(allocator, type_info, aligned.bytes, type_info.tmap[aligned.type], layout, false)
+    address = UInt64(allocate_data!(allocator, type_info, aligned.bytes, type_info.tmap[aligned.type], layout, false))
     insert!(addresses, objectid(block), address)
     i == data.root && (root_address = address)
   end

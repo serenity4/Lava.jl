@@ -27,7 +27,7 @@ The data must have been properly padded before hand with the correct shader offs
 """
 function allocate_data!(allocator::LinearAllocator, bytes::AbstractVector{UInt8}, load_alignment::Integer)
   sub = copyto!(allocator, bytes, load_alignment)
-  device_address(sub)
+  DeviceAddress(sub)
 end
 
 """

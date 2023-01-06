@@ -13,7 +13,7 @@ function LinearAllocator(device, size)
   LinearAllocator(b, 0, map(b.memory[]))
 end
 
-device_address(la::LinearAllocator) = device_address(la.buffer)
+DeviceAddress(la::LinearAllocator) = DeviceAddress(la.buffer)
 
 bytes(data::AbstractArray) = Base.reinterpret(UInt8, collect(data))
 bytes(data::AbstractString) = Vector{UInt8}(string(data))

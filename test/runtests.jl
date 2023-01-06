@@ -72,8 +72,8 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
 
     allocate!(b, MEMORY_DOMAIN_HOST_CACHED)
     @test isallocated(b)
-    @test device_address(b) ≠ C_NULL
-    @test device_address(sub) == device_address(b) + sub.offset
+    @test DeviceAddress(b) ≠ DeviceAddress(C_NULL)
+    @test DeviceAddress(sub) == DeviceAddress(DeviceAddress(b) + sub.offset)
     mem2 = Memory(device, 1000, 7, MEMORY_DOMAIN_HOST_CACHED)
     b2 = Buffer(device, 100)
     bind!(b2, mem2)
@@ -91,7 +91,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
     @testset "Allocators" begin
       la = LinearAllocator(device, 1000)
       @test la.buffer.size == available_size(la) == 1000
-      @test device_address(la) ≠ C_NULL
+      @test DeviceAddress(la) ≠ DeviceAddress(C_NULL)
 
       sub = copyto!(la, [1, 2, 3])
       @test sub.offset == 0

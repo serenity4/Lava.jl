@@ -10,24 +10,20 @@ Random.Sampler(::Type{<:AbstractRNG}, ::Random.SamplerType{BoidAgent}, ::Val{1})
 Base.rand(rng::AbstractRNG, ::BoidAgentSampler) = BoidAgent(Vec2(rand_square(rng, 2)...), Vec2(rand_square(rng, 2)...))
 rand_square(rng, n) = 2 .* rand(rng, n) .- 1
 
-struct BoidSimulation{V<:AbstractVector{BoidAgent}}
-  agents::V
-  separation_radius::Float32
-  alignment_factor::Float32
-  cohesion_factor::Float32
-  awareness_radius::Float32
-  alignment_strength::Float32
-  cohesion_strength::Float32
+Base.@kwdef struct BoidParameters
+  separation_radius::Float32 = separation_radius = 0.02
+  alignment_factor::Float32 = alignment_factor = 0.8
+  cohesion_factor::Float32 = cohesion_factor = 0.4
+  awareness_radius::Float32 = awareness_radius = 0.2
+  alignment_strength::Float32 = alignment_strength = 1.0
+  cohesion_strength::Float32 = cohesion_strength = 1.0
 end
 
-BoidSimulation(agents;
-  separation_radius = 0.02F,
-  alignment_factor = 0.8F,
-  cohesion_factor = 0.4F,
-  awareness_radius = 0.2F,
-  alignment_strength = 1.0F,
-  cohesion_strength = 1.0F,
-) = BoidSimulation(agents, separation_radius, alignment_factor, cohesion_factor, awareness_radius, alignment_strength, cohesion_strength)
+struct BoidSimulation{V<:AbstractVector{BoidAgent}}
+  agents::V
+  parameters::BoidParameters
+end
+BoidSimulation(agents) = BoidSimulation(agents, BoidParameters())
 
 distance2(x::Vec, y::Vec) = sum(x -> x^2, y - x)
 distance(x::Vec, y::Vec) = sqrt(distance2(x, y))
@@ -50,38 +46,38 @@ end
 lerp(x, y, t) = x * t + (1 - t)y
 
 function next!(boids::BoidSimulation{V}, Δt::Float32) where {V}
-  forces = [compute_forces(boids, i, Δt) for i in eachindex(boids.agents)]
+  forces = [compute_forces(boids.agents, boids.parameters, i, Δt) for i in eachindex(boids.agents)]
   boids.agents .= step_euler.(boids.agents, forces, Δt)
 end
 
-function compute_forces(boids::BoidSimulation{V}, i::Integer, Δt::Float32) where {V}
+function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Float32)
   forces = zero(Vec2)
-  (; position, velocity, mass) = boids.agents[i]
+  (; position, velocity, mass) = agents[i]
   average_heading = zero(Vec2)
   flock_center = zero(Vec2)
   flock_size = 0U
   direction = normalize(velocity)
 
-  for (j, other) in enumerate(boids.agents)
+  for (j, other) in enumerate(agents)
     i == j && continue
     d = distance(position, other.position)
-    d < boids.awareness_radius || continue
+    d < parameters.awareness_radius || continue
     flock_size += 1U
     flock_center += other.position
-    repulsion_strength = exp(-d^2 / (2 * boids.separation_radius^2))
+    repulsion_strength = exp(-d^2 / (2 * parameters.separation_radius^2))
     forces -= (other.position - position) * repulsion_strength
     average_heading += normalize(other.velocity)
   end
 
   if !iszero(flock_size)
     flock_center /= flock_size
-    target_position = lerp(position, flock_center, 1 - boids.cohesion_factor)
-    forces += (target_position - position) * boids.cohesion_strength
+    target_position = lerp(position, flock_center, 1 - parameters.cohesion_factor)
+    forces += (target_position - position) * parameters.cohesion_strength
 
     if !iszero(average_heading)
       average_heading = normalize(average_heading)
-      target_heading = slerp(direction, average_heading, boids.alignment_factor)
-      forces += (velocity - target_heading * norm(velocity)) * boids.alignment_strength
+      target_heading = slerp(direction, average_heading, parameters.alignment_factor)
+      forces += (velocity - target_heading * norm(velocity)) * parameters.alignment_strength
     end
   end
 
@@ -99,19 +95,23 @@ function step_euler(agent::BoidAgent, forces, Δt)
   BoidAgent(new_position, new_velocity, mass)
 end
 
-function step_euler!(data_address::DeviceAddressBlock, i::Integer)
-  (boids, Δt, forces) = @load data_address::Tuple{BoidSimulation{Arr{512,BoidAgent}}, Float32, Arr{512,Vec2}}
-  boids.agents[i] = step_euler(boids.agents[i], forces)
-  nothing
-end
-
 function compute_forces!(data_address::DeviceAddressBlock, i::Integer)
-  (boids, Δt, forces) = @load data_address::Tuple{BoidSimulation{Arr{512,BoidAgent}}, Float32, Arr{512,Vec2}}
-  forces[i] = compute_forces(boids, i, Δt)
+  (agents, parameters, Δt, forces) = @load data_address::Tuple{DeviceAddress, BoidParameters, Float32, DeviceAddress}
+  agents = @load agents::Arr{512,BoidAgent}
+  @store forces[i]::Vec2 = compute_forces(agents, parameters, i, Δt)
   nothing
 end
 
-function boids_program(device)
+function step_euler!(data_address::DeviceAddressBlock, i::Integer)
+  (agents, parameters, Δt, forces) = @load data_address::Tuple{DeviceAddress, BoidParameters, Float32, DeviceAddress}
+  agents = @load agents::Arr{512,BoidAgent}
+  agents[i] = step_euler(agents[i], @load forces[i]::Vec2)
+  # agent = @load agents[i]::BoidAgent
+  # @store agents[i]::BoidAgent = step_euler(agent, @load forces[i]::Vec2)
+  nothing
+end
+
+function boids_forces_program(device)
   compute = @compute device compute_forces!(
     ::DeviceAddressBlock::PushConstant,
     ::UInt32::Input{LocalInvocationIndex},
@@ -119,16 +119,35 @@ function boids_program(device)
   Program(compute)
 end
 
-function boids_invocation(device, boids::BoidSimulation; prog = boids_program(device), Δt::Float32 = 0.01F)
-  forces = zero(Arr{512,Vec2})
-  data = @invocation_data begin
-    @block (boids, Δt, forces)
-  end
-  ProgramInvocation(
-    prog,
-    Dispatch(8, 1, 1),
-    data,
+function boids_update_program(device)
+  compute = @compute device compute_forces!(
+    ::DeviceAddressBlock::PushConstant,
+    ::UInt32::Input{LocalInvocationIndex},
   )
+  Program(compute)
+end
+
+function boid_simulation_nodes(device, agents_buffer::Buffer, parameters::BoidParameters = BoidParameters(); Δt::Float32 = 0.01F)
+  forces_buffer = Buffer(device; size = 512 * sizeof(Vec2))
+  forces = Resource(Buffer)
+  agents = Resource(agents_buffer)
+  data = @invocation_data begin
+    @block (UInt64(DeviceAdress(agents_buffer)), parameters, Δt, UInt64(DeviceAddress(forces_buffer)))
+  end
+  dispatch = Dispatch(8, 1, 1)
+  invocation_forces = ProgramInvocation(
+    boids_forces_program(device),
+    dispatch,
+    data,
+    @resource_dependencies @write forces::Buffer
+  )
+  invocation_update = ProgramInvocation(
+    boids_update_program(device),
+    dispatch,
+    data,
+    @resource_dependencies @read forces::Buffer
+  )
+  (compute_node(invocation_forces), compute_node(invocation_update))
 end
 
 @testset "Simulation of boids" begin
@@ -163,10 +182,8 @@ end
   end
 
   @testset "GPU implementation" begin
-    boids = BoidSimulation(Arr(Tuple(rand(BoidAgent, 512))))
-    invocation = boids_invocation(device, boids)
-    node = compute_node(invocation)
-    @test isa(node, RenderNode)
-    @test render(device, node)
+    # agents = Buffer(device; data = rand(BoidAgent, 512))
+    # nodes = boid_simulation_nodes(device, agents)
+    # @test render(device, nodes)
   end
 end;

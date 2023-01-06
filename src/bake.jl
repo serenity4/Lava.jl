@@ -61,6 +61,14 @@ function render(device::Device, node::RenderNode)
   render!(rg)
 end
 
+function render(device::Device, nodes)
+  rg = RenderGraph(device)
+  for node in nodes
+    add_node!(rg, node)
+  end
+  render!(rg)
+end
+
 function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   records, pipeline_hashes = record_commands!(baked)
   create_pipelines!(baked.device)
@@ -146,48 +154,6 @@ function materialize(baked::BakedRenderGraph, targets::RenderTargets)
   RenderTargets(color, depth, stencil)
 end
 
-function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipeline_hashes)
-  bind_state = BindState()
-  sync_state = SynchronizationState()
-  for record in records
-    synchronize_before!(sync_state, cb, baked, record.node)
-    bind_state = flush(cb, record, baked, bind_state, sync_state, pipeline_hashes)
-    synchronize_after!(sync_state, cb, baked, record.node)
-  end
-end
-
-function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRenderGraph, bind_state::BindState, sync_state::SynchronizationState, pipeline_hashes)
-  (; device) = baked
-
-  begin_render_node(cb, baked, record.node)
-  for (program, calls) in pairs(record.draws)
-    for ((data, state), draws) in pairs(calls)
-      for (draw, targets) in draws
-        hash = pipeline_hashes[ProgramInstance(program, state, targets)]
-        pipeline = device.pipeline_ht_graphics[hash]
-        reqs = BindRequirements(pipeline, data, device.descriptors.gset)
-        bind_state = bind(cb, reqs, bind_state)
-        draw.type == COMMAND_TYPE_DRAW_INDEXED ? apply(cb, draw.impl::DrawIndexed, baked.index_data) : apply(cb, draw.impl::Union{DrawIndirect, DrawIndexedIndirect})
-      end
-    end
-  end
-  end_render_node(cb, baked, record.node)
-
-  for (program, calls) in pairs(record.dispatches)
-    hash = pipeline_hashes[ProgramInstance(program, nothing, nothing)]
-    pipeline = device.pipeline_ht_compute[hash]
-    for (data, dispatches) in pairs(calls)
-      reqs = BindRequirements(pipeline, data, device.descriptors.gset)
-      bind_state = bind(cb, reqs, bind_state)
-      for dispatch in dispatches
-        apply(cb, dispatch.impl::Union{Dispatch, DispatchIndirect})
-      end
-    end
-  end
-
-  bind_state
-end
-
 function rendering_info(baked::BakedRenderGraph, node::RenderNode)
   color_attachments = Vk.RenderingAttachmentInfo[]
   depth_attachment = C_NULL
@@ -269,7 +235,7 @@ function synchronize_buffer_access!(state::SynchronizationState, resource::Resou
   Vk.BufferMemoryBarrier2(
     0,
     0,
-    buffer,
+    buffer.handle,
     buffer.offset,
     buffer.size;
     src_access_mask = rstate.sync_reqs.access,
@@ -340,6 +306,48 @@ function dependency_info!(state::SynchronizationState, baked::BakedRenderGraph, 
     end
   end
   info
+end
+
+function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipeline_hashes)
+  bind_state = BindState()
+  sync_state = SynchronizationState()
+  for record in records
+    synchronize_before!(sync_state, cb, baked, record.node)
+    bind_state = flush(cb, record, baked, bind_state, sync_state, pipeline_hashes)
+    synchronize_after!(sync_state, cb, baked, record.node)
+  end
+end
+
+function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRenderGraph, bind_state::BindState, sync_state::SynchronizationState, pipeline_hashes)
+  (; device) = baked
+
+  begin_render_node(cb, baked, record.node)
+  for (program, calls) in pairs(record.draws)
+    for ((data, state), draws) in pairs(calls)
+      for (draw, targets) in draws
+        hash = pipeline_hashes[ProgramInstance(program, state, targets)]
+        pipeline = device.pipeline_ht_graphics[hash]
+        reqs = BindRequirements(pipeline, data, device.descriptors.gset)
+        bind_state = bind(cb, reqs, bind_state)
+        draw.type == COMMAND_TYPE_DRAW_INDEXED ? apply(cb, draw.impl::DrawIndexed, baked.index_data) : apply(cb, draw.impl::Union{DrawIndirect, DrawIndexedIndirect})
+      end
+    end
+  end
+  end_render_node(cb, baked, record.node)
+
+  for (program, calls) in pairs(record.dispatches)
+    hash = pipeline_hashes[ProgramInstance(program, nothing, nothing)]
+    pipeline = device.pipeline_ht_compute[hash]
+    for (data, dispatches) in pairs(calls)
+      reqs = BindRequirements(pipeline, data, device.descriptors.gset)
+      bind_state = bind(cb, reqs, bind_state)
+      for dispatch in dispatches
+        apply(cb, dispatch.impl::Union{Dispatch, DispatchIndirect})
+      end
+    end
+  end
+
+  bind_state
 end
 
 """
