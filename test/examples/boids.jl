@@ -127,25 +127,29 @@ function boids_update_program(device)
   Program(compute)
 end
 
-function boid_simulation_nodes(device, agents_buffer::Buffer, parameters::BoidParameters = BoidParameters(); Δt::Float32 = 0.01F)
-  forces_buffer = Buffer(device; size = 512 * sizeof(Vec2))
-  forces = Resource(Buffer)
-  agents = Resource(agents_buffer)
+function boid_simulation_nodes(device, agents::Resource, parameters::BoidParameters = BoidParameters(); Δt::Float32 = 0.01F)
+  forces = buffer_resource(512 * sizeof(Vec2))
   data = @invocation_data begin
-    @block (UInt64(DeviceAdress(agents_buffer)), parameters, Δt, UInt64(DeviceAddress(forces_buffer)))
+    @block (DeviceAddress(agents), parameters, Δt, @address(forces))
   end
   dispatch = Dispatch(8, 1, 1)
   invocation_forces = ProgramInvocation(
     boids_forces_program(device),
     dispatch,
     data,
-    @resource_dependencies @write forces::Buffer
+    @resource_dependencies begin
+      @read agents::Buffer
+      @write forces::Buffer
+    end
   )
   invocation_update = ProgramInvocation(
     boids_update_program(device),
     dispatch,
     data,
-    @resource_dependencies @read forces::Buffer
+    @resource_dependencies begin
+      @read forces::Buffer
+      @write agents::Buffer
+    end
   )
   (compute_node(invocation_forces), compute_node(invocation_update))
 end

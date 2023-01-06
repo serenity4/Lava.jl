@@ -54,5 +54,10 @@ islogical(resource::Resource) = in(RESOURCE_IS_LOGICAL, resource.flags)
 logical_resource(type::ResourceType, data, flags = ResourceFlags(0)) = Resource(type, data, flags | RESOURCE_IS_LOGICAL)
 promote_to_physical(resource::Resource, x) = setproperties(resource, (; data = x, flags = resource.flags & ~RESOURCE_IS_LOGICAL))
 
+function DeviceAddress(resource::Resource)
+  isbuffer(resource) && isphysical(resource) || error("Device addresses can only be retrieved from physical buffer resources.")
+  DeviceAddress(resource.data::Buffer)
+end
+
 include("resources/logical.jl")
 include("resources/usage.jl")

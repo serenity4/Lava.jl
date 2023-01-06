@@ -29,7 +29,7 @@ end
 combine_resource_uses_per_node(uses) = dictionary(nid => dictionary(rid => reduce(merge, ruses) for (rid, ruses) in pairs(nuses)) for (nid, nuses) in pairs(uses))
 
 function bake!(rg::RenderGraph)
-  expand_program_invocations!(rg)
+  add_resource_dependencies!(rg)
   resolve_pairs = resolve_attachment_pairs(rg)
   add_resolve_attachments!(rg, resolve_pairs)
 
@@ -39,6 +39,7 @@ function bake!(rg::RenderGraph)
   combined_uses = combine_resource_uses(node_uses)
   check_physical_resources(rg, combined_uses)
   materialized_resources = materialize_logical_resources(rg, combined_uses)
+  generate_command_infos!(rg, materialized_resources)
   resources = dictionary(r.id => islogical(r) ? materialized_resources[r.id] : r for r in rg.resources)
   resolve_pairs = dictionary(resources[r.id] => resources[resolve_r.id] for (r, resolve_r) in pairs(resolve_pairs))
 

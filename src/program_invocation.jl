@@ -15,8 +15,8 @@ ProgramInvocation(program::Program, command::DispatchCommand, data::ProgramInvoc
 ProgramInvocation(program::Program, command::DrawCommand, data::ProgramInvocationData, targets::RenderTargets, render_state::RenderState, invocation_state::ProgramInvocationState, resource_dependencies::Dictionary = Dictionary{Resource, ResourceDependency}()) =
   ProgramInvocation(program, Command(command), data, targets, DrawState(render_state, invocation_state), resource_dependencies)
 
-function command_info!(allocator::LinearAllocator, gdescs::GlobalDescriptors, invocation::ProgramInvocation, node_id::NodeID, device::Device)
-  data = device_address_block!(allocator, gdescs, node_id, invocation.data, invocation.program.type_info, device.layout)
+function command_info!(allocator::LinearAllocator, device::Device, invocation::ProgramInvocation, node_id::NodeID, materialized_resources)
+  data = device_address_block!(allocator, device.descriptors, materialized_resources, node_id, invocation.data, invocation.program.type_info, device.layout)
   CommandInfo(invocation.command, invocation.program, data, invocation.targets, invocation.draw_state)
 end
 

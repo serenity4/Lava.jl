@@ -1,4 +1,5 @@
 using Lava, Test, Dictionaries
+using Lava: generated_block_address, generated_logical_buffer_address
 
 using SPIRV: TypeInfo, VulkanLayout, align
 
@@ -7,13 +8,13 @@ layout = VulkanLayout()
 function data_blocks()
   b1 = DataBlock((1, 0x02, 3))
   b2 = DataBlock((3U, 0x01, DescriptorIndex(1)))
-  b3 = DataBlock((DeviceAddress(b1), DeviceAddress(b2), 3))
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2), 3))
   [b1, b2, b3]
 end
 
 function data_blocks_2()
   b1 = DataBlock([(1, 2), (2, 3)])
-  b2 = DataBlock([(DeviceAddress(b1), DescriptorIndex(1))])
+  b2 = DataBlock([(generated_block_address(1), DescriptorIndex(1))])
   [b1, b2]
 end
 
@@ -25,7 +26,19 @@ function data_blocks_3()
     (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
   ])
   b2 = DataBlock((Vec2(0.1, 1.0), DescriptorIndex(1)))
-  b3 = DataBlock((DeviceAddress(b1), DeviceAddress(b2)))
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2)))
+  [b1, b2, b3]
+end
+
+function data_blocks_4()
+  b1 = DataBlock([
+    (Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
+    (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
+    (Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
+    (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
+  ])
+  b2 = DataBlock((Vec2(0.1, 1.0), generated_logical_buffer_address(1), DescriptorIndex(1)))
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2)))
   [b1, b2, b3]
 end
 
@@ -38,7 +51,7 @@ type_info = infer_type_info([data_blocks(); data_blocks_2(); data_blocks_3()])
 function test_align_block(b::DataBlock, type_info::TypeInfo = type_info)
   aligned = align(b, type_info)
   @test length(aligned.descriptor_ids) == length(b.descriptor_ids)
-  @test length(aligned.pointer_addresses) == length(b.pointer_addresses)
+  @test length(aligned.device_addresses) == length(b.device_addresses)
   @test length(aligned.bytes) ≥ length(b.bytes)
   @test aligned.type === b.type
 end
@@ -46,12 +59,12 @@ end
 @testset "Data blocks" begin
   b1, b2, b3 = data_blocks()
   @test isempty(b1.descriptor_ids)
-  @test isempty(b1.pointer_addresses)
+  @test isempty(b1.device_addresses)
   @test b2.descriptor_ids == [1 + 4 + 1]
-  @test isempty(b2.pointer_addresses)
-  b3 = DataBlock((DeviceAddress(b1), DeviceAddress(b2), 3))
+  @test isempty(b2.device_addresses)
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2), 3))
   @test isempty(b3.descriptor_ids)
-  @test b3.pointer_addresses == [1, 8 + 1]
+  @test b3.device_addresses == [1, 8 + 1]
 
   foreach(test_align_block, data_blocks())
   foreach(test_align_block, data_blocks_2())
@@ -68,14 +81,13 @@ end
   ab3 = align(b3, type_info)
   @test length(b3.bytes) == 24
   @test length(ab3.bytes) == 24
-  @test ab3.pointer_addresses == [1, 8 + 1]
+  @test ab3.device_addresses == [1, 8 + 1]
 
   b1, b2, b3 = data_blocks_3()
   ab1 = align(b1, type_info)
   @test length(ab1.bytes) == (24 * 3) + 20
   ab2 = align(b2, type_info)
   ab3 = align(b3, type_info)
-  ab3.pointer_addresses
 end
 
 # `tex` is put in global scope to test for the hygiene of `@invocation_data`.
@@ -83,36 +95,50 @@ img = image_resource(Vk.FORMAT_UNDEFINED, [1920, 1080])
 tex = Texture(img)
 desc = texture_descriptor(tex)
 
-pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view block.bytes[address_byte]))) for address_byte in block.pointer_addresses]
+buffer = buffer_resource(512)
+pbuffer = buffer_resource(device, 512)
+@reset pbuffer.id = buffer.id
+buffers = dictionary([pbuffer.id => pbuffer])
+
+device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view block.bytes[address_byte]))) for address_byte in block.device_addresses]
 
 @testset "Program invocation data & block transforms" begin
   b1, b2, b3 = data_blocks()
   descriptors = [desc]
-  foreach(test_align_block, [b1, b2, b3])
 
   gdescs = GlobalDescriptors(device)
   @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 1U
   patch_descriptors!(b2, gdescs, descriptors, NodeID())
   @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 0U
 
-  addresses = Dictionary(objectid.([b1, b2]), UInt64[1, 2])
-  patch_pointers!(b3, addresses)
-  @test pointer_addresses(b3) == [1, 2]
-  @test_throws "Bad pointer dependency order" patch_pointers!(b3, addresses)
-  @test pointer_addresses(b3) == [1, 2]
-
-  allocator = LinearAllocator(device, 1_000)
-  data = ProgramInvocationData(data_blocks(), descriptors, 3)
-  @test data.postorder_traversal == [1, 2, 3]
-  @test_throws "different descriptor" device_address_block!(allocator, gdescs, NodeID(), data, type_info, layout)
-  empty!(gdescs)
-  address = device_address_block!(allocator, gdescs, NodeID(), data, type_info, layout)
-  @test isa(address, DeviceAddressBlock)
+  data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3)
+  addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
+  patch_pointers!(b3, data, addresses, nothing)
+  @test device_addresses(b3) == [5, 6]
+  @test_throws "Bad pointer dependency order" patch_pointers!(last(data_blocks()), data, empty!(addresses), nothing)
+  @test device_addresses(b3) == [5, 6]
 
   b1, b2, b3 = data_blocks_3()
-  addresses = Dictionary(objectid.([b1, b2]), UInt64[1, 2])
-  patch_pointers!(b3, addresses)
-  @test pointer_addresses(b3) == [1, 2]
+  data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3)
+  addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
+  patch_pointers!(b3, data, addresses, nothing)
+  @test device_addresses(b3) == [5, 6]
+
+  b1, b2, b3 = data_blocks_4()
+  data = ProgramInvocationData([b1, b2, b3], descriptors, [buffer.id], 3)
+  addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
+  patch_pointers!(b2, data, addresses, buffers)
+  @test device_addresses(b2) == UInt64[DeviceAddress(pbuffer)]
+  patch_pointers!(b3, data, addresses, buffers)
+  @test device_addresses(b3) == [5, 6]
+
+  allocator = LinearAllocator(device, 1_000)
+  data = ProgramInvocationData(data_blocks(), descriptors, [], 3)
+  @test data.postorder_traversal == [1, 2, 3]
+  @test_throws "different descriptor" device_address_block!(allocator, gdescs, nothing, NodeID(), data, type_info, layout)
+  empty!(gdescs)
+  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data, type_info, layout)
+  @test isa(address, DeviceAddressBlock)
 
   data2 = @invocation_data begin
     b1 = @block (1, 0x02, 3)
@@ -125,7 +151,7 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
   @test data2.blocks[2].bytes == data.blocks[2].bytes
   @test data2.blocks[2].descriptor_ids == data.blocks[2].descriptor_ids
   @test length(data2.blocks[3].bytes) == length(data.blocks[3].bytes)
-  @test length(data.blocks[3].pointer_addresses) == length(data.blocks[3].pointer_addresses)
+  @test length(data.blocks[3].device_addresses) == length(data.blocks[3].device_addresses)
 
   # Make sure we got the hygiene right.
   M = Module()
@@ -146,7 +172,7 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
   @test data3.postorder_traversal == [1, 2]
   type_info2 = TypeInfo(getproperty.(data3.blocks, :type), layout)
   empty!(gdescs)
-  address = device_address_block!(allocator, gdescs, NodeID(), data3, type_info2, layout)
+  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data3, type_info2, layout)
   @test isa(address, DeviceAddressBlock)
 
   data4 = @invocation_data begin
@@ -159,9 +185,9 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
     b2 = @block((Vec2(0.1, 1.0), @descriptor desc))
     @block ((@address(b1), @address(b2)))
   end
-  @test data4.blocks[3].pointer_addresses == [1, 9]
+  @test data4.blocks[3].device_addresses == [1, 9]
   @test data4.blocks[2].descriptor_ids == [9]
-  @test align(data4.blocks[3], type_info).pointer_addresses == [1, 9]
+  @test align(data4.blocks[3], type_info).device_addresses == [1, 9]
   @test align(data4.blocks[2], type_info).descriptor_ids == [9]
 
   data5 = @invocation_data begin
@@ -171,6 +197,13 @@ pointer_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@vie
     @block (tex, 4)
   end
   empty!(gdescs)
-  address = device_address_block!(allocator, gdescs, NodeID(), data5, infer_type_info(data5), layout)
+  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data5, infer_type_info(data5), layout)
+  @test isa(address, DeviceAddressBlock)
+
+  data6 = @invocation_data begin
+    b1 = @block (1, 2U)
+    @block (@address(buffer), @address(b1))
+  end
+  address = device_address_block!(allocator, gdescs, buffers, NodeID(), data6, infer_type_info(data6), layout)
   @test isa(address, DeviceAddressBlock)
 end;

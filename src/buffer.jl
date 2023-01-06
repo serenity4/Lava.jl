@@ -1,10 +1,12 @@
 primitive type DeviceAddress 64 end
 
 DeviceAddress(address::UInt64) = reinterpret(DeviceAddress, address)
+DeviceAddress(address::Integer) = DeviceAddress(UInt64(address))
 Base.UInt64(addr::DeviceAddress) = reinterpret(UInt64, addr)
 
 Base.convert(::Type{UInt64}, address::DeviceAddress) = reinterpret(UInt64, address)
 Base.convert(::Type{DeviceAddress}, address::UInt64) = reinterpret(DeviceAddress, address)
+Base.convert(::Type{DeviceAddress}, address::Integer) = reinterpret(DeviceAddress, UInt64(address))
 Base.:(+)(x::DeviceAddress, y::DeviceAddress) = UInt64(x) + UInt64(y)
 Base.:(+)(x::Integer, y::DeviceAddress) = x + UInt64(y)
 Base.:(+)(x::DeviceAddress, y::Integer) = UInt64(x) + y

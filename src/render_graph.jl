@@ -341,32 +341,10 @@ function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)
   end
 end
 
-"""
-Expand all program invocations of all render nodes, generating
-[`CommandInfo`](@ref) structures to be used during baking.
-
-Render nodes will not be mutated; instead, copies which contain the
-generated draw infos will be reinserted into the render graph.
-"""
-function generate_command_infos!(rg::RenderGraph, node::RenderNode)
-  isempty(node.program_invocations) && return
-  # Do not mutate nodes so that they can be reused in other render graphs.
-  generated_node = setproperties(node, (;
-    command_infos = CommandInfo[],
-    program_invocations = nothing,
-  ))
-  for invocation in node.program_invocations
-    command_info = command_info!(rg.allocator, rg.device.descriptors, invocation, node.id, rg.device)
-    push!(generated_node.command_infos, command_info)
-  end
-  rg.nodes[node.id] = generated_node
-end
-
-function expand_program_invocations!(rg::RenderGraph)
+function add_resource_dependencies!(rg::RenderGraph)
   for node in rg.nodes
     !isnothing(node.program_invocations) || continue
     add_resource_dependencies!(rg, node)
-    generate_command_infos!(rg, node)
   end
 end
 
@@ -451,6 +429,34 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
     end
   end
   res
+end
+
+"""
+Expand all program invocations of all render nodes, generating
+[`CommandInfo`](@ref) structures to be used during baking.
+
+Render nodes will not be mutated; instead, copies which contain the
+generated draw infos will be reinserted into the render graph.
+"""
+function generate_command_infos!(rg::RenderGraph, node::RenderNode, materialized_resources)
+  isempty(node.program_invocations) && return
+  # Do not mutate nodes so that they can be reused in other render graphs.
+  generated_node = setproperties(node, (;
+    command_infos = CommandInfo[],
+    program_invocations = nothing,
+  ))
+  for invocation in node.program_invocations
+    command_info = command_info!(rg.allocator, rg.device, invocation, node.id, materialized_resources)
+    push!(generated_node.command_infos, command_info)
+  end
+  rg.nodes[node.id] = generated_node
+end
+
+function generate_command_infos!(rg::RenderGraph, materialized_resources)
+  for node in rg.nodes
+    !isnothing(node.program_invocations) || continue
+    generate_command_infos!(rg, node, materialized_resources)
+  end
 end
 
 function check_physical_resources(rg::RenderGraph, uses)
