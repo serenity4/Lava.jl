@@ -9,7 +9,6 @@ using Accessors
 using MLStyle
 using Graphs
 using SPIRV
-using SPIRV: payload_sizes
 using AutoHashEquals
 using LRUCache: LRU
 @reexport using ColorTypes: RGB, BGR, RGBA, ARGB, BGRA, ABGR
@@ -23,7 +22,7 @@ const to = TimerOutput()
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
-@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, @store, extract_bytes, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions
+@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, @store, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions
 
 const Optional{T} = Union{T,Nothing}
 

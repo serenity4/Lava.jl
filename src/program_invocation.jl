@@ -16,39 +16,28 @@ ProgramInvocation(program::Program, command::DrawCommand, data::ProgramInvocatio
   ProgramInvocation(program, Command(command), data, targets, DrawState(render_state, invocation_state), resource_dependencies)
 
 function command_info!(allocator::LinearAllocator, device::Device, invocation::ProgramInvocation, node_id::NodeID, materialized_resources)
-  data = device_address_block!(allocator, device.descriptors, materialized_resources, node_id, invocation.data, invocation.program.type_info, device.layout)
+  data = device_address_block!(allocator, device.descriptors, materialized_resources, node_id, invocation.data)
   CommandInfo(invocation.command, invocation.program, data, invocation.targets, invocation.draw_state)
 end
 
 """
 Allocate the provided bytes respecting the specified alignment.
 
-The data must have been properly padded before hand with the correct shader offsets for it to be usable inside shaders.
+The data must have been properly serialized before hand with the corresponding layout for it to be valid for use inside shaders.
 """
 function allocate_data!(allocator::LinearAllocator, bytes::AbstractVector{UInt8}, load_alignment::Integer)
   sub = copyto!(allocator, bytes, load_alignment)
   DeviceAddress(sub)
 end
 
-"""
-Allocate the provided bytes with an alignment computed from `layout`.
-
-Padding will be applied to composite and array types using the offsets specified in the shader.
-"""
-function allocate_data!(allocator::LinearAllocator, type_info::TypeInfo, bytes::AbstractVector{UInt8}, t::SPIRType, layout::VulkanLayout, align_bytes = isa(t, StructType) || isa(t, ArrayType))
-  align_bytes && (bytes = align(bytes, t, type_info))
+function allocate_data!(allocator::LinearAllocator, bytes::AbstractVector{UInt8}, T::DataType, layout::VulkanLayout)
   # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
   # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
-  load_alignment = data_alignment(layout, t)
-  allocate_data!(allocator, bytes, load_alignment)
+  allocate_data!(allocator, bytes, alignment(layout, T))
 end
 
-data_alignment(layout::VulkanLayout, t::SPIRType) = alignment(layout, t, [SPIRV.StorageClassPhysicalStorageBuffer], false)
-
-allocate_data!(allocator::LinearAllocator, data::T, type_info::TypeInfo, layout::VulkanLayout) where {T} = allocate_data!(allocator, type_info, extract_bytes(data), type_info.tmap[T], layout)
-
-allocate_data(allocator::LinearAllocator, program::Program, data::T, layout::VulkanLayout) where {T} =
-  allocate_data!(allocator, data, program.type_info, layout)
+allocate_data!(allocator::LinearAllocator, data::T, layout::VulkanLayout) where {T} = allocate_data!(allocator, serialize(data, layout), T, layout)
+allocate_data(allocator::LinearAllocator, program::Program, data::T) where {T} = allocate_data!(allocator, data, program.layout)
 
 """
 Program to be compiled into a pipeline with a specific state.

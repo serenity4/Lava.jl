@@ -1,20 +1,33 @@
 using Lava, Test, Dictionaries
 using Lava: generated_block_address, generated_logical_buffer_address
 
-using SPIRV: TypeInfo, VulkanLayout, align
+using SPIRV: VulkanLayout
 
-layout = VulkanLayout()
+layout = VulkanLayout([
+  Tuple{Int64, UInt8, Int64},
+  Tuple{UInt32, UInt8, DescriptorIndex},
+  Tuple{DeviceAddress, DeviceAddress, Int64},
+  Tuple{DeviceAddress, DeviceAddress},
+  Vector{Tuple{Int64, Int64}},
+  Vector{DeviceAddress},
+  Tuple{Vec2, Arr{3, Float32}},
+  Tuple{Vec2, DescriptorIndex},
+  Tuple{Vec2, DeviceAddress, DescriptorIndex},
+  Tuple{DeviceAddress, DescriptorIndex},
+  Tuple{Tuple{DeviceAddress, DeviceAddress}, Int64},
+  Tuple{Int64, UInt32},
+])
 
 function data_blocks()
-  b1 = DataBlock((1, 0x02, 3))
-  b2 = DataBlock((3U, 0x01, DescriptorIndex(1)))
-  b3 = DataBlock((generated_block_address(1), generated_block_address(2), 3))
+  b1 = DataBlock((1, 0x02, 3), layout)
+  b2 = DataBlock((3U, 0x01, DescriptorIndex(1)), layout)
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2), 3), layout)
   [b1, b2, b3]
 end
 
 function data_blocks_2()
-  b1 = DataBlock([(1, 2), (2, 3)])
-  b2 = DataBlock([(generated_block_address(1), DescriptorIndex(1))])
+  b1 = DataBlock([(1, 2), (2, 3)], layout)
+  b2 = DataBlock([(generated_block_address(1), DescriptorIndex(1))], layout)
   [b1, b2]
 end
 
@@ -24,9 +37,9 @@ function data_blocks_3()
     (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
     (Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
     (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
-  ])
-  b2 = DataBlock((Vec2(0.1, 1.0), DescriptorIndex(1)))
-  b3 = DataBlock((generated_block_address(1), generated_block_address(2)))
+  ], layout)
+  b2 = DataBlock((Vec2(0.1, 1.0), DescriptorIndex(1)), layout)
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2)), layout)
   [b1, b2, b3]
 end
 
@@ -36,58 +49,21 @@ function data_blocks_4()
     (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
     (Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
     (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
-  ])
-  b2 = DataBlock((Vec2(0.1, 1.0), generated_logical_buffer_address(1), DescriptorIndex(1)))
-  b3 = DataBlock((generated_block_address(1), generated_block_address(2)))
+  ], layout)
+  b2 = DataBlock((Vec2(0.1, 1.0), generated_logical_buffer_address(1), DescriptorIndex(1)), layout)
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2)), layout)
   [b1, b2, b3]
-end
-
-infer_type_info(blocks) = TypeInfo(getproperty.(blocks, :type), layout)
-infer_type_info(block::DataBlock) = infer_type_info([block])
-infer_type_info(data::ProgramInvocationData) = infer_type_info(data.blocks)
-
-type_info = infer_type_info([data_blocks(); data_blocks_2(); data_blocks_3()])
-
-function test_align_block(b::DataBlock, type_info::TypeInfo = type_info)
-  aligned = align(b, type_info)
-  @test length(aligned.descriptor_ids) == length(b.descriptor_ids)
-  @test length(aligned.device_addresses) == length(b.device_addresses)
-  @test length(aligned.bytes) ≥ length(b.bytes)
-  @test aligned.type === b.type
 end
 
 @testset "Data blocks" begin
   b1, b2, b3 = data_blocks()
   @test isempty(b1.descriptor_ids)
   @test isempty(b1.device_addresses)
-  @test b2.descriptor_ids == [1 + 4 + 1]
+  @test b2.descriptor_ids == [1 + 4 + 4]
   @test isempty(b2.device_addresses)
-  b3 = DataBlock((generated_block_address(1), generated_block_address(2), 3))
+  b3 = DataBlock((generated_block_address(1), generated_block_address(2), 3), layout)
   @test isempty(b3.descriptor_ids)
   @test b3.device_addresses == [1, 8 + 1]
-
-  foreach(test_align_block, data_blocks())
-  foreach(test_align_block, data_blocks_2())
-  foreach(test_align_block, data_blocks_3())
-
-  b1, b2, b3 = data_blocks()
-  ab1 = align(b1, type_info)
-  @test length(b1.bytes) == 17
-  @test length(ab1.bytes) == 24
-  ab2 = align(b2, type_info)
-  @test length(b2.bytes) == 9
-  @test length(ab2.bytes) == 12
-  @test ab2.descriptor_ids == [1 + 4 + 4]
-  ab3 = align(b3, type_info)
-  @test length(b3.bytes) == 24
-  @test length(ab3.bytes) == 24
-  @test ab3.device_addresses == [1, 8 + 1]
-
-  b1, b2, b3 = data_blocks_3()
-  ab1 = align(b1, type_info)
-  @test length(ab1.bytes) == (24 * 3) + 20
-  ab2 = align(b2, type_info)
-  ab3 = align(b3, type_info)
 end
 
 # `tex` is put in global scope to test for the hygiene of `@invocation_data`.
@@ -111,7 +87,7 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   patch_descriptors!(b2, gdescs, descriptors, NodeID())
   @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 0U
 
-  data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3)
+  data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3, layout)
   addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
   patch_pointers!(b3, data, addresses, nothing)
   @test device_addresses(b3) == [5, 6]
@@ -119,13 +95,13 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   @test device_addresses(b3) == [5, 6]
 
   b1, b2, b3 = data_blocks_3()
-  data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3)
+  data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3, layout)
   addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
   patch_pointers!(b3, data, addresses, nothing)
   @test device_addresses(b3) == [5, 6]
 
   b1, b2, b3 = data_blocks_4()
-  data = ProgramInvocationData([b1, b2, b3], descriptors, [buffer.id], 3)
+  data = ProgramInvocationData([b1, b2, b3], descriptors, [buffer.id], 3, layout)
   addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
   patch_pointers!(b2, data, addresses, buffers)
   @test device_addresses(b2) == UInt64[DeviceAddress(pbuffer)]
@@ -133,14 +109,16 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   @test device_addresses(b3) == [5, 6]
 
   allocator = LinearAllocator(device, 1_000)
-  data = ProgramInvocationData(data_blocks(), descriptors, [], 3)
+  data = ProgramInvocationData(data_blocks(), descriptors, [], 3, layout)
   @test data.postorder_traversal == [1, 2, 3]
-  @test_throws "different descriptor" device_address_block!(allocator, gdescs, nothing, NodeID(), data, type_info, layout)
+  @test_throws "different descriptor" device_address_block!(allocator, gdescs, nothing, NodeID(), data)
   empty!(gdescs)
-  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data, type_info, layout)
+  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data)
   @test isa(address, DeviceAddressBlock)
 
-  data2 = @invocation_data begin
+  fake_program = Program(Lava.PROGRAM_TYPE_GRAPHICS, nothing, layout)
+
+  data2 = @invocation_data fake_program begin
     b1 = @block (1, 0x02, 3)
     b2 = @block (3U, 0x01, @descriptor(desc))
     # The last block index will be set as root.
@@ -155,7 +133,8 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
 
   # Make sure we got the hygiene right.
   M = Module()
-  ex = macroexpand(M, :($(@__MODULE__).@invocation_data begin
+  Core.eval(M, :(fake_program = $fake_program))
+  ex = macroexpand(M, :($(@__MODULE__).@invocation_data fake_program begin
       b1 = @block (1, 0x02, 3)
       b2 = @block (3 * $(@__MODULE__).U, 0x01, @descriptor($(@__MODULE__).desc))
       # The last block index will be set as root.
@@ -165,17 +144,16 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
 
   # Support for array blocks.
   allocator = LinearAllocator(device, 1_000)
-  data3 = @invocation_data begin
+  data3 = @invocation_data fake_program begin
     b1 = @block [(1, 2), (2, 3)]
     @block [(@address(b1), @descriptor(desc))]
   end
   @test data3.postorder_traversal == [1, 2]
-  type_info2 = TypeInfo(getproperty.(data3.blocks, :type), layout)
   empty!(gdescs)
-  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data3, type_info2, layout)
+  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data3)
   @test isa(address, DeviceAddressBlock)
 
-  data4 = @invocation_data begin
+  data4 = @invocation_data fake_program begin
     b1 = @block [
       (Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
       (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
@@ -187,23 +165,21 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   end
   @test data4.blocks[3].device_addresses == [1, 9]
   @test data4.blocks[2].descriptor_ids == [9]
-  @test align(data4.blocks[3], type_info).device_addresses == [1, 9]
-  @test align(data4.blocks[2], type_info).descriptor_ids == [9]
 
-  data5 = @invocation_data begin
+  data5 = @invocation_data fake_program begin
     b1 = @block Vec2(1.0, 1.0)
     b2 = @block (Vec2(1, 1), @descriptor desc)
     tex = (@address(b1), @address(b2))
     @block (tex, 4)
   end
   empty!(gdescs)
-  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data5, infer_type_info(data5), layout)
+  address = device_address_block!(allocator, gdescs, nothing, NodeID(), data5)
   @test isa(address, DeviceAddressBlock)
 
-  data6 = @invocation_data begin
+  data6 = @invocation_data fake_program begin
     b1 = @block (1, 2U)
     @block (@address(buffer), @address(b1))
   end
-  address = device_address_block!(allocator, gdescs, buffers, NodeID(), data6, infer_type_info(data6), layout)
+  address = device_address_block!(allocator, gdescs, buffers, NodeID(), data6)
   @test isa(address, DeviceAddressBlock)
 end;

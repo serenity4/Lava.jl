@@ -195,7 +195,7 @@ using Graphs: nv, ne
       (color => (0.0, 0.0, 0.0, 1.0))::Color
       depth::Depth
     end
-    invocation = ProgramInvocation(prog, cmd, @invocation_data(@block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
+    invocation = ProgramInvocation(prog, cmd, @invocation_data(prog, @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
     push!(graphics.program_invocations, invocation)
 
     rg = RenderGraph(device)

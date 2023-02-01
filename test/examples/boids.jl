@@ -129,12 +129,14 @@ end
 
 function boid_simulation_nodes(device, agents::Resource, parameters::BoidParameters = BoidParameters(); Δt::Float32 = 0.01F)
   forces = buffer_resource(512 * sizeof(Vec2))
-  data = @invocation_data begin
+  prog_1 = boids_forces_program(device)
+  prog_2 = boids_update_program(device)
+  data = @invocation_data (prog_1, prog_2) begin
     @block (DeviceAddress(agents), parameters, Δt, @address(forces))
   end
   dispatch = Dispatch(8, 1, 1)
   invocation_forces = ProgramInvocation(
-    boids_forces_program(device),
+    prog_1,
     dispatch,
     data,
     @resource_dependencies begin
@@ -143,7 +145,7 @@ function boid_simulation_nodes(device, agents::Resource, parameters::BoidParamet
     end
   )
   invocation_update = ProgramInvocation(
-    boids_update_program(device),
+    prog_2,
     dispatch,
     data,
     @resource_dependencies begin

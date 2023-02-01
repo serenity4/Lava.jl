@@ -21,7 +21,7 @@ function rectangle_program(device)
 end
 
 function rectangle_invocation(device, vdata, color, prog = rectangle_program(device))
-  invocation_data = @invocation_data @block vdata
+  invocation_data = @invocation_data prog @block vdata
   ProgramInvocation(
     prog,
     DrawIndexed(1:4),

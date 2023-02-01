@@ -69,7 +69,7 @@ function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec
     (color => (0.08, 0.05, 0.1, 1.0))::Color
   end
 
-  invocation_data = @invocation_data begin
+  invocation_data = @invocation_data prog begin
     tex1 = @block vdata
     tex2 = @block TextureDrawing(
       uv_scale, @descriptor(texture_descriptor(normal_map_texture))

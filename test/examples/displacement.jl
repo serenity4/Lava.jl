@@ -32,7 +32,7 @@ end
 
 function displacement_invocation(device, vmesh::VertexMesh, color::Resource, height_map::Resource, camera::Mat4, prog = scalar_displacement_program(device))
   height_map_texture = texture_descriptor(Texture(height_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
-  invocation_data = @invocation_data begin
+  invocation_data = @invocation_data prog begin
     @block DisplacementData(@address(@block vmesh.vertex_data), @descriptor(height_map_texture), camera)
   end
   ProgramInvocation(

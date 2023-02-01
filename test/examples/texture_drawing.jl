@@ -37,7 +37,7 @@ end
 function texture_invocation(device, vdata, color; prog = texture_program(device), normal_map = nothing)
   normal_map = @something(normal_map, read_normal_map(device))
   normal_map_texture = texture_descriptor(Texture(normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
-  invocation_data = @invocation_data begin
+  invocation_data = @invocation_data prog begin
     b1 = @block vdata
     b2 = @block TextureDrawing(Vec2(0.1, 1.0), @descriptor normal_map_texture)
     @block TextureData(@address(b1), @address(b2))

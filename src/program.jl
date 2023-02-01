@@ -13,7 +13,7 @@ It exposes a program interface through its shader interfaces and its shader reso
 @auto_hash_equals struct Program
   type::ProgramType
   data::Any
-  type_info::TypeInfo
+  layout::VulkanLayout
 end
 
 struct GraphicsProgram
@@ -24,51 +24,22 @@ end
 
 function Program(compute::Shader)
   compute.info.interface.execution_model == SPIRV.ExecutionModelGLCompute || error("A compute shader is required to form a compute program.")
-  Program(PROGRAM_TYPE_COMPUTE, compute, compute.info.type_info)
+  Program(PROGRAM_TYPE_COMPUTE, compute, compute.info.layout)
 end
 
 Program(vertex_shader::Shader, fragment_shader::Shader) = Program(GraphicsProgram(vertex_shader, fragment_shader))
 function Program(graphics::GraphicsProgram)
-  type_info = retrieve_type_info((graphics.vertex_shader, graphics.fragment_shader))
-  Program(PROGRAM_TYPE_GRAPHICS, graphics, type_info)
+  layout = retrieve_layout((graphics.vertex_shader, graphics.fragment_shader))
+  Program(PROGRAM_TYPE_GRAPHICS, graphics, layout)
 end
 
-function retrieve_type_info(shaders)
-  info = TypeInfo()
-  for shader in shaders
-    (; tmap, offsets, strides) = shader.info.type_info
-    for (T, t) in pairs(tmap)
-      existing = get(info.tmap, T, nothing)
-      if !isnothing(existing) && existing ≠ t
-        existing ≈ t || error("Julia type $T maps to different SPIR-V types: $existing and $t.")
-      else
-        info.tmap[T] = t
-        existing = t
-      end
-      if isa(t, StructType)
-        t_offsets = get(info.offsets, existing, nothing)
-        shader_offsets = get(offsets, t, nothing)
-        if !isnothing(shader_offsets)
-          if isnothing(t_offsets)
-            insert!(info.offsets, existing, shader_offsets)
-          else
-            t_offsets == shader_offsets || error("SPIR-V type $t possesses member offset decorations that are inconsistent across shaders.")
-          end
-        end
-      elseif isa(t, ArrayType)
-        t_stride = get(info.strides, existing, nothing)
-        shader_stride = get(strides, t, nothing)
-        if !isnothing(shader_stride)
-          if isnothing(t_stride)
-            insert!(info.strides, existing, shader_stride)
-          else
-            t_stride == shader_stride || error("SPIR-V type $t possesses an array stride decoration that is inconsistent across shaders.")
-          end
-        end
-      end
-    end
-  end
-  info
+function retrieve_layout(shaders)
+  foldl((layout, shader) -> merge!(layout, shader.info.layout), shaders; init = VulkanLayout(shaders[1].info.layout.alignment))
+end
+
+function merge_program_layouts(progs)
+  prog, progs... = progs
+  foldl((layout, prog) -> merge!(layout, prog.layout), progs; init = VulkanLayout(prog.layout.alignment))
 end
 
 struct ResourceDependency

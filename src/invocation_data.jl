@@ -6,7 +6,7 @@ mutable struct DataBlock
   descriptor_ids::Vector{Int}
   type::DataType
 end
-DataBlock(@nospecialize(T::DataType)) = DataBlock(UInt8[], Int[], Int[], T)
+DataBlock(@nospecialize(T::DataType), bytes) = DataBlock(bytes, Int[], Int[], T)
 
 # We reserve the two most significant bits of a `DeviceAddress` in case we generate it via `@address`.
 # The first bit indicates whether the address was generated (and therefore has its 2 MSBs which communicate the correct information).
@@ -22,73 +22,37 @@ generated_logical_buffer_address(index) = DeviceAddress(index | (UInt64(0x03) <<
 
 Base.copy(block::DataBlock) = @set block.bytes = copy(block.bytes)
 
-function DataBlock(x)
-  block = DataBlock(typeof(x))
-  extract!(block, x)
+function DataBlock(x, layout::LayoutStrategy)
+  data = serialize(x, layout)
+  block = DataBlock(typeof(x), data)
+  annotate!(block, layout, x)
   block
 end
 
-extract!(block::DataBlock, x::T) where {T} = isstructtype(T) ? extract_struct!(block, x) : extract_leaf!(block, x)
-
-function extract!(block::DataBlock, x::Union{AbstractVector,Arr})
-  for el in x
-    extract!(block, el)
+function annotate!(block, layout, x::T, offset = 0) where {T}
+  isprimitivetype(T) && return add_annotations!(block, x, offset)
+  if isstructtype(T)
+    for i in 1:fieldcount(T)
+      field_offset = if isa(layout, VulkanLayout) || isa(layout, ShaderLayout)
+        dataoffset(layout, spir_type(T, layout.tmap; fill_tmap = false), i)
+      else
+        dataoffset(layout, T, i)
+      end
+      annotate!(block, layout, getfield(x, i), offset + field_offset)
+    end
   end
 end
 
-function extract_struct!(block::DataBlock, x::T) where {T}
-  for field in fieldnames(T)
-    extract!(block, getfield(x, field))
-  end
-end
-
-function extract_leaf!(block::DataBlock, x::T) where {T}
+function add_annotations!(block, x::T, byte_offset) where {T}
   if T === DeviceAddress && is_generated_address(x)
-    push!(block.device_addresses, lastindex(block.bytes) + 1)
+    push!(block.device_addresses, 1 + byte_offset)
+    true
   elseif T === DescriptorIndex
-    push!(block.descriptor_ids, lastindex(block.bytes) + 1)
+    push!(block.descriptor_ids, 1 + byte_offset)
+    true
+  else
+    false
   end
-  append!(block.bytes, extract_bytes(x))
-end
-
-"""
-Align a data block according to the type layout information provided by `type_info`.
-"""
-function SPIRV.align(block::DataBlock, type_info::TypeInfo)
-  t = type_info.tmap[block.type]
-  isa(t, StructType) || isa(t, ArrayType) || return copy(block)
-  # Don't bother if we don't have to keep an external mapping for descriptors/pointers.
-  # Perform the alignment and return the result.
-  isempty(block.descriptor_ids) && isempty(block.device_addresses) && return @set block.bytes = align(block.bytes, t, type_info)
-
-  aligned = DataBlock(UInt8[], Int[], Int[], block.type)
-
-  remaps = Pair{UnitRange{Int},UnitRange{Int}}[]
-  append!(aligned.bytes, align(block.bytes, t, type_info; callback = (from, to) -> push!(remaps, from => to)))
-
-  i = firstindex(block.device_addresses)
-  address_byte = i ≤ lastindex(block.device_addresses) ? block.device_addresses[i] : nothing
-  j = firstindex(block.descriptor_ids)
-  descriptor_byte = j ≤ lastindex(block.descriptor_ids) ? block.descriptor_ids[j] : nothing
-  for (from, to) in remaps
-    isnothing(address_byte) && isnothing(descriptor_byte) && break
-    if address_byte === first(from)
-      push!(aligned.device_addresses, first(to))
-      address_byte = if i < lastindex(block.device_addresses)
-        i += 1
-        block.device_addresses[i]
-      end
-    end
-    if descriptor_byte === first(from)
-      push!(aligned.descriptor_ids, first(to))
-      descriptor_byte = if j < lastindex(block.descriptor_ids)
-        j += 1
-        block.descriptor_ids[j]
-      end
-    end
-  end
-  @assert isnothing(address_byte) && isnothing(descriptor_byte) "Addresses or descriptor indices were not transfered properly."
-  aligned
 end
 
 mutable struct CounterDict{T}
@@ -129,8 +93,8 @@ mutable struct ProgramInvocationData
   "Index of the block to use as interface."
   root::Int
   postorder_traversal::Vector{Int}
+  layout::VulkanLayout
 end
-ProgramInvocationData() = ProgramInvocationData(DataBlock[], Descriptor[], ResourceID[], 0, Int[])
 
 function read_device_address(block::DataBlock, i::Int)
   byte_idx = block.device_addresses[i]
@@ -138,7 +102,7 @@ function read_device_address(block::DataBlock, i::Int)
   only(reinterpret(DeviceAddress, bytes))
 end
 
-function ProgramInvocationData(blocks, descriptors, logical_buffers, root)
+function ProgramInvocationData(blocks, descriptors, logical_buffers, root, layout)
   g = SimpleDiGraph{Int}(length(blocks))
   for (i, block) in enumerate(blocks)
     for p in eachindex(block.device_addresses)
@@ -149,15 +113,15 @@ function ProgramInvocationData(blocks, descriptors, logical_buffers, root)
       add_edge!(g, i, id)
     end
   end
-  ProgramInvocationData(blocks, descriptors, logical_buffers, root, postorder(g, root))
+  ProgramInvocationData(blocks, descriptors, logical_buffers, root, postorder(g, root), layout)
 end
 
-function ProgramInvocationData(root::DataBlock, ctx::InvocationDataContext)
+function ProgramInvocationData(root::DataBlock, ctx::InvocationDataContext, layout)
   blocks = first.(sort(collect(ctx.blocks.d); by = last))
   descriptors = first.(sort(collect(ctx.descriptors.d); by = last))
   logical_buffers = first.(sort(collect(ctx.buffers.d); by = last))
   root = ctx.blocks.d[root]
-  ProgramInvocationData(blocks, descriptors, logical_buffers, root)
+  ProgramInvocationData(blocks, descriptors, logical_buffers, root, layout)
 end
 
 function postorder(g, source)
@@ -224,28 +188,30 @@ function patch_pointers!(block::DataBlock, data::ProgramInvocationData, addresse
   end
 end
 
-function device_address_block!(allocator::LinearAllocator, gdescs::GlobalDescriptors, materialized_resources, node_id::NodeID, data::ProgramInvocationData, type_info::TypeInfo, layout::VulkanLayout)
+function device_address_block!(allocator::LinearAllocator, gdescs::GlobalDescriptors, materialized_resources, node_id::NodeID, data::ProgramInvocationData)
   addresses = Dictionary{DataBlock, DeviceAddress}()
   for i in data.postorder_traversal
     block = data.blocks[i]
-    aligned = align(block, type_info)
-    patch_descriptors!(aligned, gdescs, data.descriptors, node_id)
-    patch_pointers!(aligned, data, addresses, materialized_resources)
-    address = allocate_data!(allocator, type_info, aligned.bytes, type_info.tmap[aligned.type], layout, false)
+    patched = copy(block)
+    patch_descriptors!(patched, gdescs, data.descriptors, node_id)
+    patch_pointers!(patched, data, addresses, materialized_resources)
+    address = allocate_data!(allocator, patched.bytes, patched.type, data.layout)
     insert!(addresses, block, address)
   end
   DeviceAddressBlock(addresses[data.blocks[data.root]])
 end
 
 """
-    @invocation_data begin
+    @invocation_data <program|programs> begin
       b1 = @block a
       b2 = @block B(@address(b1), @descriptor(texture))
       @block C(1, 2, @address(b2))
     end
 
 Create a [`ProgramInvocationData`](@ref) out of `@block` annotations,
-which represent [`DataBlock`](@ref)s.
+which represent [`DataBlock`](@ref)s. The program (or programs) in which
+this data will be used is necessary to derive a correct serialization scheme
+which respects the layout requirements of these programs.
 
 Within the body of `@invocation_data`, three additional macros are allowed:
 - `@block` to create a new block.
@@ -258,14 +224,14 @@ Multiple references to the same descriptor will reuse the same index.
 The last value of the block must be a [`DataBlock`](@ref), e.g. obtained with `@block`, and will be set as
 the root block for the program invocation data.
 """
-macro invocation_data(ex)
+macro invocation_data(progs, ex)
   Meta.isexpr(ex, :block) || (ex = Expr(:block, ex))
-  @gensym ctx blk desc object block_index buffer_index
+  @gensym ctx blk desc object block_index buffer_index layout
   transformed = postwalk(ex) do subex
     if Meta.isexpr(subex, :macrocall)
       ex = @trymatch string(subex.args[1]) begin
         "@block" => quote
-          $blk = $DataBlock($(subex.args[3]))
+          $blk = $DataBlock($(subex.args[3]), $layout)
           $reserve!($ctx.blocks, $blk)
           $blk
         end
@@ -294,8 +260,10 @@ macro invocation_data(ex)
   end
   quote
     $(esc(ctx)) = InvocationDataContext()
+    progs = $(esc(progs))
+    $(esc(layout)) = isa(progs, Program) ? progs.layout : merge_program_layouts(progs)
     ans = $(esc(transformed))
     isa(ans, DataBlock) || error("A data block must be provided as the last instruction to @invocation_data. Such a block can be obtained with @block.")
-    ProgramInvocationData(ans, $(esc(ctx)))
+    ProgramInvocationData(ans, $(esc(ctx)), $(esc(layout)))
   end
 end

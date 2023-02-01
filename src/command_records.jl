@@ -47,8 +47,6 @@ function draw_command(program::Program, data_address, idata, color...; depth = n
   CommandInfo(command, program, data_address, targets, state)
 end
 
-allocate_data(rg::RenderGraph, program::Program, data) = allocate_data(rg.allocator, program, data, rg.device.layout)
-
 """
 Submit a pipeline create info for creation in the next batch.
 

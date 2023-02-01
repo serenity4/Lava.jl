@@ -21,6 +21,7 @@ struct ShaderCache
   # ones on each hypothetical device.
   compiled::Cache{Dict{ShaderSpec,ShaderSource}}
   shaders::Cache{IdDict{ShaderSource,Shader}}
+  alignment::VulkanAlignment
 end
 
 function Base.empty!(cache::ShaderCache)
@@ -29,12 +30,12 @@ function Base.empty!(cache::ShaderCache)
   cache
 end
 
-ShaderCache(device) = ShaderCache(device, Cache{Dict{ShaderSpec,ShaderSource}}(), Cache{IdDict{ShaderSource,Shader}}())
+ShaderCache(device, alignment) = ShaderCache(device, Cache{Dict{ShaderSpec,ShaderSource}}(), Cache{IdDict{ShaderSource,Shader}}(), alignment)
 
 Shader(cache::ShaderCache, source::ShaderSource) = get!(cache, source)
 ShaderSource(cache::ShaderCache, spec::ShaderSpec) = get!(cache, spec)
 
-Base.get!(cache::ShaderCache, spec::ShaderSpec) = get!(() -> ShaderSource(spec), cache.compiled, spec)
+Base.get!(cache::ShaderCache, spec::ShaderSpec) = get!(() -> ShaderSource(spec, cache.alignment), cache.compiled, spec)
 Base.get!(cache::ShaderCache, source::ShaderSource) = get!(() -> Shader(cache.device, source), cache.shaders, source)
 
 function Vk.ShaderModule(device, source::ShaderSource)

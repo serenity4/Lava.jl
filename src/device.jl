@@ -16,7 +16,7 @@ struct Device <: LavaAbstraction
   spirv_features::SupportedFeatures
   fence_pool::FencePool
   descriptors::GlobalDescriptors
-  layout::VulkanLayout
+  alignment::VulkanAlignment
 end
 
 vk_handle_type(::Type{Device}) = Vk.Device
@@ -37,6 +37,7 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
 
   handle = unwrap(create(Device, physical_device, info))
   queues = QueueDispatch(handle, infos; surface)
+  alignment = VulkanAlignment()
   Device(
     handle,
     api_version,
@@ -49,13 +50,13 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     Dictionary(),
     Vk.GraphicsPipelineCreateInfo[],
     Vk.ComputePipelineCreateInfo[],
-    ShaderCache(handle),
+    ShaderCache(handle, alignment),
     [],
     CommandPools(handle),
     spirv_features(physical_device, api_version, extensions, features),
     FencePool(handle),
     GlobalDescriptors(handle),
-    VulkanLayout(),
+    alignment,
   )
 end
 

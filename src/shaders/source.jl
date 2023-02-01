@@ -2,7 +2,7 @@ struct ShaderInfo
   mi::MethodInstance
   interface::ShaderInterface
   interp::SPIRVInterpreter
-  type_info::TypeInfo
+  layout::VulkanLayout
 end
 
 """
@@ -25,10 +25,10 @@ end
 end
 ShaderSpec(f, argtypes::Type, interface::ShaderInterface) = ShaderSpec(SPIRV.method_instance(f, argtypes), interface)
 
-function ShaderSource(spec::ShaderSpec)
+function ShaderSource(spec::ShaderSpec, alignment::VulkanAlignment)
   interp = SPIRVInterpreter()
-  shader = SPIRV.Shader(spec.mi, spec.interface, interp)
+  shader = SPIRV.Shader(spec.mi, spec.interface, interp, alignment)
   ret = validate(shader)
   !iserror(ret) || throw(unwrap_error(ret))
-  ShaderSource(reinterpret(UInt8, assemble(shader)), ShaderInfo(spec.mi, spec.interface, interp, TypeInfo(shader, spec.interface.layout)))
+  ShaderSource(reinterpret(UInt8, assemble(shader)), ShaderInfo(spec.mi, spec.interface, interp, shader.layout))
 end
