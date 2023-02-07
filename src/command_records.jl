@@ -34,9 +34,9 @@ Base.show(io::IO, record::CompactRecord) = print(
   CompactRecord,
   '(',
   length(record.draws) + length(record.dispatches),
-  " programs, ",
-  sum(x -> sum(length, values(x); init = 0), values(record.draws); init = 0), " draw commands",
-  sum(x -> sum(length, values(x); init = 0), values(record.dispatches); init = 0), " compute dispatches",
+  " programs",
+  ", ", sum(x -> sum(length, values(x); init = 0), values(record.draws); init = 0), " draw commands",
+  ", ", sum(x -> sum(length, values(x); init = 0), values(record.dispatches); init = 0), " compute dispatches",
   ')',
 )
 

@@ -17,12 +17,12 @@ end
 """
 Create and allocate a new buffer and optionally fill it with data.
 """
-function Buffer(device::Device; data = nothing, memory_domain::MemoryDomain = MEMORY_DOMAIN_DEVICE, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, size = nothing, submission = nothing, queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE)
+function Buffer(device::Device; data = nothing, memory_domain::MemoryDomain = MEMORY_DOMAIN_DEVICE, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, size = nothing, submission = nothing, queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE, layout = NativeLayout())
   isnothing(size) && isnothing(data) && error("At least one of data or size must be provided.")
   isnothing(size) && (size = sizeof(data))
 
   memory_domain == MEMORY_DOMAIN_DEVICE && !isnothing(data) && (usage_flags |= Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
-  buffer = Buffer(device, size; usage_flags, queue_family_indices, sharing_mode)
+  buffer = Buffer(device, size; usage_flags, queue_family_indices, sharing_mode, layout)
   allocate!(buffer, memory_domain)
   isnothing(data) && return buffer
   Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in buffer.memory[].property_flags && (submission = @something(submission, SubmissionInfo(signal_fence = fence(device))))
@@ -33,11 +33,11 @@ function Base.copyto!(buffer::Buffer, data; device::Optional{Device} = nothing, 
   mem = buffer.memory[]
   if Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in mem.property_flags
     device::Device
-    tmp = similar(buffer; memory_domain = MEMORY_DOMAIN_HOST, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+    tmp = similar(buffer; memory_domain = MEMORY_DOMAIN_HOST, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, buffer.layout)
     copyto!(tmp, data)
     transfer(device, tmp, buffer; submission)
   elseif Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in mem.property_flags
-    copyto!(mem, data)
+    copyto!(mem, data, buffer.layout)
   else
     error("Buffer not visible neither to device nor to host (memory properties: $(mem.property_flags)).")
   end
@@ -61,8 +61,8 @@ end
 
 Base.collect(buffer::Buffer) = collect(buffer.memory[], buffer.size)
 Base.collect(buffer::Buffer, device::Device) = collect(buffer.memory[], buffer.size, device)
-Base.collect(::Type{T}, buffer::Buffer) where {T} = reinterpret(T, collect(buffer))
-Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = reinterpret(T, collect(buffer, device))
+Base.collect(::Type{T}, buffer::Buffer) where {T} = deserialize(Vector{T}, collect(buffer), buffer.layout)
+Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = deserialize(Vector{T}, collect(buffer, device), buffer.layout)
 
 # # Images
 
@@ -137,7 +137,7 @@ function Base.collect(@nospecialize(T), image::Image, device::Device)
     # Get the data from the host-visible memory directly.
     isbitstype(T) || error("Image type is not an `isbits` type.")
     bytes = collect(image.memory[], prod(image.dims) * sizeof(T), device)
-    data = reinterpret(T, bytes)
+    data = deserialize(Matrix{T}, bytes, NoPadding(), image.dims)
     reshape(data, Tuple(image.dims))
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
@@ -302,9 +302,12 @@ function Base.collect(memory::Memory, size::Integer = memory.size)
   end
 end
 
-function Base.copyto!(memory::Memory, data)
-  map(memory) do ptr
-    ptrcopy!(ptr, data)
-  end
+function Base.copyto!(memory::Memory, data::Vector{UInt8})
+  map(ptr -> ptrcopy!(ptr, data), memory)
+  nothing
+end
+
+function Base.copyto!(memory::Memory, data, layout::LayoutStrategy)
+  map(ptr -> ptrcopy!(ptr, serialize(data, layout)), memory)
   nothing
 end

@@ -200,7 +200,11 @@ using Graphs: nv, ne
 
     rg = RenderGraph(device)
     add_node!(rg, graphics)
+    @test collect(rg.nodes) == [graphics]
     baked = Lava.bake!(rg)
     @test isa(baked, Lava.BakedRenderGraph)
+    @test length(baked.nodes) == 1
+    @test baked.nodes[1].id == graphics.id
+    @test baked.nodes[1] ≠ graphics # the node must be copied to preserve original invocation data
   end
 end;

@@ -4,6 +4,8 @@ struct BoidAgent
   mass::Float32
 end
 BoidAgent(position, velocity) = BoidAgent(position, velocity, 1)
+Base.:(==)(x::BoidAgent, y::BoidAgent) = x.position == y.position && x.velocity == y.velocity && x.mass == y.mass
+Base.isapprox(x::BoidAgent, y::BoidAgent) = isapprox(x.position, y.position) && isapprox(x.velocity, y.velocity) && x.mass == y.mass
 
 struct BoidAgentSampler end
 Random.Sampler(::Type{<:AbstractRNG}, ::Random.SamplerType{BoidAgent}, ::Val{1}) = BoidAgentSampler()
@@ -29,6 +31,10 @@ distance2(x::Vec, y::Vec) = sum(x -> x^2, y - x)
 distance(x::Vec, y::Vec) = sqrt(distance2(x, y))
 norm(x::Vec) = distance(x, zero(x))
 normalize(x::Vec) = ifelse(iszero(x), x, x / norm(x))
+
+const WORKGROUP_SIZE = (8U, 8U, 1U)
+const DISPATCH_SIZE = (8U, 1U, 1U)
+const COMPUTE_EXECUTION_OPTIONS = ComputeExecutionOptions(local_size = WORKGROUP_SIZE)
 
 # from https://stackoverflow.com/questions/21483999/using-atan2-to-find-angle-between-two-vectors
 function angle_2d(x, y)
@@ -63,21 +69,21 @@ function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Flo
     d = distance(position, other.position)
     d < parameters.awareness_radius || continue
     flock_size += 1U
-    flock_center += other.position
+    flock_center[] = flock_center + other.position
     repulsion_strength = exp(-d^2 / (2 * parameters.separation_radius^2))
-    forces -= (other.position - position) * repulsion_strength
-    average_heading += normalize(other.velocity)
+    forces[] = forces - (other.position - position) * repulsion_strength
+    average_heading[] = average_heading + normalize(other.velocity)
   end
 
   if !iszero(flock_size)
     flock_center /= flock_size
     target_position = lerp(position, flock_center, 1 - parameters.cohesion_factor)
-    forces += (target_position - position) * parameters.cohesion_strength
+    forces[] = forces + (target_position - position) * parameters.cohesion_strength
 
     if !iszero(average_heading)
       average_heading = normalize(average_heading)
       target_heading = slerp(direction, average_heading, parameters.alignment_factor)
-      forces += (velocity - target_heading * norm(velocity)) * parameters.alignment_strength
+      forces[] = forces + (velocity - target_heading * norm(velocity)) * parameters.alignment_strength
     end
   end
 
@@ -95,53 +101,59 @@ function step_euler(agent::BoidAgent, forces, Δt)
   BoidAgent(new_position, new_velocity, mass)
 end
 
-function compute_forces!(data_address::DeviceAddressBlock, i::Integer)
+linearize_index((x, y, z), (nx, ny, nz)) = x + y * nx + z * nx * ny
+function linearize_index(global_id, global_size, local_id, local_size)
+  linearize_index(local_id, local_size) + prod(local_size) * linearize_index(global_id, global_size)
+end
+
+function compute_forces!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
+  i = linearize_index(global_id, DISPATCH_SIZE, local_id, WORKGROUP_SIZE)
   (agents, parameters, Δt, forces) = @load data_address::Tuple{DeviceAddress, BoidParameters, Float32, DeviceAddress}
   agents = @load agents::Arr{512,BoidAgent}
-  @store forces[i]::Vec2 = compute_forces(agents, parameters, i, Δt)
+  @store forces[i]::Vec2 = compute_forces(agents, parameters, i + 1, Δt)
   nothing
 end
 
-function step_euler!(data_address::DeviceAddressBlock, i::Integer)
+function step_euler!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
+  i = linearize_index(global_id, DISPATCH_SIZE, local_id, WORKGROUP_SIZE)
   (agents, parameters, Δt, forces) = @load data_address::Tuple{DeviceAddress, BoidParameters, Float32, DeviceAddress}
-  agents = @load agents::Arr{512,BoidAgent}
-  agents[i] = step_euler(agents[i], @load forces[i]::Vec2)
-  # agent = @load agents[i]::BoidAgent
-  # @store agents[i]::BoidAgent = step_euler(agent, @load forces[i]::Vec2)
+  agent = @load agents[i]::BoidAgent
+  @store agents[i]::BoidAgent = step_euler(agent, (@load forces[i]::Vec2), Δt)
   nothing
 end
 
 function boids_forces_program(device)
   compute = @compute device compute_forces!(
     ::DeviceAddressBlock::PushConstant,
-    ::UInt32::Input{LocalInvocationIndex},
-  )
+    ::Vec{3,UInt32}::Input{LocalInvocationId},
+    ::Vec{3,UInt32}::Input{WorkgroupId},
+  ) COMPUTE_EXECUTION_OPTIONS
   Program(compute)
 end
 
 function boids_update_program(device)
-  compute = @compute device compute_forces!(
+  compute = @compute device step_euler!(
     ::DeviceAddressBlock::PushConstant,
-    ::UInt32::Input{LocalInvocationIndex},
-  )
+    ::Vec{3,UInt32}::Input{LocalInvocationId},
+    ::Vec{3,UInt32}::Input{WorkgroupId},
+  ) COMPUTE_EXECUTION_OPTIONS
   Program(compute)
 end
 
-function boid_simulation_nodes(device, agents::Resource, parameters::BoidParameters = BoidParameters(); Δt::Float32 = 0.01F)
-  forces = buffer_resource(512 * sizeof(Vec2))
+function boid_simulation_nodes(device, agents::Resource, forces::Resource, parameters::BoidParameters, Δt::Float32)
   prog_1 = boids_forces_program(device)
   prog_2 = boids_update_program(device)
   data = @invocation_data (prog_1, prog_2) begin
-    @block (DeviceAddress(agents), parameters, Δt, @address(forces))
+    @block (DeviceAddress(agents), parameters, Δt, DeviceAddress(forces))
   end
-  dispatch = Dispatch(8, 1, 1)
+  dispatch = Dispatch(DISPATCH_SIZE)
   invocation_forces = ProgramInvocation(
     prog_1,
     dispatch,
     data,
     @resource_dependencies begin
-      @read agents::Buffer
-      @write forces::Buffer
+      @read agents::Buffer::Physical
+      @write forces::Buffer::Physical
     end
   )
   invocation_update = ProgramInvocation(
@@ -149,8 +161,8 @@ function boid_simulation_nodes(device, agents::Resource, parameters::BoidParamet
     dispatch,
     data,
     @resource_dependencies begin
-      @read forces::Buffer
-      @write agents::Buffer
+      @read forces::Buffer::Physical
+      @write agents::Buffer::Physical
     end
   )
   (compute_node(invocation_forces), compute_node(invocation_update))
@@ -176,8 +188,8 @@ end
   @testset "CPU implementation" begin
     a1 = BoidAgent(Vec2(0.5, 0.5), Vec2(0.1, 0.1))
     a2 = BoidAgent(Vec2(0.6, 0.5), Vec2(0.1, 0.5))
-    boids = BoidSimulation(Arr(a1, a2))
     Δt = 0.001F
+    boids = BoidSimulation(Arr(a1, a2))
     next!(boids, Δt)
     @test boids.agents[1].position == a1.position + Δt * a1.velocity
     @test all(all(!isnan, a.position) && all(!isnan, a.velocity) for a in boids.agents)
@@ -185,11 +197,36 @@ end
       next!(boids, Δt)
     end
     @test all(all(!isnan, a.position) && all(!isnan, a.velocity) for a in boids.agents)
+    boids = BoidSimulation(rand(BoidAgent, 512))
+    @test all(all(!isnan, a.position) && all(!isnan, a.velocity) for a in boids.agents)
+    for _ in 1:100
+      next!(boids, Δt)
+    end
+    @test all(all(!isnan, a.position) && all(!isnan, a.velocity) for a in boids.agents)
   end
 
   @testset "GPU implementation" begin
-    # agents = Buffer(device; data = rand(BoidAgent, 512))
-    # nodes = boid_simulation_nodes(device, agents)
-    # @test render(device, nodes)
+    @test linearize_index((0, 0, 0), (8, 1, 1), (0, 0, 0), (8, 8, 1)) == 0
+    @test linearize_index((1, 0, 0), (8, 1, 1), (0, 0, 0), (8, 8, 1)) == 64
+    @test linearize_index((1, 0, 0), (8, 1, 1), (1, 0, 0), (8, 8, 1)) == 65
+    @test linearize_index((7, 0, 0), (8, 1, 1), (7, 7, 0), (8, 8, 1)) == 511
+
+    parameters = BoidParameters()
+    Δt = 0.01F
+    data = rand(BoidAgent, 512)
+    agents = buffer_resource(device, data; memory_domain = MEMORY_DOMAIN_HOST)
+    final_agents = buffer_resource(device, data; memory_domain = MEMORY_DOMAIN_HOST)
+    forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
+    @test collect(BoidAgent, agents.data) == data
+    nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
+    @test render(device, nodes)
+    res = collect(BoidAgent, agents.data)
+    res_forces = collect(Vec2, forces.data)
+    expected_forces = [compute_forces(data, parameters, i, Δt) for i in eachindex(data)]
+    expected = next!(BoidSimulation(deepcopy(data), parameters), Δt)
+    @test_broken res_forces ≈ expected_forces
+    # @show data[1] res[1] expected[1]
+    # @show data[2] res[2] expected[2]
+    @test_broken all(res .≈ expected)
   end
 end;

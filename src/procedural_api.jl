@@ -15,9 +15,9 @@ set_data(rec::StatefulRecording, addr::DeviceAddressBlock) = rec.data_address[] 
 render_state(rec::StatefulRecording) = rec.render_state[]
 invocation_state(rec::StatefulRecording) = rec.invocation_state[]
 
-set_data(rec::StatefulRecording, rg::RenderGraph, data) = set_data(rec, DeviceAddressBlock(allocate_data(rg.allocator, rec.program[], data)))
+set_data(rec::StatefulRecording, rg::RenderGraph, data) = set_data(rec, DeviceAddressBlock(allocate_data(rec, rg, data)))
 
-allocate_data(rec::StatefulRecording, rg::RenderGraph, data) = allocate_data(rg.allocator, rec.program[], data)
+allocate_data(rec::StatefulRecording, rg::RenderGraph, data) = DeviceAddress(copyto!(rg.allocator, data, rec.program[].layout))
 
 function draw_command(rec::StatefulRecording, color...; depth = nothing, stencil = nothing, instances = 1:1)
   isdefined(rec.program, 1) || error("A program must be set before drawing.")

@@ -224,13 +224,13 @@ end
 
 SynchronizationState() = SynchronizationState(Dictionary())
 
-must_synchronize(sync_reqs::SyncRequirements, usage) = WRITE in usage.access || iszero(sync_reqs.stages)
-must_synchronize(sync_reqs::SyncRequirements, usage, from_layout, to_layout) = must_synchronize(sync_reqs, usage) || from_layout ≠ to_layout
+must_synchronize(sync_reqs::SyncRequirements) = iszero(sync_reqs.stages)
+must_synchronize(sync_reqs::SyncRequirements, from_layout, to_layout) = must_synchronize(sync_reqs) || from_layout ≠ to_layout
 
 function synchronize_buffer_access!(state::SynchronizationState, resource::Resource, usage::BufferUsage)
   rstate = get!(ResourceState, state.resources, resource.id)
   sync_reqs = restrict_sync_requirements(rstate.last_accesses, SyncRequirements(usage))
-  must_synchronize(sync_reqs, usage) || return
+  must_synchronize(sync_reqs) || return
   WRITE in usage.access && (state.resources[resource.id] = ResourceState(usage))
   buffer = resource.data::Buffer
   Vk.BufferMemoryBarrier2(
@@ -266,7 +266,7 @@ function synchronize_image_access!(state::SynchronizationState, resource::Resour
   sync_reqs = restrict_sync_requirements(rstate.last_accesses, rstate.sync_reqs)
   from_layout = rstate.current_layout[]
   to_layout = image_layout(usage.type, usage.access)
-  must_synchronize(sync_reqs, usage, from_layout, to_layout) || return
+  must_synchronize(sync_reqs, from_layout, to_layout) || return
   rstate.current_layout[] = to_layout
   WRITE in usage.access && (state.resources[resource.id] = ResourceState(usage, rstate.current_layout))
   subresource = @match usage begin

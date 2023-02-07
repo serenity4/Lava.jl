@@ -15,22 +15,15 @@ end
 
 DeviceAddress(la::LinearAllocator) = DeviceAddress(la.buffer)
 
-bytes(data::AbstractArray) = Base.reinterpret(UInt8, collect(data))
-bytes(data::AbstractString) = Vector{UInt8}(string(data))
-function bytes(data::T) where {T}
-  check_isbits(T)
-  bytes([data])
-end
-
-Base.copyto!(la::LinearAllocator, data, alignment = 8) = copyto!(la, bytes(data), alignment)
-
-function Base.copyto!(la::LinearAllocator, data::Vector{UInt8}, alignment)
+Base.copyto!(la::LinearAllocator, data::T, layout::LayoutStrategy = NativeLayout()) where {T} = copyto!(la, serialize(data, layout), T, layout)
+Base.copyto!(la::LinearAllocator, bytes, T::DataType, layout::LayoutStrategy) = copyto!(la, bytes, alignment(layout, T))
+function Base.copyto!(la::LinearAllocator, bytes::Vector{UInt8}, alignment::Integer)
   offset = get_offset(la, alignment)
-  data_size = sizeof(data)
+  data_size = length(bytes)
   if offset + data_size > la.buffer.size
     error("Data does not fit in memory (available: $(la.buffer.size - offset), requested: $data_size).")
   end
-  ptrcopy!(la.base_ptr + offset, data)
+  ptrcopy!(la.base_ptr + offset, bytes)
   la.last_offset = offset + data_size
   @view la.buffer[offset:la.last_offset]
 end

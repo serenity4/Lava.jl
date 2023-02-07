@@ -153,7 +153,7 @@ export
   CompactRecord, Command, CommandInfo,
   draw!, DrawState, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
   dispatch!, Dispatch, DispatchIndirect,
-  allocate_data, DescriptorIndex,
+  DescriptorIndex,
   DeviceAddressBlock, DeviceAddress,
   StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_data,
 
@@ -167,6 +167,7 @@ export
   SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT,
   SHADER_RESOURCE_TYPE_TEXTURE,
   SHADER_RESOURCE_TYPE_BUFFER,
+  SHADER_RESOURCE_TYPE_PHYSICAL_BUFFER,
   SHADER_RESOURCE_TYPE_IMAGE,
   SHADER_RESOURCE_TYPE_DYNAMIC,
   SHADER_RESOURCE_TYPE_STORAGE,

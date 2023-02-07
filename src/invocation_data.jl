@@ -195,14 +195,14 @@ function device_address_block!(allocator::LinearAllocator, gdescs::GlobalDescrip
     patched = copy(block)
     patch_descriptors!(patched, gdescs, data.descriptors, node_id)
     patch_pointers!(patched, data, addresses, materialized_resources)
-    address = allocate_data!(allocator, patched.bytes, patched.type, data.layout)
+    address = DeviceAddress(copyto!(allocator, patched.bytes, patched.type, data.layout))
     insert!(addresses, block, address)
   end
   DeviceAddressBlock(addresses[data.blocks[data.root]])
 end
 
 """
-    @invocation_data <program|programs> begin
+    @invocation_data [layout|program|programs] begin
       b1 = @block a
       b2 = @block B(@address(b1), @descriptor(texture))
       @block C(1, 2, @address(b2))
@@ -224,7 +224,19 @@ Multiple references to the same descriptor will reuse the same index.
 The last value of the block must be a [`DataBlock`](@ref), e.g. obtained with `@block`, and will be set as
 the root block for the program invocation data.
 """
-macro invocation_data(progs, ex)
+macro invocation_data(layout_or_progs, ex)
+  layout_ex = quote
+    x = $(esc(layout_or_progs))
+    isa(x, Program) ? x.layout : isa(x, LayoutStrategy) ? x : merge_program_layouts(x)
+  end
+  generate_invocation_data(layout_ex, ex)
+end
+
+macro invocation_data(ex)
+  generate_invocation_data(:(NativeLayout()), ex)
+end
+
+function generate_invocation_data(layout_ex, ex)
   Meta.isexpr(ex, :block) || (ex = Expr(:block, ex))
   @gensym ctx blk desc object block_index buffer_index layout
   transformed = postwalk(ex) do subex
@@ -260,8 +272,7 @@ macro invocation_data(progs, ex)
   end
   quote
     $(esc(ctx)) = InvocationDataContext()
-    progs = $(esc(progs))
-    $(esc(layout)) = isa(progs, Program) ? progs.layout : merge_program_layouts(progs)
+    $(esc(layout)) = $layout_ex
     ans = $(esc(transformed))
     isa(ans, DataBlock) || error("A data block must be provided as the last instruction to @invocation_data. Such a block can be obtained with @block.")
     ProgramInvocationData(ans, $(esc(ctx)), $(esc(layout)))

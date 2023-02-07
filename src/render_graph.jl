@@ -293,6 +293,7 @@ function extract_resource_spec(ex::Expr)
     :($r::Buffer::Index) => (r => SHADER_RESOURCE_TYPE_INDEX_BUFFER)
     :($r::Buffer::Storage) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_STORAGE)
     :($r::Buffer::Uniform) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_UNIFORM)
+    :($r::Buffer::Physical) => (r => SHADER_RESOURCE_TYPE_PHYSICAL_BUFFER)
     :($r::Buffer) => (r => SHADER_RESOURCE_TYPE_BUFFER)
     :($r::Color) => (r => SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT)
     :($r::Depth) => (r => SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT)
@@ -306,27 +307,8 @@ function extract_resource_spec(ex::Expr)
   end
 end
 
-function execution_graph(rg::RenderGraph, node_uses)
-  g = rg.resource_graph
-  eg = SimpleDiGraph(length(rg.nodes))
-  for node in rg.nodes
-    dst = rg.node_indices[node.id]
-    for (; id, usage) in node_uses[node.id]
-      WRITE in usage.access || continue
-      for src in neighbors(g, rg.resource_indices[id])
-        src == dst && continue
-        add_edge!(eg, src, dst)
-      end
-    end
-  end
-  eg
-end
-
 function sort_nodes(rg::RenderGraph, node_uses::Dictionary{NodeID, Dictionary{ResourceID, ResourceUsage}})
-  eg = execution_graph(rg, node_uses)
-  !is_cyclic(eg) || error("The render graph is cyclical, cannot determine an execution order.")
-  indices = topological_sort_by_dfs(eg)
-  collect(rg.nodes)[indices]
+  collect(rg.nodes)
 end
 
 function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)

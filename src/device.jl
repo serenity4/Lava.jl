@@ -69,6 +69,8 @@ function Base.empty!(device::Device)
   empty!(device.transfer_ops)
   empty!(device.fence_pool)
   empty!(device.descriptors)
+  empty!(device.shader_cache)
+  nothing
 end
 
 Shader(device::Device, source::ShaderSource) = Shader(device.shader_cache, source)

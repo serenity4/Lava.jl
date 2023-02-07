@@ -103,7 +103,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       @test sub.size == 12
       sub = copyto!(la, (4.0f0, 5.0f0, 6.0f0))
       # 8-byte alignment requirement
-      @test sub.offset == 40
+      @test sub.offset == 36
 
       Lava.reset!(la)
       @test la.last_offset == 0
@@ -131,8 +131,10 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       b1 = Buffer(device; data = collect(1:1000), usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
       b2 = Buffer(device; size = 8000, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b1)) == collect(1:1000)
+      @test collect(Int64, b1) == collect(1:1000)
       transfer(device, b1, b2; submission = sync_submission(device))
       @test reinterpret(Int64, collect(b2, device)) == collect(1:1000)
+      @test collect(Int64, b2, device) == collect(1:1000)
 
       b3 = Buffer(device; data = collect(1:1000), usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)

@@ -21,25 +21,6 @@ function command_info!(allocator::LinearAllocator, device::Device, invocation::P
 end
 
 """
-Allocate the provided bytes respecting the specified alignment.
-
-The data must have been properly serialized before hand with the corresponding layout for it to be valid for use inside shaders.
-"""
-function allocate_data!(allocator::LinearAllocator, bytes::AbstractVector{UInt8}, load_alignment::Integer)
-  sub = copyto!(allocator, bytes, load_alignment)
-  DeviceAddress(sub)
-end
-
-function allocate_data!(allocator::LinearAllocator, bytes::AbstractVector{UInt8}, T::DataType, layout::VulkanLayout)
-  # TODO: Check that the SPIR-V type of the load instruction corresponds to the type of `data`.
-  # TODO: Get alignment from the extra operand MemoryAccessAligned of the corresponding OpLoad instruction.
-  allocate_data!(allocator, bytes, alignment(layout, T))
-end
-
-allocate_data!(allocator::LinearAllocator, data::T, layout::VulkanLayout) where {T} = allocate_data!(allocator, serialize(data, layout), T, layout)
-allocate_data(allocator::LinearAllocator, program::Program, data::T) where {T} = allocate_data!(allocator, data, program.layout)
-
-"""
 Program to be compiled into a pipeline with a specific state.
 """
 @auto_hash_equals struct ProgramInstance
