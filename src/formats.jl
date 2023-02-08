@@ -1,4 +1,4 @@
-# Generated with formats_gen.jl
+# DataType <-> Vk.Format conversions were generated with formats_gen.jl
 
 function format_type(format::Vk.Format)
   @match format begin
@@ -49,7 +49,16 @@ function format(@nospecialize(T::DataType))
   end
 end
 
-# Copy-paste from the Vulkan specification.
+function aspect_flags(format::Vk.Format)
+  @match format begin
+    &Vk.FORMAT_D16_UNORM || &Vk.FORMAT_D32_SFLOAT || &Vk.FORMAT_X8_D24_UNORM_PACK32 => Vk.IMAGE_ASPECT_DEPTH_BIT
+    &Vk.FORMAT_D16_UNORM_S8_UINT || &Vk.FORMAT_D24_UNORM_S8_UINT || &Vk.FORMAT_D32_SFLOAT_S8_UINT => Vk.IMAGE_ASPECT_DEPTH_BIT | Vk.IMAGE_ASPECT_STENCIL_BIT
+    &Vk.FORMAT_S8_UINT => Vk.IMAGE_ASPECT_STENCIL_BIT
+    _ => Vk.IMAGE_ASPECT_COLOR_BIT
+  end
+end
+
+# The following is a copy-paste from the Vulkan specification.
 
 format(spirv_format::SPIRV.ImageFormat) = @match spirv_format begin
   &SPIRV.R8 => Vk.FORMAT_R8_UNORM

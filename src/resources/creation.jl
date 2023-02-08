@@ -6,7 +6,7 @@ function transfer(device::Device, args...; submission = nothing, kwargs...)
   isnothing(submission) ? ret : wait(ret)
 end
 
-function transition_layout(device::Device, view_or_image::Union{<:Image,<:ImageView}, new_layout)
+function transition_layout(device::Device, view_or_image::Union{Image,ImageView}, new_layout)
   command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
   transition_layout(command_buffer, view_or_image, new_layout)
   wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(device))))
@@ -78,8 +78,8 @@ get_image(image::Image) = image
 
 function transfer(
   command_buffer::CommandBuffer,
-  src::Union{<:Image,<:ImageView},
-  dst::Union{<:Image,<:ImageView};
+  src::Union{Image,ImageView},
+  dst::Union{Image,ImageView};
   submission::Optional{SubmissionInfo} = nothing,
   free_src = false,
 )
@@ -115,7 +115,7 @@ function transfer(
 end
 
 
-function transition_layout_info(view_or_image::Union{<:Image,<:ImageView}, new_layout)
+function transition_layout_info(view_or_image::Union{Image,ImageView}, new_layout)
   Vk.ImageMemoryBarrier2(image_layout(view_or_image), new_layout, 0, 0, get_image_handle(view_or_image), subresource_range(view_or_image);
     src_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
     dst_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
@@ -124,7 +124,7 @@ function transition_layout_info(view_or_image::Union{<:Image,<:ImageView}, new_l
   )
 end
 
-function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{<:Image,<:ImageView}, new_layout)
+function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{Image,ImageView}, new_layout)
   Vk.cmd_pipeline_barrier_2(command_buffer,
     Vk.DependencyInfo([], [], [transition_layout_info(view_or_image, new_layout)]),
   )
@@ -155,10 +155,10 @@ function Base.collect(image::Image, device::Device)
   collect(T, image, device)
 end
 
-function Base.copyto!(image::Image, data::AbstractArray, device::Device; kwargs...)
+function Base.copyto!(view_or_image::Union{Image,ImageView}, data::AbstractArray, device::Device; kwargs...)
   b = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
-  transfer(device, b, image; kwargs...)
-  image
+  transfer(device, b, view_or_image; kwargs...)
+  view_or_image
 end
 
 function Base.copyto!(data::AbstractArray, image::Image, device::Device; kwargs...)
@@ -170,7 +170,7 @@ end
 function transfer(
   command_buffer::CommandBuffer,
   buffer::Buffer,
-  view_or_image::Union{<:Image,<:ImageView};
+  view_or_image::Union{Image,ImageView};
   submission::Optional{SubmissionInfo} = nothing,
   free_src = false,
 )
@@ -194,7 +194,7 @@ end
 
 function transfer(
   command_buffer::CommandBuffer,
-  view_or_image::Union{<:Image,<:ImageView},
+  view_or_image::Union{Image,ImageView},
   buffer::Buffer;
   submission::Optional{SubmissionInfo} = nothing,
   free_src = false,
@@ -232,21 +232,26 @@ function Image(
   layout::Optional{Vk.ImageLayout} = nothing,
   submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
 )
-  if isnothing(data)
-    isnothing(dims) && error("Image dimensions must be specified when no data is provided.")
-    isnothing(format) && error("An image format must be specified when no data is provided.")
-  else
-    isnothing(dims) && (dims = collect(size(data)))
-    usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-    isnothing(format) && (format = Lava.format(typeof(data)))
-    isnothing(format) && error("No format could be determined from the data. Please provide an image format.")
-  end
+  dims, format = infer_dims_and_format(data, dims, format)
+  !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
   # If optimal tiling is enabled, we'll need to transfer the image regardless.
   img = Image(device, dims, format, usage_flags; is_linear = !optimal_tiling, samples, queue_family_indices, sharing_mode, mip_levels, array_layers)
   allocate!(img, memory_domain)
   !isnothing(data) && copyto!(img, data, device; submission)
   !isnothing(layout) && transition_layout(device, img, layout)
   img
+end
+
+function infer_dims_and_format(data, dims, format)
+  if isnothing(data)
+    isnothing(dims) && error("Image dimensions must be specified when no data is provided.")
+    isnothing(format) && error("An image format must be specified when no data is provided.")
+  else
+    isnothing(dims) && (dims = collect(size(data)))
+    isnothing(format) && (format = Lava.format(typeof(data)))
+    isnothing(format) && error("No format could be determined from the data. Please provide an image format.")
+  end
+  dims, format
 end
 
 # # Attachments
@@ -266,16 +271,22 @@ function Attachment(
   array_layers = 1,
   layout::Optional{Vk.ImageLayout} = nothing,
   access::MemoryAccess = READ | WRITE,
-  aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
+  aspect = isnothing(format) ? Vk.IMAGE_ASPECT_COLOR_BIT : aspect_flags(format),
   mip_range = nothing,
   layer_range = nothing,
   component_mapping = Vk.ComponentMapping(Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY),
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
 )
 
-  img = Image(device; data, format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, layout)
+  dims, format = infer_dims_and_format(data, dims, format)
+  !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+  img = Image(device; format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers)
   mip_range = @something(mip_range, mip_range_all(img))
   layer_range = @something(layer_range, layer_range_all(img))
-  Attachment(ImageView(img; aspect, mip_range, layer_range, component_mapping), access)
+  view = ImageView(img; aspect, mip_range, layer_range, component_mapping)
+  !isnothing(data) && copyto!(view, data, device; submission)
+  !isnothing(layout) && transition_layout(device, view, layout)
+  Attachment(view, access)
 end
 
 # # Memory

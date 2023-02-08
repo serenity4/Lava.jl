@@ -138,7 +138,7 @@ end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward ImageView.image (Vk.Offset3D, Vk.Extent3D)
+@forward ImageView.image (Vk.Offset3D, Vk.Extent3D, image_layout)
 
 function image_view_type(ndims)
   @match ndims begin
@@ -158,7 +158,7 @@ function ImageView(
     Vk.COMPONENT_SWIZZLE_IDENTITY,
     Vk.COMPONENT_SWIZZLE_IDENTITY,
   ),
-  aspect = Vk.IMAGE_ASPECT_COLOR_BIT,
+  aspect = aspect_flags(format),
   mip_range = mip_range_all(image),
   layer_range = layer_range_all(image),
 )
@@ -179,9 +179,9 @@ end
 subresource_range(aspect::Vk.ImageAspectFlag, mip_range::UnitRange, layer_range::UnitRange) =
   Vk.ImageSubresourceRange(aspect, mip_range.start - 1, 1 + mip_range.stop - mip_range.start, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
 subresource_range(view::ImageView) = subresource_range(view.aspect, view.mip_range, view.layer_range)
-subresource_range(image::Image) = subresource_range(Vk.IMAGE_ASPECT_COLOR_BIT, mip_range_all(image), layer_range_all(image))
+subresource_range(image::Image) = subresource_range(aspect_flags(image.format), mip_range_all(image), layer_range_all(image))
 
 subresource_layers(aspect::Vk.ImageAspectFlag, mip_range::Integer, layer_range::UnitRange) =
   Vk.ImageSubresourceLayers(aspect, mip_range, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
 subresource_layers(view::ImageView) = subresource_layers(view.aspect, first(view.mip_range) - 1, view.layer_range)
-subresource_layers(image::Image) = subresource_layers(Vk.IMAGE_ASPECT_COLOR_BIT, image.mip_levels - 1, layer_range_all(image))
+subresource_layers(image::Image) = subresource_layers(aspect_flags(image.format), image.mip_levels - 1, layer_range_all(image))

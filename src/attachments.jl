@@ -12,8 +12,9 @@ end
 is_multisampled(att::Attachment) = is_multisampled(att.view.image)
 
 function Base.similar(att::Attachment; memory_domain = nothing, usage_flags = att.view.image.usage_flags, access = att.access, is_linear = att.view.image.is_linear)
-  img = similar(att.view.image; memory_domain, usage_flags, is_linear)
-  Attachment(ImageView(img), access)
+  (; view) = att
+  img = similar(view.image; memory_domain, usage_flags, is_linear)
+  Attachment(ImageView(img; view.format, view.aspect, view.mip_range, view.layer_range), access)
 end
 
 function load_op(access::MemoryAccess, clear::Bool)
