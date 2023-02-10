@@ -1,4 +1,4 @@
-@bitmask_flag MemoryAccess::UInt32 begin
+@bitmask MemoryAccess::UInt32 begin
   NO_ACCESS = 0
   READ = 1
   WRITE = 2
@@ -10,6 +10,8 @@ struct Attachment
 end
 
 is_multisampled(att::Attachment) = is_multisampled(att.view.image)
+
+@forward Attachment.view (aspect_flags,)
 
 function Base.similar(att::Attachment; memory_domain = nothing, usage_flags = att.view.image.usage_flags, access = att.access, is_linear = att.view.image.is_linear)
   (; view) = att

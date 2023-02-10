@@ -182,6 +182,16 @@ end
 
 pipeline_layout(device::Device, handle::Vk.PipelineLayout) = device.pipeline_layouts[handle]
 
+function request_pipeline(device::Device, info::Vk.GraphicsPipelineCreateInfo)
+  push!(device.pending_pipelines_graphics, info)
+  hash(info)
+end
+
+function request_pipeline(device::Device, info::Vk.ComputePipelineCreateInfo)
+  push!(device.pending_pipelines_compute, info)
+  hash(info)
+end
+
 @forward Device.fence_pool (fence,)
 @forward Device.queues (set_presentation_queue,)
 

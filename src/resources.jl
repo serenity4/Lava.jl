@@ -24,7 +24,7 @@ function ResourceID(type::ResourceType)
   ResourceID((id << 8) >> 8 + (UInt128(type) << 120))
 end
 
-@bitmask_flag ResourceFlags::UInt32 begin
+@bitmask ResourceFlags::UInt32 begin
   RESOURCE_IS_LOGICAL = 1
 end
 

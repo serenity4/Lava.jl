@@ -22,12 +22,12 @@ end
 
 SynchronizationState() = SynchronizationState(Dictionary())
 
-must_synchronize(sync_reqs::SyncRequirements) = iszero(sync_reqs.stages)
+must_synchronize(sync_reqs::SyncRequirements) = !iszero(sync_reqs.stages)
 must_synchronize(sync_reqs::SyncRequirements, from_layout, to_layout) = must_synchronize(sync_reqs) || from_layout ≠ to_layout
 
 function synchronize_buffer_access!(state::SynchronizationState, resource::Resource, usage::BufferUsage)
   rstate = get!(ResourceState, state.resources, resource.id)
-  sync_reqs = restrict_sync_requirements(rstate.last_accesses, SyncRequirements(usage))
+  sync_reqs = restrict_synchronization_scope(rstate.last_accesses, SyncRequirements(usage))
   must_synchronize(sync_reqs) || return
   WRITE in usage.access && (state.resources[resource.id] = ResourceState(usage))
   buffer = resource.data::Buffer
@@ -44,7 +44,7 @@ function synchronize_buffer_access!(state::SynchronizationState, resource::Resou
   )
 end
 
-function restrict_sync_requirements(last_accesses, sync_reqs)
+function restrict_synchronization_scope(last_accesses, sync_reqs)
   remaining_sync_stages = sync_reqs.stages
   for (access, stages) in pairs(last_accesses)
     if covers(access, sync_reqs.access)
@@ -61,7 +61,7 @@ function synchronize_image_access!(state::SynchronizationState, resource::Resour
     ::AttachmentUsage => (resource.data::Attachment).view.image
   end
   rstate = get!(() -> ResourceState(image.layout), state.resources, resource.id)
-  sync_reqs = restrict_sync_requirements(rstate.last_accesses, rstate.sync_reqs)
+  sync_reqs = restrict_synchronization_scope(rstate.last_accesses, SyncRequirements(usage))
   from_layout = rstate.current_layout[]
   to_layout = image_layout(usage.type, usage.access)
   must_synchronize(sync_reqs, from_layout, to_layout) || return
@@ -85,11 +85,11 @@ function synchronize_image_access!(state::SynchronizationState, resource::Resour
   )
 end
 
-function dependency_info!(state::SynchronizationState, baked::BakedRenderGraph, node::RenderNode)
+function dependency_info!(state::SynchronizationState, node_uses, resources, node::RenderNode)
   info = Vk.DependencyInfo([], [], [])
-  uses = baked.node_uses[node.id]
+  uses = node_uses[node.id]
   for use in uses
-    resource = baked.resources[use.id]
+    resource = resources[use.id]
     @switch resource_type(resource) begin
       @case &RESOURCE_TYPE_BUFFER
       barrier = synchronize_buffer_access!(state, resource, use.usage::BufferUsage)

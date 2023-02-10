@@ -33,11 +33,6 @@ end
 
 IndexData() = IndexData(UInt32[], Ref{Buffer}(), IdDict())
 
-function allocate_index_buffer(id::IndexData, device::Device)
-  #TODO: Create index buffer in render graph to avoid excessive synchronization.
-  id.index_buffer[] = Buffer(device; data = id.index_list, usage_flags = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
-end
-
 "Append new indices to `idata`, returning the corresponding range of indices to be used for indexed draw calls."
 function Base.append!(id::IndexData, command::DrawIndexed)
   start = lastindex(id.index_list) + 1

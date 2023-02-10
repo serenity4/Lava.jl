@@ -129,17 +129,18 @@ end
 function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   (; device) = baked
   pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
+  layout = pipeline_layout(device)
   for (program, calls) in pairs(record.draws)
     for ((data, state), draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info_graphics(device, record.node.render_area::RenderArea, program, state.render_state, state.invocation_state, targets)
+        info = pipeline_info_graphics(record.node.render_area::RenderArea, program, state.render_state, state.invocation_state, targets, layout)
         hash = request_pipeline(device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
     end
   end
   for (program, calls) in pairs(record.dispatches)
-    info = pipeline_info_compute(device, program)
+    info = pipeline_info_compute(program, layout)
     hash = request_pipeline(device, info)
     set!(pipeline_hashes, ProgramInstance(program, nothing, nothing), hash)
   end

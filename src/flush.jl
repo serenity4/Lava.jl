@@ -3,12 +3,12 @@ function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipelin
   sync_state = SynchronizationState()
   for record in records
     synchronize_before!(sync_state, cb, baked, record.node)
-    bind_state = flush(cb, record, baked, bind_state, sync_state, pipeline_hashes)
+    bind_state = flush(cb, record, baked, bind_state, pipeline_hashes)
     synchronize_after!(sync_state, cb, baked, record.node)
   end
 end
 
-function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRenderGraph, bind_state::BindState, sync_state::SynchronizationState, pipeline_hashes)
+function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRenderGraph, bind_state::BindState, pipeline_hashes)
   (; device) = baked
 
   begin_render_node(cb, baked, record.node)
@@ -44,7 +44,7 @@ end
 Build barriers for all resources that require it.
 """
 function synchronize_before!(state::SynchronizationState, cb, baked::BakedRenderGraph, node::RenderNode)
-  info = dependency_info!(state, baked, node)
+  info = dependency_info!(state, baked.node_uses, baked.resources, node)
   if !isempty(info.image_memory_barriers) || !isempty(info.buffer_memory_barriers)
     Vk.cmd_pipeline_barrier_2(cb, info)
   end

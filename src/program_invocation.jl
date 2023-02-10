@@ -1,3 +1,16 @@
+struct ResourceDependency
+  type::ShaderResourceType
+  access::MemoryAccess
+  clear_value::Optional{NTuple{4,Float32}}
+  samples::Int64
+end
+ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceDependency(type, access, clear_value, samples)
+
+function Base.merge(x::ResourceDependency, y::ResourceDependency)
+  @assert x.id === y.id
+  ResourceDependency(x.id, x.type | y.type, x.access | y.access)
+end
+
 """
 Cycle-independent specification of a program invocation for graphics operations.
 """
@@ -6,7 +19,7 @@ struct ProgramInvocation
   command::Command
   data::ProgramInvocationData
   targets::Optional{RenderTargets}
-  draw_state::Optional{DrawState}
+  state::Optional{DrawState}
   resource_dependencies::Dictionary{Resource, ResourceDependency}
 end
 
@@ -17,7 +30,7 @@ ProgramInvocation(program::Program, command::DrawCommand, data::ProgramInvocatio
 
 function command_info!(allocator::LinearAllocator, device::Device, invocation::ProgramInvocation, node_id::NodeID, materialized_resources)
   data = device_address_block!(allocator, device.descriptors, materialized_resources, node_id, invocation.data)
-  CommandInfo(invocation.command, invocation.program, data, invocation.targets, invocation.draw_state)
+  CommandInfo(invocation.command, invocation.program, data, invocation.targets, invocation.state)
 end
 
 """
@@ -25,6 +38,6 @@ Program to be compiled into a pipeline with a specific state.
 """
 @auto_hash_equals struct ProgramInstance
   program::Program
-  draw_state::Optional{DrawState}
+  state::Optional{DrawState}
   targets::Optional{RenderTargets}
 end

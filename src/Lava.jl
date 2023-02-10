@@ -1,7 +1,8 @@
 module Lava
 
 using Core: MethodInstance
-using Vulkan: Vk, VkCore, @bitmask_flag
+using BitMasks
+using Vulkan: Vk, VkCore
 
 using Reexport
 using Dictionaries
@@ -22,7 +23,7 @@ const to = TimerOutput()
 
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
-@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, @store, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions
+@reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, @store, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions, VulkanLayout, VulkanAlignment
 
 const Optional{T} = Union{T,Nothing}
 
@@ -60,19 +61,19 @@ include("shaders/source.jl")
 include("shaders/vulkan.jl")
 include("shaders/macros.jl")
 
+include("program.jl")
 include("resources.jl")
+include("command.jl")
 include("textures.jl")
 include("descriptors.jl")
-include("pipeline.jl")
 include("render_state.jl")
+include("pipeline.jl")
 include("device.jl")
 include("invocation_data.jl")
-include("program.jl")
 include("resources/creation.jl")
 include("bind_state.jl")
 include("wsi.jl")
 include("frame.jl")
-include("command.jl")
 include("program_invocation.jl")
 include("render_graph.jl")
 include("command_records.jl")

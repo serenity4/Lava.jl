@@ -31,7 +31,7 @@ function Vk.DescriptorType(t::DescriptorType)
 end
 
 # Not sure whether this is relevant.
-@bitmask_flag DescriptorFlags::UInt32 begin
+@bitmask DescriptorFlags::UInt32 begin
   DESCRIPTOR_IS_LOGICAL = 1
 end
 

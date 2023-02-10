@@ -24,6 +24,7 @@ struct LogicalAttachment <: LogicalResource
   dims::Optional{Vector{Int64}}
   mip_range::UnitRange{Int64}
   layer_range::UnitRange{Int64}
+  aspect::Vk.ImageAspectFlag
 end
 
 function logical_attachment(
@@ -31,7 +32,11 @@ function logical_attachment(
   dims = nothing;
   mip_range = 1:1,
   layer_range = 1:1,
+  aspect::Optional{Vk.ImageAspectFlag} = nothing,
 )
   isa(format, DataType) && (format = Lava.format(format))
-  logical_resource(RESOURCE_TYPE_ATTACHMENT, LogicalAttachment(format, dims, mip_range, layer_range))
+  aspect = @something(aspect, aspect_flags(format))
+  logical_resource(RESOURCE_TYPE_ATTACHMENT, LogicalAttachment(format, dims, mip_range, layer_range, aspect))
 end
+
+aspect_flags(attachment::LogicalAttachment) = attachment.aspect

@@ -8,49 +8,57 @@ using Graphs: nv, ne
   # or logical (the resource will be created lazily, enabling optimizations such as aliasing or
   # non-allocation of unused resources).
 
-  vbuffer = buffer_resource(1024)
-  ibuffer = buffer_resource(device, collect(1:100); usage_flags = Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
-  average_luminance = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+  indirect = buffer_resource(device, rand(100); usage_flags = Vk.BUFFER_USAGE_INDIRECT_BUFFER_BIT)
+  lights = buffer_resource(1024)
   emissive = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
   albedo = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
   normal = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
   pbr = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
   color = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-  output = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
+  average_luminance = image_resource(Vk.FORMAT_R32_SFLOAT, [16, 16])
   depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
-  shadow_main = image_resource(Vk.FORMAT_D32_SFLOAT, [16, 16])
-  shadow_near = image_resource(Vk.FORMAT_D32_SFLOAT, [16, 16])
-  bloom_downsample_3 = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+  postprocessed = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
+  bloom_downsample = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+
+  @test_throws "negative value" RenderArea(-1, 0)
+  @test_throws "null value" RenderArea(0, 1080)
+  @test_throws "pipeline stage must be provided" RenderNode(stages = Vk.PIPELINE_STAGE_2_NONE)
+  @test_throws "fragment shader stage must be set" RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
+  @test_throws "render area must be set" RenderNode(stages = stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
 
   # No rendering done here, doesn't matter what function is passed. We pass in `identity`.
   gbuffer = RenderNode(
     render_area = RenderArea(1920, 1080),
     stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
   )
-  lighting = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
-  adapt_luminance = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
-  combine = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+  compute_luminance = RenderNode(stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+  lighting = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+  postprocess = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+
+  push!(gbuffer.command_infos, fake_command_info(targets = RenderTargets(emissive, albedo, normal, pbr; depth), command = Command(COMMAND_TYPE_DRAW_INDEXED_INDIRECT, DrawIndexedIndirect(indirect.data::Buffer, 10))))
+  push!(compute_luminance.command_infos, fake_command_info(; program_type = PROGRAM_TYPE_COMPUTE))
+  push!(lighting.command_infos, fake_command_info(targets = RenderTargets(color, emissive, albedo, normal, pbr; depth)))
+  push!(postprocess.command_infos, fake_command_info(targets = RenderTargets(postprocessed, color)))
 
   @add_resource_dependencies rg begin
-    (emissive => (0.0, 0.0, 0.0, 1.0))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth =
-      gbuffer(vbuffer::Buffer::Vertex, ibuffer::Buffer::Index)
-    color::Color = lighting(emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth, shadow_main::Texture, shadow_near::Texture)
-    average_luminance::Image::Storage = adapt_luminance(average_luminance::Image::Storage, (bloom_downsample_3 * 4)::Texture)
-    output::Color = combine(color::Color, average_luminance::Texture)
+    (emissive => (0.0, 0.0, 1.0, 1.0))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(indirect::Buffer::Indirect)
+    average_luminance::Image::Storage = compute_luminance(lights::Buffer::Physical)
+    color::Color = lighting(average_luminance::Image::Storage, emissive::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth)
+    postprocessed::Color = postprocess(color::Color, (bloom_downsample * 4)::Texture)
   end
 
   @testset "Building a render graph" begin
-    @test nv(rg.resource_graph) == 4 + 13 # 4 nodes + 12 logical resources + 1 physical resource
-    @test ne(rg.resource_graph) == 6 + 8 + 3 + 3
+    @test nv(rg.resource_graph) == 4 + 11 # 4 nodes + 10 logical resources + 1 physical resource
+    @test ne(rg.resource_graph) == 6 + 2 + 7 + 3
 
     # Per-node resource usage.
-    (; usage) = only(rg.uses[adapt_luminance.id][bloom_downsample_3.id])
+    (; usage) = only(rg.uses[postprocess.id][bloom_downsample.id])
     @test usage.type == SHADER_RESOURCE_TYPE_TEXTURE
     @test usage.samples == 4
 
     (; usage) = only(rg.uses[gbuffer.id][emissive.id])
     @test usage.type == SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT
-    @test usage.clear_value == (0.0f0, 0.0f0, 0.0f0, 1.0f0)
+    @test usage.clear_value == (0.0f0, 0.0f0, 1.0f0, 1.0f0)
 
     # Combined resource usage.
     uses = combine_resource_uses(combine_resource_uses_per_node(rg.uses))
@@ -58,36 +66,39 @@ using Graphs: nv, ne
     (; usage) = uses[color.id]
     @test usage.type == SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT
     @test usage.access == WRITE | READ
-    @test usage.stages == Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT
+    @test usage.stages == Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
     @test usage.aspect == Vk.IMAGE_ASPECT_COLOR_BIT
     @test usage.samples == 1
 
     (; usage) = uses[depth.id]
     @test usage.type == SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT
     @test usage.aspect == Vk.IMAGE_ASPECT_DEPTH_BIT
+    @test usage.stages == Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
 
     @test isnothing(Lava.check_physical_resources(rg, uses))
 
     uses2 = deepcopy(uses)
-    ibuffer_id = findfirst(x -> isbuffer(x) && isphysical(x) && Vk.BUFFER_USAGE_INDEX_BUFFER_BIT in x.data.usage_flags, rg.resources)
+    ibuffer_id = findfirst(x -> isbuffer(x) && isphysical(x) && Vk.BUFFER_USAGE_INDIRECT_BUFFER_BIT in x.data.usage_flags, rg.resources)
     ibuffer_usage = uses2[ibuffer_id]
     set!(uses2, ibuffer_id, @set ibuffer_usage.usage.usage_flags = Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
     @test_throws "usage of" Lava.check_physical_resources(rg, uses2)
 
     resources = Lava.materialize_logical_resources(rg, uses)
-    @test length(resources) == 12
+    @test length(resources) == 10
     @test resources[color.id].data.view.image.usage_flags == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+    @test resources[depth.id].data.view.image.usage_flags == Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+    @test resources[emissive.id].data.view.image.usage_flags == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
   end
 
   @testset "Baking a render graph" begin
     baked = Lava.bake!(rg)
-    info = Lava.rendering_info(baked, combine)
+    info = Lava.rendering_info(baked, postprocess)
     @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(1920, 1080))
-    color_info, output_info = info.color_attachments
-    @test output_info.image_layout == Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    @test output_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
-    @test output_info.store_op == Vk.ATTACHMENT_STORE_OP_STORE
-    @test convert(Ptr{Cvoid}, output_info.resolve_image_view) == C_NULL
+    color_info, postprocessed_info = info.color_attachments
+    @test postprocessed_info.image_layout == Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    @test postprocessed_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
+    @test postprocessed_info.store_op == Vk.ATTACHMENT_STORE_OP_STORE
+    @test convert(Ptr{Cvoid}, postprocessed_info.resolve_image_view) == C_NULL
 
     @test color_info.image_layout == Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     @test color_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
@@ -95,17 +106,17 @@ using Graphs: nv, ne
     @test convert(Ptr{Cvoid}, color_info.resolve_image_view) == C_NULL
 
     state = Lava.SynchronizationState()
-    info = Lava.dependency_info!(state, baked, gbuffer)
-    # No synchronization required for first use.
-    @test length(info.buffer_memory_barriers) == 0
-    # Except for image layout transitions.
+    info = Lava.dependency_info!(state, baked.node_uses, baked.resources, gbuffer)
+    @test length(info.buffer_memory_barriers) == 1
     @test length(info.image_memory_barriers) == 5
     @test all(barrier.old_layout ≠ barrier.new_layout for barrier in info.image_memory_barriers)
 
-    info = Lava.dependency_info!(state, baked, lighting)
+    info = Lava.dependency_info!(state, baked.node_uses, baked.resources, lighting)
     @test length(info.buffer_memory_barriers) == 0
-    @test length(info.image_memory_barriers) == 8
+    @test length(info.image_memory_barriers) == 7
   end
+
+  include("node_synchronization.jl")
 
   prog = simple_program(device)
 
@@ -126,17 +137,17 @@ using Graphs: nv, ne
       (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
     end
 
-    baked = Lava.bake!(rg)
-    dependency_info = Lava.dependency_info!(Lava.SynchronizationState(), deepcopy(baked), graphics)
-    rendering_info = Lava.rendering_info(baked, graphics)
+    baked = bake!(rg)
+    dependency_info = dependency_info!(SynchronizationState(), deepcopy(baked.node_uses), deepcopy(baked.resources), graphics)
+    rinfo = rendering_info(baked, graphics)
     color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color.id].data.view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue((0f0, 0f0, 0f0, 1f0))))
     depth_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[depth.id].data.view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue(Lava.DEFAULT_CLEAR_VALUE)))
-    @test rendering_info == Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL)
+    @test rinfo == Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL)
 
     @testset "Barriers for layout transitions" begin
-      normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, 0, 0, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, baked.resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      color_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, 0, 0, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      depth_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, 0, 0, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
+      normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, graphics.stages, Vk.ACCESS_2_SHADER_READ_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, baked.resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      color_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      depth_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
       @test dependency_info.image_memory_barriers[1] == normal_barrier
       @test dependency_info.image_memory_barriers[2] == color_barrier
       @test dependency_info.image_memory_barriers[3] == depth_barrier
@@ -165,7 +176,7 @@ using Graphs: nv, ne
       @test _cmd_bind_index_buffer.args == [baked.index_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]
 
       @test _cmd_pipeline_barrier_2.args == [dependency_info]
-      @test _cmd_begin_rendering.args == [rendering_info]
+      @test _cmd_begin_rendering.args == [rinfo]
       @test _cmd_bind_pipeline.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline]
       @test _cmd_bind_descriptor_sets.args == [Vk.PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, [device.descriptors.gset], []]
       @test _cmd_push_constants.args[1:2] == [pipeline.layout, Vk.SHADER_STAGE_ALL]

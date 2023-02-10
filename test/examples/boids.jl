@@ -224,9 +224,7 @@ end
     res_forces = collect(Vec2, forces.data)
     expected_forces = [compute_forces(data, parameters, i, Δt) for i in eachindex(data)]
     expected = next!(BoidSimulation(deepcopy(data), parameters), Δt)
-    @test_broken res_forces ≈ expected_forces
-    # @show data[1] res[1] expected[1]
-    # @show data[2] res[2] expected[2]
-    @test_broken all(res .≈ expected)
+    @test res_forces ≈ expected_forces
+    @test all(res .≈ expected)
   end
 end;

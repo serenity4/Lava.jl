@@ -140,6 +140,8 @@ vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
 @forward ImageView.image (Vk.Offset3D, Vk.Extent3D, image_layout)
 
+aspect_flags(view::ImageView) = view.aspect
+
 function image_view_type(ndims)
   @match ndims begin
     1 => Vk.IMAGE_VIEW_TYPE_1D

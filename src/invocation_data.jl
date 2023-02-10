@@ -1,3 +1,16 @@
+
+"""
+Interface structure holding a device address as its single field.
+
+This structure is necessary until SPIRV.jl can work around the requirement of
+having interface block types be composite types.
+"""
+struct DeviceAddressBlock
+  addr::UInt64
+end
+
+SPIRV.Pointer{T}(addr::DeviceAddressBlock) where {T} = SPIRV.Pointer{T}(addr.addr)
+
 mutable struct DataBlock
   bytes::Vector{UInt8}
   # Byte index from which a block ID or a buffer device address can be read with 2 words.

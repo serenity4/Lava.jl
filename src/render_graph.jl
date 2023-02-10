@@ -1,10 +1,3 @@
-struct RenderArea
-  rect::Vk.Rect2D
-end
-
-RenderArea(x, y) = RenderArea(Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(x, y)))
-RenderArea(x, y, offset_x, offset_y) = RenderArea(Vk.Rect2D(Vk.Offset2D(offset_x, offset_y), Vk.Extent2D(x, y)))
-
 struct CommandInfo
   command::Command
   program::Program
@@ -12,6 +5,8 @@ struct CommandInfo
   targets::Optional{RenderTargets}
   state::Optional{DrawState}
 end
+
+contains_fragment_stage(stages::Vk.PipelineStageFlag2) = in(Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, stages) || in(Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, stages) || in(Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT, stages)
 
 Base.@kwdef struct RenderNode
   id::NodeID = NodeID()
@@ -21,6 +16,12 @@ Base.@kwdef struct RenderNode
   command_infos::Optional{Vector{CommandInfo}} = CommandInfo[]
   "Program invocations, that will generate [`CommandInfo`](@ref) calls at every cycle."
   program_invocations::Optional{Vector{ProgramInvocation}} = ProgramInvocation[]
+  function RenderNode(id, stages, render_area, command_infos, program_invocations)
+    !iszero(stages) || throw(ArgumentError("At least one pipeline stage must be provided."))
+    !isnothing(render_area) && !contains_fragment_stage(stages) && throw(ArgumentError("The fragment shader stage must be set when a `RenderArea` is provided."))
+    isnothing(render_area) && contains_fragment_stage(stages) && throw(ArgumentError("The render area must be set when the fragment shader stage is included."))
+    new(id, stages, render_area, command_infos, program_invocations)
+  end
 end
 
 function Base.copy(node::RenderNode)
@@ -32,20 +33,60 @@ Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags
 draw!(node::RenderNode, args...; kwargs...) = push!(node.command_infos, draw_command(args...; kwargs...))
 
 function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDependency)
+  if dep.type in (SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT, SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT, SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT)
+    contains_fragment_stage(node.stages) || throw(ArgumentError("Color, depth and stencil attachments are only allowed in render nodes which execute fragment shaders; for other uses, such as within compute shaders, use a generic texture or image type instead."))
+  end
   usage = @match resource_type(resource) begin
-    &RESOURCE_TYPE_BUFFER => BufferUsage(; dep.type, dep.access, node.stages, usage_flags = buffer_usage_flags(dep.type, dep.access))
-    &RESOURCE_TYPE_IMAGE => ImageUsage(; dep.type, dep.access, node.stages, usage_flags = image_usage_flags(dep.type, dep.access), dep.samples)
+    &RESOURCE_TYPE_BUFFER => BufferUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = buffer_usage_flags(dep.type, dep.access))
+    &RESOURCE_TYPE_IMAGE => ImageUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = image_usage_flags(dep.type, dep.access), dep.samples)
     &RESOURCE_TYPE_ATTACHMENT => AttachmentUsage(;
         dep.type,
         dep.access,
         dep.clear_value,
         dep.samples,
-        node.stages,
+        stages = stage_flags(node, resource),
         usage_flags = image_usage_flags(dep.type, dep.access),
-        aspect = aspect_flags(dep.type),
+        aspect = aspect_flags(resource.data::Union{LogicalAttachment,Attachment}),
       )
   end
   ResourceUsage(resource.id, usage)
+end
+
+function stage_flags(node::RenderNode, resource::Resource)
+  stages = Vk.PIPELINE_STAGE_2_NONE
+  !isnothing(node.command_infos) && (stages = foldl(|, stage_flags(info, resource, node) for info in node.command_infos; init = stages))
+  !isnothing(node.program_invocations) && (stages = foldl(|, stage_flags(invocation, resource, node) for invocation in node.program_invocations; init = stages))
+  stages
+end
+
+function stage_flags(command::Command, resource::Resource)
+  stages = Vk.PIPELINE_STAGE_2_NONE
+  resource_type(resource) == RESOURCE_TYPE_BUFFER && isphysical(resource) || return stages
+  buffer = resource.data::Buffer
+  (; type) = command
+  type == COMMAND_TYPE_DRAW_INDIRECT && (command.impl::DrawIndirect).parameters === buffer && (stages |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
+  type == COMMAND_TYPE_DRAW_INDEXED_INDIRECT && (command.impl::DrawIndexedIndirect).parameters === buffer && (stages |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
+  type == COMMAND_TYPE_DISPATCH_INDIRECT && (command.impl::DispatchIndirect).buffer === buffer && (stages |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
+  stages
+end
+
+function stage_flags(targets::RenderTargets, render_state::RenderState, resource::Resource)
+  stages = Vk.PIPELINE_STAGE_2_NONE
+  (; color, depth, stencil) = targets
+  resource in color && (stages |= Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
+  depth_stencil_stages = Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
+  resource === depth && render_state.enable_depth_testing && (stages |= depth_stencil_stages)
+  resource === stencil && render_state.enable_stencil_testing && (stages |= depth_stencil_stages)
+  stages
+end
+
+function stage_flags(info::Union{CommandInfo,ProgramInvocation}, resource::Resource, node::RenderNode)
+  stages = Vk.PIPELINE_STAGE_2_NONE
+  if !isnothing(info.targets) && !isnothing(info.state) && isattachment(resource)
+    stages |= stage_flags(info.targets, info.state.render_state, resource)
+  end
+  stages |= stage_flags(info.command, resource)
+  ifelse(iszero(stages), node.stages, stages)
 end
 
 """
@@ -91,8 +132,8 @@ struct RenderGraph
   temporary::Vector{ResourceID}
 end
 
-function RenderGraph(device::Device, allocator_size = 1_000_000)
-  RenderGraph(device, LinearAllocator(device, 1_000_000), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), [])
+function RenderGraph(device::Device; linear_allocator_size = 2^20 #= 1_000_000 KiB =#)
+  RenderGraph(device, LinearAllocator(device, linear_allocator_size), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), [])
 end
 
 device(rg::RenderGraph) = rg.device
@@ -292,6 +333,7 @@ function extract_resource_spec(ex::Expr)
     :($r::Buffer::Vertex) => (r => SHADER_RESOURCE_TYPE_VERTEX_BUFFER)
     :($r::Buffer::Index) => (r => SHADER_RESOURCE_TYPE_INDEX_BUFFER)
     :($r::Buffer::Storage) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_STORAGE)
+    :($r::Buffer::Indirect) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_INDIRECT_BUFFER)
     :($r::Buffer::Uniform) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_UNIFORM)
     :($r::Buffer::Physical) => (r => SHADER_RESOURCE_TYPE_PHYSICAL_BUFFER)
     :($r::Buffer) => (r => SHADER_RESOURCE_TYPE_BUFFER)
@@ -343,7 +385,7 @@ function resolve_attachment_pairs(rg::RenderGraph)
         if combined_uses.usage.samples > 1
           attachment = resource.data::LogicalAttachment
           is_multisampled(attachment) || break
-          resolve_attachment = logical_attachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range)
+          resolve_attachment = logical_attachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect)
         end
       end
     else
