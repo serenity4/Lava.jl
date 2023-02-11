@@ -3,14 +3,14 @@ function xcb_surface(instance, win::XCBWindow)
   Surface(handle, win)
 end
 
-function render_rectangle(device, image, uv, normal_map)
+function render_rectangle(device, image, uv, image)
   vdata = [
     TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
     TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
     TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
-  rg = program_2(device, vdata, attachment_resource(ImageView(image), WRITE), uv; normal_map)
+  rg = program_2(device, vdata, attachment_resource(ImageView(image), WRITE), uv; image)
   command_buffer = Lava.request_command_buffer(device)
   baked = render!(rg, command_buffer)
   Lava.transition_layout(command_buffer, image, Vk.IMAGE_LAYOUT_PRESENT_SRC_KHR)

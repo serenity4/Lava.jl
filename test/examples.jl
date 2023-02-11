@@ -15,10 +15,9 @@ graphics_node(invocation = nothing) = RenderNode(render_area = RenderArea(1920, 
 compute_node(invocations::Vector{ProgramInvocation}) = RenderNode(; stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, program_invocations = invocations)
 compute_node(invocations::ProgramInvocation...) = compute_node(collect(invocations))
 
-function render_graphics(device, node::RenderNode)
-  render(device, node)
-  invocation = node.program_invocations[end]
-  color = only(invocation.targets.color)
+render_graphics(device, node::RenderNode) = render_graphics(device, only(node.program_invocations[end].targets.color), [node])
+function render_graphics(device, color, nodes)
+  render(device, nodes)
   read_data(device, color)
 end
 

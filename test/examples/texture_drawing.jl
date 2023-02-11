@@ -34,12 +34,12 @@ function texture_program(device)
   Program(vert, frag)
 end
 
-function texture_invocation(device, vdata, color; prog = texture_program(device), normal_map = nothing)
-  normal_map = @something(normal_map, read_normal_map(device))
-  normal_map_texture = texture_descriptor(Texture(normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
+function texture_invocation(device, vdata, color; prog = texture_program(device), image = nothing)
+  image = @something(image, read_normal_map(device))
+  image_texture = texture_descriptor(Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
   invocation_data = @invocation_data prog begin
     b1 = @block vdata
-    b2 = @block TextureDrawing(Vec2(0.1, 1.0), @descriptor normal_map_texture)
+    b2 = @block TextureDrawing(Vec2(0.1, 1.0), @descriptor image_texture)
     @block TextureData(@address(b1), @address(b2))
   end
   ProgramInvocation(
@@ -54,7 +54,7 @@ function texture_invocation(device, vdata, color; prog = texture_program(device)
     )),
     @resource_dependencies begin
       @read
-      normal_map::Texture
+      image::Texture
       @write
       (color => (0.08, 0.05, 0.1, 1.0))::Color
     end

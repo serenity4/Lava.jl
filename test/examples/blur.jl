@@ -59,12 +59,12 @@ function blur_program(device)
   Program(vert, frag)
 end
 
-function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec{2,Float32} = Vec2(0.1, 1.0); prog = blur_program(device), normal_map = read_normal_map(device))
-  normal_map_texture = Texture(normal_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
+function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec{2,Float32} = Vec2(0.1, 1.0); prog = blur_program(device), image = read_normal_map(device))
+  image_texture = Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
 
   deps = @resource_dependencies begin
     @read
-    normal_map::Texture
+    image::Texture
     @write
     (color => (0.08, 0.05, 0.1, 1.0))::Color
   end
@@ -72,7 +72,7 @@ function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec
   invocation_data = @invocation_data prog begin
     tex1 = @block vdata
     tex2 = @block TextureDrawing(
-      uv_scale, @descriptor(texture_descriptor(normal_map_texture))
+      uv_scale, @descriptor(texture_descriptor(image_texture))
     )
     tex = TextureData(@address(tex1), @address(tex2))
     @block BlurData(tex, blur)

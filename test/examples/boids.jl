@@ -106,9 +106,16 @@ function linearize_index(global_id, global_size, local_id, local_size)
   linearize_index(local_id, local_size) + prod(local_size) * linearize_index(global_id, global_size)
 end
 
+struct BoidsInfo
+  agents::DeviceAddress
+  parameters::BoidParameters
+  Δt::Float32
+  forces::DeviceAddress
+end
+
 function compute_forces!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
   i = linearize_index(global_id, DISPATCH_SIZE, local_id, WORKGROUP_SIZE)
-  (agents, parameters, Δt, forces) = @load data_address::Tuple{DeviceAddress, BoidParameters, Float32, DeviceAddress}
+  (; agents, parameters, Δt, forces) = @load data_address::BoidsInfo
   agents = @load agents::Arr{512,BoidAgent}
   @store forces[i]::Vec2 = compute_forces(agents, parameters, i + 1, Δt)
   nothing
@@ -116,7 +123,7 @@ end
 
 function step_euler!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
   i = linearize_index(global_id, DISPATCH_SIZE, local_id, WORKGROUP_SIZE)
-  (agents, parameters, Δt, forces) = @load data_address::Tuple{DeviceAddress, BoidParameters, Float32, DeviceAddress}
+  (; agents, Δt, forces) = @load data_address::BoidsInfo
   agent = @load agents[i]::BoidAgent
   @store agents[i]::BoidAgent = step_euler(agent, (@load forces[i]::Vec2), Δt)
   nothing
@@ -144,7 +151,7 @@ function boid_simulation_nodes(device, agents::Resource, forces::Resource, param
   prog_1 = boids_forces_program(device)
   prog_2 = boids_update_program(device)
   data = @invocation_data (prog_1, prog_2) begin
-    @block (DeviceAddress(agents), parameters, Δt, DeviceAddress(forces))
+    @block BoidsInfo(DeviceAddress(agents), parameters, Δt, DeviceAddress(forces))
   end
   dispatch = Dispatch(DISPATCH_SIZE)
   invocation_forces = ProgramInvocation(
@@ -165,7 +172,78 @@ function boid_simulation_nodes(device, agents::Resource, forces::Resource, param
       @write agents::Buffer::Physical
     end
   )
-  (compute_node(invocation_forces), compute_node(invocation_update))
+  [compute_node(invocation_forces), compute_node(invocation_update)]
+end
+
+struct BoidDrawData
+  agents::DeviceAddress
+  texture_index::DescriptorIndex
+  size::Float32
+end
+
+function quad_2d(center, size) # top-left, bottom-left, bottom-right, top-right
+  # Negate `y` dimension to match Vulkan's device-local coordinate system.
+  e1 = Vec2(size.x, -size.y) / 2F
+  e2 = Vec2(-size.x, -size.y) / 2F
+
+  # Corners are given for a coordinate system with `x` and `y` increasing along right and up directions.
+  # As the `y` components have been negated, this coincides with the device-local coordinate system.
+  A = center + e2 # top-left
+  B = center - e1 # bottom-left
+  C = center - e2 # bottom-right
+  D = center + e1 # top-right
+
+  # Return verices in triangle strip order.
+  Arr(A, B, D, C)
+end
+
+function boid_vert(uv::Vec2, position::Vec4, vertex_index::UInt32, instance_index::UInt32, data::DeviceAddressBlock)
+  boid_data = @load data::BoidDrawData
+  agent = @load boid_data.agents[instance_index]::BoidAgent
+  v = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index]
+  uv[] = quad_2d(Vec2(0.5F, 0.5F), Vec2(1F, -1F))[vertex_index]
+  position[] = Vec4(v.x, v.y, 0F, 1F)
+end
+
+function boid_frag(color::Vec4, uv::Vec2, data::DeviceAddressBlock, textures)
+  (; texture_index) = @load data::BoidDrawData 
+  texture = textures[texture_index]
+  sampled = texture(uv)
+  color[] = Vec4(sampled.r, sampled.g, sampled.b, 1F)
+end
+
+function boid_drawing_program(device)
+  vert = @vertex device boid_vert(::Vec2::Output, ::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::UInt32::Input{InstanceIndex}, ::DeviceAddressBlock::PushConstant)
+  frag = @fragment device boid_frag(
+    ::Vec4::Output,
+    ::Vec2::Input,
+    ::DeviceAddressBlock::PushConstant,
+    ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)}}::UniformConstant{DescriptorSet = 0, Binding = 3})
+  Program(vert, frag)
+end
+
+function boid_drawing_node(device, agents::Resource, color, image)
+  prog = boid_drawing_program(device)
+  image_texture = texture_descriptor(Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
+  data = @invocation_data prog begin
+    @block BoidDrawData(DeviceAddress(agents), @descriptor(image_texture), 0.1)
+  end
+  invocation = ProgramInvocation(
+    prog,
+    DrawIndexed(1:4; instances = 1:512),
+    data,
+    RenderTargets(color),
+    RenderState(),
+    setproperties(ProgramInvocationState(), (;
+      primitive_topology = Vk.PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+      triangle_orientation = Vk.FRONT_FACE_CLOCKWISE,
+    )),
+    @resource_dependencies begin
+      @read agents::Buffer::Physical image::Texture
+      @write (color => (0.08, 0.05, 0.1, 1.0))::Color
+    end
+  )
+  graphics_node(invocation)
 end
 
 @testset "Simulation of boids" begin
@@ -213,9 +291,8 @@ end
 
     parameters = BoidParameters()
     Δt = 0.01F
-    data = rand(BoidAgent, 512)
+    data = rand(MersenneTwister(1), BoidAgent, 512)
     agents = buffer_resource(device, data; memory_domain = MEMORY_DOMAIN_HOST)
-    final_agents = buffer_resource(device, data; memory_domain = MEMORY_DOMAIN_HOST)
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
     @test collect(BoidAgent, agents.data) == data
     nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
@@ -226,5 +303,10 @@ end
     expected = next!(BoidSimulation(deepcopy(data), parameters), Δt)
     @test res_forces ≈ expected_forces
     @test all(res .≈ expected)
+
+    nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
+    push!(nodes, boid_drawing_node(device, agents, color, read_normal_map(device)))
+    data = render_graphics(device, color, nodes)
+    save_test_render("boid_agents.png", data, 0xd0836fe98c2e7471)
   end
 end;

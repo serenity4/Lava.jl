@@ -46,8 +46,8 @@ function apply(cb::CommandBuffer, draw::DrawIndexed, index_data::IndexData)
   indices = index_data.indices[draw]
   Vk.cmd_draw_indexed(
     cb,
-    1 + indices.stop - indices.start,
-    1 + draw.instances.stop - draw.instances.start,
+    length(indices),
+    length(draw.instances),
     indices.start - 1,
     draw.vertex_offset,
     draw.instances.start - 1,
