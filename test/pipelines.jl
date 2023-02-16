@@ -11,14 +11,14 @@
     empty!(device.pending_pipelines_graphics)
     empty!(device.pipeline_ht_graphics)
 
-    info = Lava.pipeline_info_graphics(RenderArea(1920, 1080), program, RenderState(), ProgramInvocationState(), RenderTargets([color]), layout)
+    info = Lava.pipeline_info_graphics(RenderArea(1920, 1080), program, RenderState(), ProgramInvocationState(), RenderTargets([color]), layout, Dict())
     h = Lava.request_pipeline(device, info)
     Lava.create_pipelines!(device)
     pipeline = device.pipeline_ht_graphics[h]
     @test pipeline isa Lava.Pipeline
     @test length(device.pipeline_ht_graphics) == 1
 
-    info2 = Lava.pipeline_info_graphics(RenderArea(1920, 1080), program, RenderState(), ProgramInvocationState(), RenderTargets([color]), layout)
+    info2 = Lava.pipeline_info_graphics(RenderArea(1920, 1080), program, RenderState(), ProgramInvocationState(), RenderTargets([color]), layout, Dict())
     h2 = Lava.request_pipeline(device, info)
     @test h2 == h
     Lava.create_pipelines!(device)

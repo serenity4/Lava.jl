@@ -1,8 +1,8 @@
-function multisampling_invocation(device, vdata, color; prog = rectangle_program(device))
+function draw_triangle_multisampled(device, vdata, color; prog = rectangle_program(device))
   invocation_data = @invocation_data prog @block vdata
-  ProgramInvocation(
-    prog,
+  graphics_command(
     DrawIndexed(1:3),
+    prog,
     invocation_data,
     RenderTargets(color),
     RenderState(),
@@ -21,7 +21,7 @@ end
     PosColor(Vec2(0.5, -0.8), Arr{Float32}(0.0, 0.0, 1.0)),
     PosColor(Vec2(-0.5, -0.8), Arr{Float32}(0.0, 1.0, 0.0)),
   ]
-  invocation = multisampling_invocation(device, vdata, color_ms)
-  data = render_graphics(device, graphics_node(invocation))
+  draw = draw_triangle_multisampled(device, vdata, color_ms)
+  data = render_graphics(device, graphics_node([draw]))
   save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
 end;

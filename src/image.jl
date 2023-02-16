@@ -32,6 +32,7 @@ layer_range_all(image::Image) = 1:image.layers
 
 Vk.Extent3D(image::Image) = Vk.Extent3D(image.dims..., ntuple(Returns(1), 3 - length(image.dims))...)
 Vk.Offset3D(::Image) = Vk.Offset3D(0, 0, 0)
+samples(img::Image) = img.samples
 
 function image_type(ndims)
   @match ndims begin
@@ -138,7 +139,7 @@ end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward ImageView.image (Vk.Offset3D, Vk.Extent3D, image_layout)
+@forward ImageView.image (Vk.Offset3D, Vk.Extent3D, image_layout, samples)
 
 aspect_flags(view::ImageView) = view.aspect
 

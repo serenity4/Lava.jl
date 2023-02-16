@@ -93,17 +93,23 @@ end
 
 isdone(exec) = wait(exec, 0; finalize = false)
 
-Base.@kwdef struct SubmissionInfo
-  wait_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
-  command_buffers::Vector{Vk.CommandBufferSubmitInfo} = []
-  signal_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
-  signal_fence::Optional{Vk.Fence} = nothing
-  release_after_completion::Vector{Any} = []
-  free_after_completion::Vector{Any} = []
+Base.@kwdef mutable struct SubmissionInfo
+  const wait_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
+  const command_buffers::Vector{Vk.CommandBufferSubmitInfo} = []
+  const signal_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
+  const signal_fence::Optional{Vk.Fence} = nothing
+  const release_after_completion::Vector{Any} = []
+  const free_after_completion::Vector{Any} = []
+  queue_family::Int64 = -1
 end
 
-function submit(dispatch::QueueDispatch, queue_family_index, info::SubmissionInfo)
-  q = queue(dispatch, queue_family_index)
+function set_queue_family!(info::SubmissionInfo, index)
+  info.queue_family == -1 || info.queue_family == index || throw(ArgumentError("A different queue family index has already been set"))
+  info.queue_family = index
+end
+
+function submit(dispatch::QueueDispatch, info::SubmissionInfo)
+  q = queue(dispatch, info.queue_family)
 
   for cb_info in info.command_buffers
     end_recording(cb_info.command_buffer)

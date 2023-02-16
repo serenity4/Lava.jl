@@ -6,8 +6,8 @@
     PosColor(Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
     PosColor(Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
   ]
-  invocation = rectangle_invocation(device, vdata, color)
-  node = graphics_node(invocation)
+  draw = draw_rectangle(device, vdata, color)
+  node = graphics_node([draw])
   hashes = UInt64[]
   for i in 1:5
     data = render_graphics(device, node)
@@ -21,8 +21,8 @@
     TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
-  invocation = texture_invocation(device, vdata, color)
-  node = graphics_node(invocation)
+  draw = draw_texture(device, vdata, color)
+  node = graphics_node([draw])
   hashes = UInt64[]
   for i in 1:5
     data = render_graphics(device, node)

@@ -12,8 +12,8 @@ end
     RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT),
     RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT),
   ]
-  push!(nodes[1].command_infos, fake_command_info(targets = RenderTargets(color; depth)))
-  push!(nodes[2].command_infos, fake_command_info(targets = RenderTargets(color, final; depth)))
+  push!(nodes[1].commands, fake_graphics_command(targets = RenderTargets(color; depth)))
+  push!(nodes[2].commands, fake_graphics_command(targets = RenderTargets(color, final; depth)))
   rg = RenderGraph(device)
   @add_resource_dependencies rg begin
     (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = nodes[1](normal::Texture)

@@ -16,13 +16,12 @@ function test_validation_msg(f, test)
   val[]
 end
 
-function fake_command_info(;
+function fake_graphics_command(;
   targets::Union{RenderTargets,Nothing} = nothing,
-  state::DrawState = DrawState(),
-  command = Command(COMMAND_TYPE_DRAW_INDEXED, DrawIndexed([1, 2, 3, 4])),
-  program_type = PROGRAM_TYPE_GRAPHICS,
+  draw_state::DrawState = DrawState(),
+  draw = DrawIndexed([1, 2, 3, 4]),
 )
-
-  fake_program = Program(program_type, nothing, VulkanLayout(VulkanAlignment()))
-  CommandInfo(command, fake_program, DeviceAddressBlock(0), targets, state)
+  graphics_command(draw, Program(PROGRAM_TYPE_GRAPHICS, nothing, VulkanLayout(VulkanAlignment())), DeviceAddressBlock(0), targets, draw_state)
 end
+
+fake_compute_command() = compute_command(Dispatch(1, 1, 1), Program(PROGRAM_TYPE_COMPUTE, nothing, VulkanLayout(VulkanAlignment())), DeviceAddressBlock(0))

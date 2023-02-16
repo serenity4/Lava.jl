@@ -39,7 +39,7 @@ function bake!(rg::RenderGraph)
   combined_uses = combine_resource_uses(node_uses)
   check_physical_resources(rg, combined_uses)
   materialized_resources = materialize_logical_resources(rg, combined_uses)
-  generate_command_infos!(rg, materialized_resources)
+  allocate_blocks!(rg, materialized_resources)
   resources = dictionary(r.id => islogical(r) ? materialized_resources[r.id] : r for r in rg.resources)
   resolve_pairs = dictionary(resources[r.id] => resources[resolve_r.id] for (r, resolve_r) in pairs(resolve_pairs))
 
@@ -51,7 +51,7 @@ end
 function render!(rg::Union{RenderGraph,BakedRenderGraph})
   command_buffer = request_command_buffer(rg.device)
   baked = render!(rg, command_buffer)
-  wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(rg.device), free_after_completion = [baked])))
+  wait(submit!(SubmissionInfo(signal_fence = fence(rg.device), free_after_completion = [baked]), command_buffer))
 end
 
 render!(rg::RenderGraph, command_buffer::CommandBuffer) = render(command_buffer, bake!(rg))
@@ -77,7 +77,7 @@ function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   if any(!isempty(record.draws) for record in records)
     # Allocate index buffer.
     fill_indices!(baked.index_data, records)
-    initialize(command_buffer, baked.device, baked.index_data)
+    initialize_index_buffer(command_buffer, baked.device, baked.index_data)
   end
   # Fill command buffer with synchronization commands & recorded commands.
   flush(command_buffer, baked, records, pipeline_hashes)
@@ -91,12 +91,21 @@ function fill_indices!(index_data::IndexData, records)
       for calls in draws
         for (command, target) in calls
           if command.type == COMMAND_TYPE_DRAW_INDEXED
-            append!(index_data, command.impl::DrawIndexed)
+            append!(index_data, command.graphics.draw::DrawIndexed)
           end
         end
       end
     end
   end
+end
+
+"""
+Program to be compiled into a pipeline with a specific state.
+"""
+@auto_hash_equals struct ProgramInstance
+  program::Program
+  state::Optional{DrawState}
+  targets::Optional{RenderTargets}
 end
 
 function record_commands!(baked::BakedRenderGraph)
@@ -114,14 +123,9 @@ function record_commands!(baked::BakedRenderGraph)
 end
 
 function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
-  rec = CompactRecord(node, Dictionary(), Dictionary())
-  for info in node.command_infos
-    if is_graphics_command(info.command)
-      @reset info.targets = materialize(baked, info.targets)
-      draw!(rec, info)
-    else
-      dispatch!(rec, info)
-    end
+  rec = CompactRecord(node, Dictionary(), Dictionary(), Command[], Command[])
+  for command in node.commands
+    record!(rec, command)
   end
   rec
 end
@@ -133,7 +137,7 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   for (program, calls) in pairs(record.draws)
     for ((data, state), draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info_graphics(record.node.render_area::RenderArea, program, state.render_state, state.invocation_state, targets, layout)
+        info = pipeline_info_graphics(record.node.render_area::RenderArea, program, state.render_state, state.invocation_state, targets, layout, baked.resources)
         hash = request_pipeline(device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
@@ -145,15 +149,6 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
     set!(pipeline_hashes, ProgramInstance(program, nothing, nothing), hash)
   end
   pipeline_hashes
-end
-
-function materialize(baked::BakedRenderGraph, targets::RenderTargets)
-  color = map(targets.color) do resource
-    islogical(resource) ? baked.resources[resource.id] : resource
-  end
-  depth = isnothing(targets.depth) ? nothing : islogical(targets.depth) ? baked.resources[targets.depth.id] : targets.depth
-  stencil = isnothing(targets.stencil) ? nothing : islogical(targets.stencil) ? baked.resources[targets.stencil.id] : targets.stencil
-  RenderTargets(color, depth, stencil)
 end
 
 function rendering_info(baked::BakedRenderGraph, node::RenderNode)

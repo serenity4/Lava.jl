@@ -1,24 +1,27 @@
-@bitmask ShaderResourceType::UInt16 begin
-  SHADER_RESOURCE_TYPE_VERTEX_BUFFER = 1
-  SHADER_RESOURCE_TYPE_INDEX_BUFFER = 2
-  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT = 4
-  SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT = 8
-  SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT = 16
-  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT = 32
-  SHADER_RESOURCE_TYPE_TEXTURE = 64
-  SHADER_RESOURCE_TYPE_BUFFER = 128
-  SHADER_RESOURCE_TYPE_IMAGE = 256
-  SHADER_RESOURCE_TYPE_DYNAMIC = 512
-  SHADER_RESOURCE_TYPE_STORAGE = 1024
-  SHADER_RESOURCE_TYPE_TEXEL = 2048
-  SHADER_RESOURCE_TYPE_UNIFORM = 4096
-  SHADER_RESOURCE_TYPE_SAMPLER = 8192
-  SHADER_RESOURCE_TYPE_PHYSICAL_BUFFER = 16384
-  SHADER_RESOURCE_TYPE_INDIRECT_BUFFER = 32768
+@bitmask ResourceUsageType::UInt32 begin
+  RESOURCE_USAGE_VERTEX_BUFFER = 1
+  RESOURCE_USAGE_INDEX_BUFFER = 2
+  RESOURCE_USAGE_COLOR_ATTACHMENT = 4
+  RESOURCE_USAGE_DEPTH_ATTACHMENT = 8
+  RESOURCE_USAGE_STENCIL_ATTACHMENT = 16
+  RESOURCE_USAGE_INPUT_ATTACHMENT = 32
+  RESOURCE_USAGE_TEXTURE = 64
+  RESOURCE_USAGE_BUFFER = 128
+  RESOURCE_USAGE_IMAGE = 256
+  RESOURCE_USAGE_DYNAMIC = 512
+  RESOURCE_USAGE_STORAGE = 1024
+  RESOURCE_USAGE_TEXEL = 2048
+  RESOURCE_USAGE_UNIFORM = 4096
+  RESOURCE_USAGE_SAMPLER = 8192
+  RESOURCE_USAGE_PHYSICAL_BUFFER = 16384
+  RESOURCE_USAGE_INDIRECT_BUFFER = 32768
+  RESOURCE_USAGE_PRESENT = 65536
+  RESOURCE_USAGE_TRANSFER_SRC = 131072
+  RESOURCE_USAGE_TRANSFER_DST = 262144
 end
 
 Base.@kwdef struct BufferUsage
-  type::ShaderResourceType = ShaderResourceType(0)
+  type::ResourceUsageType = zero(ResourceUsageType)
   access::MemoryAccess = MemoryAccess(0)
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage_flags::Vk.BufferUsageFlag = Vk.BufferUsageFlag(0)
@@ -27,7 +30,7 @@ end
 combine(x::BufferUsage, y::BufferUsage) = BufferUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags)
 
 Base.@kwdef struct ImageUsage
-  type::ShaderResourceType = ShaderResourceType(0)
+  type::ResourceUsageType = zero(ResourceUsageType)
   access::MemoryAccess = MemoryAccess(0)
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
@@ -41,7 +44,7 @@ end
 combine(x::ImageUsage, y::ImageUsage) = ImageUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.samples | y.samples)
 
 Base.@kwdef struct AttachmentUsage
-  type::ShaderResourceType = ShaderResourceType(0)
+  type::ResourceUsageType = zero(ResourceUsageType)
   access::MemoryAccess = MemoryAccess(0)
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
@@ -69,17 +72,20 @@ end
 
 struct ResourceUsage
   id::ResourceID
+  type::ResourceUsageType
   usage::Union{BufferUsage,ImageUsage,AttachmentUsage}
 end
 
 function Base.merge(x::ResourceUsage, y::ResourceUsage)
   x.id == y.id || error("Resource uses for different resource IDs cannot be merged.")
-  ResourceUsage(x.id, merge(x.usage, y.usage))
+  x.type == y.type || error("Resource uses for different resource types cannot be merged.")
+  ResourceUsage(x.id, x.type, merge(x.usage, y.usage))
 end
 
 function combine(x::ResourceUsage, y::ResourceUsage)
   x.id == y.id || error("Resource uses for different resource IDs cannot be combined.")
-  ResourceUsage(x.id, combine(x.usage, y.usage))
+  x.type == y.type || error("Resource uses for different resource types cannot be merged.")
+  ResourceUsage(x.id, x.type, combine(x.usage, y.usage))
 end
 
 const DEFAULT_CLEAR_VALUE = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
@@ -106,42 +112,45 @@ Deduce the Vulkan usage, layout and access flags form a resource given its type 
 
 The idea is to reconstruct information like `Vk.ACCESS_COLOR_ATTACHMENT_READ_BIT` and `Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` from a more decoupled description.
 """
-function image_layout(type::ShaderResourceType, access::MemoryAccess)
+function image_layout(type::ResourceUsageType, access::MemoryAccess)
   @match (type, access) begin
-    (&SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    (&SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    (&SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT || &SHADER_RESOURCE_TYPE_IMAGE || SHADER_RESOURCE_TYPE_TEXTURE, &(READ | WRITE)) => Vk.IMAGE_LAYOUT_GENERAL
-    (&SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
-    (&SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
-    (&SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL
-    (&SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL
-    (&(SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT | SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT), &READ) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-    (&(SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT | SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT), &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    (&SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT || &SHADER_RESOURCE_TYPE_TEXTURE, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    (&(SHADER_RESOURCE_TYPE_IMAGE |SHADER_RESOURCE_TYPE_STORAGE), _) => Vk.IMAGE_LAYOUT_GENERAL
+    (&RESOURCE_USAGE_COLOR_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    (&RESOURCE_USAGE_COLOR_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    (&RESOURCE_USAGE_COLOR_ATTACHMENT || &RESOURCE_USAGE_IMAGE || RESOURCE_USAGE_TEXTURE, &(READ | WRITE)) => Vk.IMAGE_LAYOUT_GENERAL
+    (&RESOURCE_USAGE_DEPTH_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+    (&RESOURCE_USAGE_DEPTH_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+    (&RESOURCE_USAGE_STENCIL_ATTACHMENT, &READ) => Vk.IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL
+    (&RESOURCE_USAGE_STENCIL_ATTACHMENT, &WRITE) => Vk.IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL
+    (&(RESOURCE_USAGE_DEPTH_ATTACHMENT | RESOURCE_USAGE_STENCIL_ATTACHMENT), &READ) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+    (&(RESOURCE_USAGE_DEPTH_ATTACHMENT | RESOURCE_USAGE_STENCIL_ATTACHMENT), &WRITE) => Vk.IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    (&RESOURCE_USAGE_INPUT_ATTACHMENT || &RESOURCE_USAGE_TEXTURE, &READ) => Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    (&(RESOURCE_USAGE_IMAGE |RESOURCE_USAGE_STORAGE), _) => Vk.IMAGE_LAYOUT_GENERAL
+    (&RESOURCE_USAGE_PRESENT, _) => Vk.IMAGE_LAYOUT_PRESENT_SRC_KHR
+    (&RESOURCE_USAGE_TRANSFER_SRC, _) => Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+    (&RESOURCE_USAGE_TRANSFER_DST, _) => Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     _ => error("Unsupported combination of type $type and access $access")
   end
 end
 
-function buffer_usage_flags(type::ShaderResourceType, access::MemoryAccess)
+function buffer_usage_flags(type::ResourceUsageType, access::MemoryAccess)
   bits = Vk.BufferUsageFlag(0)
 
-  SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_STORAGE in type && (bits |= Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
-  SHADER_RESOURCE_TYPE_PHYSICAL_BUFFER in type && (bits |= Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
-  SHADER_RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT)
-  SHADER_RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
+  RESOURCE_USAGE_BUFFER | RESOURCE_USAGE_STORAGE in type && (bits |= Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
+  RESOURCE_USAGE_PHYSICAL_BUFFER in type && (bits |= Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+  RESOURCE_USAGE_VERTEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_VERTEX_BUFFER_BIT)
+  RESOURCE_USAGE_INDEX_BUFFER in type && (bits |= Vk.BUFFER_USAGE_INDEX_BUFFER_BIT)
 
   bits
 end
 
-function image_usage_flags(type::ShaderResourceType, access::MemoryAccess)
+function image_usage_flags(type::ResourceUsageType, access::MemoryAccess)
   bits = Vk.ImageUsageFlag(0)
 
-  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-  (SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT in type || SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT in type) && (bits |= Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-  SHADER_RESOURCE_TYPE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
-  SHADER_RESOURCE_TYPE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
+  RESOURCE_USAGE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+  (RESOURCE_USAGE_DEPTH_ATTACHMENT in type || RESOURCE_USAGE_STENCIL_ATTACHMENT in type) && (bits |= Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+  RESOURCE_USAGE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+  RESOURCE_USAGE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
+  RESOURCE_USAGE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
 
   bits
 end
@@ -155,33 +164,33 @@ const SHADER_STAGES = |(
   Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 )
 
-function access_flags(type::ShaderResourceType, access::MemoryAccess, stages::Vk.PipelineStageFlag2)
+function access_flags(type::ResourceUsageType, access::MemoryAccess, stages::Vk.PipelineStageFlag2)
   bits = Vk.AccessFlag2(0)
-  SHADER_RESOURCE_TYPE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT)
-  SHADER_RESOURCE_TYPE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_2_INDEX_READ_BIT)
-  if SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT in type
+  RESOURCE_USAGE_VERTEX_BUFFER in type && (bits |= Vk.ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT)
+  RESOURCE_USAGE_INDEX_BUFFER in type && (bits |= Vk.ACCESS_2_INDEX_READ_BIT)
+  if RESOURCE_USAGE_COLOR_ATTACHMENT in type
     READ in access && (bits |= Vk.ACCESS_2_COLOR_ATTACHMENT_READ_BIT)
     WRITE in access && (bits |= Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT)
   end
-  if (SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT in type || SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT in type)
+  if (RESOURCE_USAGE_DEPTH_ATTACHMENT in type || RESOURCE_USAGE_STENCIL_ATTACHMENT in type)
     #TODO: support mixed access modes (depth write, stencil read and vice-versa)
     READ in access && (bits |= Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)
     WRITE in access && (bits |= Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
   end
-  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT in type && (bits |= Vk.ACCESS_2_INPUT_ATTACHMENT_READ_BIT)
-  if SHADER_RESOURCE_TYPE_BUFFER in type && !iszero(stages & SHADER_STAGES)
+  RESOURCE_USAGE_INPUT_ATTACHMENT in type && (bits |= Vk.ACCESS_2_INPUT_ATTACHMENT_READ_BIT)
+  if RESOURCE_USAGE_BUFFER in type && !iszero(stages & SHADER_STAGES)
     access == READ && (bits |= Vk.ACCESS_2_UNIFORM_READ_BIT)
     WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
   end
-  SHADER_RESOURCE_TYPE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_2_SHADER_READ_BIT)
-  SHADER_RESOURCE_TYPE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
+  RESOURCE_USAGE_TEXTURE in type && READ in access && (bits |= Vk.ACCESS_2_SHADER_READ_BIT)
+  RESOURCE_USAGE_TEXTURE in type && WRITE in access && (bits |= Vk.ACCESS_2_SHADER_WRITE_BIT)
   bits
 end
 
-function aspect_flags(type::ShaderResourceType)
+function aspect_flags(type::ResourceUsageType)
   bits = Vk.ImageAspectFlag(0)
-  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_COLOR_BIT)
-  SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_DEPTH_BIT)
-  SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_STENCIL_BIT)
+  any(in(type), (RESOURCE_USAGE_COLOR_ATTACHMENT, RESOURCE_USAGE_PRESENT)) && (bits |= Vk.IMAGE_ASPECT_COLOR_BIT)
+  RESOURCE_USAGE_DEPTH_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_DEPTH_BIT)
+  RESOURCE_USAGE_STENCIL_ATTACHMENT in type && (bits |= Vk.IMAGE_ASPECT_STENCIL_BIT)
   bits
 end

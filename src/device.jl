@@ -92,7 +92,7 @@ end
 
 queue_family_indices(device::Device) = queue_family_indices(device.queues)
 
-submit(device, args...; kwargs...) = submit(device.queues, args...; kwargs...)
+submit(device::Device, args...; kwargs...) = submit(device.queues, args...; kwargs...)
 
 "Split a vector in `n` equivalent chunks."
 function split_vec(vec, n)

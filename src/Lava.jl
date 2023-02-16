@@ -63,24 +63,22 @@ include("shaders/macros.jl")
 
 include("program.jl")
 include("resources.jl")
-include("command.jl")
 include("textures.jl")
 include("descriptors.jl")
 include("render_state.jl")
+include("invocation_data.jl")
+include("command.jl")
 include("pipeline.jl")
 include("device.jl")
-include("invocation_data.jl")
 include("resources/creation.jl")
 include("bind_state.jl")
 include("wsi.jl")
 include("frame.jl")
-include("program_invocation.jl")
 include("render_graph.jl")
 include("command_records.jl")
 include("bake.jl")
 include("node_synchronization.jl")
 include("flush.jl")
-include("procedural_api.jl")
 include("resources/resolution.jl")
 include("debug.jl")
 include("precompile.jl")
@@ -132,7 +130,6 @@ export
 
   # program
   Program, ProgramInvocationState, ProgramInvocationData, DataBlock, @invocation_data,
-  ProgramInvocation,
 
   # shaders
   ShaderSource, @shader,
@@ -153,30 +150,32 @@ export
   RenderState,
 
   # commands
-  CompactRecord, Command, CommandInfo,
-  draw!, DrawState, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
-  dispatch!, Dispatch, DispatchIndirect,
+  CompactRecord, Command, record!,
+  graphics_command, draw!, GraphicsCommand, DrawState, DrawIndexed, DrawIndirect, DrawIndexedIndirect,
+  compute_command, dispatch!, ComputeCommand, Dispatch, DispatchIndirect,
+  transfer_command, transfer!, TransferCommand,
+  present_command, present!, PresentCommand,
   DescriptorIndex,
   DeviceAddressBlock, DeviceAddress,
   StatefulRecording, set_program, invocation_state, set_invocation_state, render_state, set_render_state, set_data,
 
   # render graph
-  ShaderResourceType,
-  SHADER_RESOURCE_TYPE_VERTEX_BUFFER,
-  SHADER_RESOURCE_TYPE_INDEX_BUFFER,
-  SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT,
-  SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT,
-  SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT,
-  SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT,
-  SHADER_RESOURCE_TYPE_TEXTURE,
-  SHADER_RESOURCE_TYPE_BUFFER,
-  SHADER_RESOURCE_TYPE_PHYSICAL_BUFFER,
-  SHADER_RESOURCE_TYPE_IMAGE,
-  SHADER_RESOURCE_TYPE_DYNAMIC,
-  SHADER_RESOURCE_TYPE_STORAGE,
-  SHADER_RESOURCE_TYPE_TEXEL,
-  SHADER_RESOURCE_TYPE_UNIFORM,
-  SHADER_RESOURCE_TYPE_SAMPLER,
+  ResourceUsageType,
+  RESOURCE_USAGE_VERTEX_BUFFER,
+  RESOURCE_USAGE_INDEX_BUFFER,
+  RESOURCE_USAGE_COLOR_ATTACHMENT,
+  RESOURCE_USAGE_DEPTH_ATTACHMENT,
+  RESOURCE_USAGE_STENCIL_ATTACHMENT,
+  RESOURCE_USAGE_INPUT_ATTACHMENT,
+  RESOURCE_USAGE_TEXTURE,
+  RESOURCE_USAGE_BUFFER,
+  RESOURCE_USAGE_PHYSICAL_BUFFER,
+  RESOURCE_USAGE_IMAGE,
+  RESOURCE_USAGE_DYNAMIC,
+  RESOURCE_USAGE_STORAGE,
+  RESOURCE_USAGE_TEXEL,
+  RESOURCE_USAGE_UNIFORM,
+  RESOURCE_USAGE_SAMPLER,
   RenderGraph, render!, render,
   RenderArea, RenderNode, add_node!,
   ResourceDependency, add_resource_dependency!, add_resource_dependencies!, @add_resource_dependencies, @resource_dependencies, clear_attachments,

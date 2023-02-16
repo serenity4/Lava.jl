@@ -59,7 +59,7 @@ function blur_program(device)
   Program(vert, frag)
 end
 
-function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec{2,Float32} = Vec2(0.1, 1.0); prog = blur_program(device), image = read_normal_map(device))
+function blur_image(device, vdata, color, blur::GaussianBlur, uv_scale::Vec{2,Float32} = Vec2(0.1, 1.0); prog = blur_program(device), image = read_normal_map(device))
   image_texture = Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR)))
 
   deps = @resource_dependencies begin
@@ -83,9 +83,9 @@ function blur_invocation(device, vdata, color, blur::GaussianBlur, uv_scale::Vec
     triangle_orientation = Vk.FRONT_FACE_COUNTER_CLOCKWISE,
   ))
 
-  ProgramInvocation(
-    prog,
+  graphics_command(
     DrawIndexed(1:4),
+    prog,
     invocation_data,
     RenderTargets(color),
     RenderState(),
@@ -106,7 +106,7 @@ end
   reference = SPIRV.SampledImage(IT(zeros(32, 32)))
   @test compute_blur(blur, reference, zero(Vec2)) == zero(Vec3)
   uv_scale = Vec2(1.0, 1.0)
-  invocation = blur_invocation(device, vdata, color, blur, uv_scale)
-  data = render_graphics(device, graphics_node(invocation))
+  command = blur_image(device, vdata, color, blur, uv_scale)
+  data = render_graphics(device, graphics_node([command]))
   save_test_render("blurred_normal_map.png", data, 0x5114a2d55a9aff00)
 end;

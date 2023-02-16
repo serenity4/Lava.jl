@@ -9,7 +9,7 @@ end
 function transition_layout(device::Device, view_or_image::Union{Image,ImageView}, new_layout)
   command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
   transition_layout(command_buffer, view_or_image, new_layout)
-  wait(submit(command_buffer, SubmissionInfo(signal_fence = fence(device))))
+  wait(submit!(SubmissionInfo(signal_fence = fence(device)), command_buffer))
 end
 
 # # Buffers
@@ -56,7 +56,7 @@ function transfer(
   push!(command_buffer.to_preserve, dst)
   push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, src)
   isnothing(submission) && return
-  Lava.submit(command_buffer, submission)
+  submit!(submission, command_buffer)
 end
 
 Base.collect(buffer::Buffer) = collect(buffer.memory[], buffer.size)
@@ -94,15 +94,15 @@ function transfer(
     aux = similar(src; samples = 1)
     ensure_layout(command_buffer, aux, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
     Vk.cmd_resolve_image_2(command_buffer, Vk.ResolveImageInfo2(C_NULL,
-      src_image, src_image.layout[],
-      aux, aux.layout[],
+      src_image, image_layout(src),
+      aux, image_layout(aux),
       [Vk.ImageResolve2(subresource_layers(src), Vk.Offset3D(src_image), subresource_layers(aux), Vk.Offset3D(aux), Vk.Extent3D(src))]
     ))
     return transfer(command_buffer, aux, dst; submission, free_src = true)
   else
     Vk.cmd_copy_image(command_buffer,
-      src_image, src.layout[],
-      dst_image, dst.layout[],
+      src_image, image_layout(src),
+      dst_image, image_layout(dst),
       [Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src_image), subresource_layers(dst), Vk.Offset3D(dst_image), Vk.Extent3D(src_image))],
     )
   end
@@ -111,7 +111,7 @@ function transfer(
   push!(command_buffer.to_preserve, dst)
   push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, src)
   isnothing(submission) && return
-  Lava.submit(command_buffer, submission)
+  submit!(submission, command_buffer)
 end
 
 
@@ -189,7 +189,7 @@ function transfer(
     push!(command_buffer.to_preserve, view_or_image)
     push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, buffer)
     isnothing(submission) && return
-    Lava.submit(command_buffer, submission)
+    submit!(submission, command_buffer)
 end
 
 function transfer(
@@ -213,7 +213,7 @@ function transfer(
     push!(command_buffer.to_preserve, buffer)
     push!(free_src ? command_buffer.to_free : command_buffer.to_preserve, view_or_image)
     isnothing(submission) && return
-    Lava.submit(command_buffer, submission)
+    submit!(submission, command_buffer)
 end
 
 function Image(

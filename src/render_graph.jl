@@ -1,39 +1,22 @@
-struct CommandInfo
-  command::Command
-  program::Program
-  data::DeviceAddressBlock
-  targets::Optional{RenderTargets}
-  state::Optional{DrawState}
-end
-
 contains_fragment_stage(stages::Vk.PipelineStageFlag2) = in(Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, stages) || in(Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, stages) || in(Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT, stages)
 
 Base.@kwdef struct RenderNode
   id::NodeID = NodeID()
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
   render_area::Optional{RenderArea} = nothing
-  "Data required for issuing dispatches and draw calls that will only be valid for a given cycle."
-  command_infos::Optional{Vector{CommandInfo}} = CommandInfo[]
-  "Program invocations, that will generate [`CommandInfo`](@ref) calls at every cycle."
-  program_invocations::Optional{Vector{ProgramInvocation}} = ProgramInvocation[]
-  function RenderNode(id, stages, render_area, command_infos, program_invocations)
+  commands::Optional{Vector{Command}} = Command[]
+  function RenderNode(id, stages, render_area, commands)
     !iszero(stages) || throw(ArgumentError("At least one pipeline stage must be provided."))
     !isnothing(render_area) && !contains_fragment_stage(stages) && throw(ArgumentError("The fragment shader stage must be set when a `RenderArea` is provided."))
     isnothing(render_area) && contains_fragment_stage(stages) && throw(ArgumentError("The render area must be set when the fragment shader stage is included."))
-    new(id, stages, render_area, command_infos, program_invocations)
+    new(id, stages, render_area, commands)
   end
-end
-
-function Base.copy(node::RenderNode)
-  RenderNode(node.id, node.stages, node.render_area, isnothing(node.command_infos) ? nothing : copy(node.command_infos), isnothing(node.program_invocations) ? nothing : copy(node.program_invocations))
 end
 
 Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
 
-draw!(node::RenderNode, args...; kwargs...) = push!(node.command_infos, draw_command(args...; kwargs...))
-
 function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDependency)
-  if dep.type in (SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT, SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT, SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT)
+  if dep.type in (RESOURCE_USAGE_COLOR_ATTACHMENT, RESOURCE_USAGE_DEPTH_ATTACHMENT, RESOURCE_USAGE_STENCIL_ATTACHMENT)
     contains_fragment_stage(node.stages) || throw(ArgumentError("Color, depth and stencil attachments are only allowed in render nodes which execute fragment shaders; for other uses, such as within compute shaders, use a generic texture or image type instead."))
   end
   usage = @match resource_type(resource) begin
@@ -49,43 +32,44 @@ function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDepend
         aspect = aspect_flags(resource.data::Union{LogicalAttachment,Attachment}),
       )
   end
-  ResourceUsage(resource.id, usage)
+  ResourceUsage(resource.id, dep.type, usage)
 end
 
 function stage_flags(node::RenderNode, resource::Resource)
-  stages = Vk.PIPELINE_STAGE_2_NONE
-  !isnothing(node.command_infos) && (stages = foldl(|, stage_flags(info, resource, node) for info in node.command_infos; init = stages))
-  !isnothing(node.program_invocations) && (stages = foldl(|, stage_flags(invocation, resource, node) for invocation in node.program_invocations; init = stages))
-  stages
+  foldl(|, stage_flags(command, resource, node) for command in node.commands; init = Vk.PIPELINE_STAGE_2_NONE)
 end
 
 function stage_flags(command::Command, resource::Resource)
-  stages = Vk.PIPELINE_STAGE_2_NONE
-  resource_type(resource) == RESOURCE_TYPE_BUFFER && isphysical(resource) || return stages
-  buffer = resource.data::Buffer
-  (; type) = command
-  type == COMMAND_TYPE_DRAW_INDIRECT && (command.impl::DrawIndirect).parameters === buffer && (stages |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
-  type == COMMAND_TYPE_DRAW_INDEXED_INDIRECT && (command.impl::DrawIndexedIndirect).parameters === buffer && (stages |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
-  type == COMMAND_TYPE_DISPATCH_INDIRECT && (command.impl::DispatchIndirect).buffer === buffer && (stages |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
-  stages
+  command.type == COMMAND_TYPE_DISPATCH_INDIRECT && (command.compute.dispatch::DispatchIndirect).buffer.id == resource.id && return Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT
+  command.type == COMMAND_TYPE_DRAW_INDIRECT && (command.graphics.draw::DrawIndirect).parameters.id == resource.id && return Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT
+  if command.type == COMMAND_TYPE_TRANSFER
+    (; transfer) = command
+    if resource.id in (transfer.src, transfer.dst)
+      is_copy(command) && return Vk.PIPELINE_STAGE_2_COPY_BIT
+      is_resolve(command) && return Vk.PIPELINE_STAGE_2_RESOLVE_BIT
+      is_blit(command) && return Vk.PIPELINE_STAGE_2_BLIT_BIT
+      @assert false
+    end
+  end
+  Vk.PIPELINE_STAGE_2_NONE
 end
 
 function stage_flags(targets::RenderTargets, render_state::RenderState, resource::Resource)
   stages = Vk.PIPELINE_STAGE_2_NONE
   (; color, depth, stencil) = targets
-  resource in color && (stages |= Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
+  any(att.id == resource.id for att in color) && (stages |= Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
   depth_stencil_stages = Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
-  resource === depth && render_state.enable_depth_testing && (stages |= depth_stencil_stages)
-  resource === stencil && render_state.enable_stencil_testing && (stages |= depth_stencil_stages)
+  !isnothing(depth) && resource.id == depth.id && render_state.enable_depth_testing && (stages |= depth_stencil_stages)
+  !isnothing(stencil) && resource.id == stencil.id && render_state.enable_stencil_testing && (stages |= depth_stencil_stages)
   stages
 end
 
-function stage_flags(info::Union{CommandInfo,ProgramInvocation}, resource::Resource, node::RenderNode)
-  stages = Vk.PIPELINE_STAGE_2_NONE
-  if !isnothing(info.targets) && !isnothing(info.state) && isattachment(resource)
-    stages |= stage_flags(info.targets, info.state.render_state, resource)
+function stage_flags(command::Command, resource::Resource, node::RenderNode)
+  stages = stage_flags(command, resource)
+  if is_graphics(command) && isattachment(resource)
+    (; graphics) = command
+    stages |= stage_flags(graphics.targets, graphics.state.render_state, resource)
   end
-  stages |= stage_flags(info.command, resource)
   ifelse(iszero(stages), node.stages, stages)
 end
 
@@ -330,20 +314,20 @@ end
 
 function extract_resource_spec(ex::Expr)
   @match ex begin
-    :($r::Buffer::Vertex) => (r => SHADER_RESOURCE_TYPE_VERTEX_BUFFER)
-    :($r::Buffer::Index) => (r => SHADER_RESOURCE_TYPE_INDEX_BUFFER)
-    :($r::Buffer::Storage) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_STORAGE)
-    :($r::Buffer::Indirect) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_INDIRECT_BUFFER)
-    :($r::Buffer::Uniform) => (r => SHADER_RESOURCE_TYPE_BUFFER | SHADER_RESOURCE_TYPE_UNIFORM)
-    :($r::Buffer::Physical) => (r => SHADER_RESOURCE_TYPE_PHYSICAL_BUFFER)
-    :($r::Buffer) => (r => SHADER_RESOURCE_TYPE_BUFFER)
-    :($r::Color) => (r => SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT)
-    :($r::Depth) => (r => SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT)
-    :($r::Stencil) => (r => SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT)
-    :($r::Depth::Stencil) || :($_::Stencil::Depth) => (r => SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT | SHADER_RESOURCE_TYPE_STENCIL_ATTACHMENT)
-    :($r::Texture) => (r => SHADER_RESOURCE_TYPE_TEXTURE)
-    :($r::Image::Storage) => (r => SHADER_RESOURCE_TYPE_IMAGE | SHADER_RESOURCE_TYPE_STORAGE)
-    :($r::Input) => (r => SHADER_RESOURCE_TYPE_INPUT_ATTACHMENT)
+    :($r::Buffer::Vertex) => (r => RESOURCE_USAGE_VERTEX_BUFFER)
+    :($r::Buffer::Index) => (r => RESOURCE_USAGE_INDEX_BUFFER)
+    :($r::Buffer::Storage) => (r => RESOURCE_USAGE_BUFFER | RESOURCE_USAGE_STORAGE)
+    :($r::Buffer::Indirect) => (r => RESOURCE_USAGE_BUFFER | RESOURCE_USAGE_INDIRECT_BUFFER)
+    :($r::Buffer::Uniform) => (r => RESOURCE_USAGE_BUFFER | RESOURCE_USAGE_UNIFORM)
+    :($r::Buffer::Physical) => (r => RESOURCE_USAGE_PHYSICAL_BUFFER)
+    :($r::Buffer) => (r => RESOURCE_USAGE_BUFFER)
+    :($r::Color) => (r => RESOURCE_USAGE_COLOR_ATTACHMENT)
+    :($r::Depth) => (r => RESOURCE_USAGE_DEPTH_ATTACHMENT)
+    :($r::Stencil) => (r => RESOURCE_USAGE_STENCIL_ATTACHMENT)
+    :($r::Depth::Stencil) || :($_::Stencil::Depth) => (r => RESOURCE_USAGE_DEPTH_ATTACHMENT | RESOURCE_USAGE_STENCIL_ATTACHMENT)
+    :($r::Texture) => (r => RESOURCE_USAGE_TEXTURE)
+    :($r::Image::Storage) => (r => RESOURCE_USAGE_IMAGE | RESOURCE_USAGE_STORAGE)
+    :($r::Input) => (r => RESOURCE_USAGE_INPUT_ATTACHMENT)
     ::Symbol => error("Resource type annotation required for $ex")
     _ => error("Invalid or unsupported resource type annotation for $ex")
   end
@@ -354,12 +338,10 @@ function sort_nodes(rg::RenderGraph, node_uses::Dictionary{NodeID, Dictionary{Re
 end
 
 function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)
-  for invocation in node.program_invocations
-    if isempty(invocation.resource_dependencies)
-      insert!(rg.uses, node.id, Dictionary{ResourceID, Vector{ResourceUsage}}())
-      continue
-    end
-    for (resource_id, resource_dependency) in pairs(invocation.resource_dependencies)
+  get!(Dictionary{ResourceID, Vector{ResourceUsage}}, rg.uses, node.id)
+  for command in node.commands
+    deps = resource_dependencies(command)
+    for (resource_id, resource_dependency) in pairs(deps)
       add_resource_dependency!(rg, node, resource_id, resource_dependency)
     end
   end
@@ -367,7 +349,6 @@ end
 
 function add_resource_dependencies!(rg::RenderGraph)
   for node in rg.nodes
-    !isnothing(node.program_invocations) || continue
     add_resource_dependencies!(rg, node)
   end
 end
@@ -455,32 +436,24 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
   res
 end
 
-"""
-Expand all program invocations of all render nodes, generating
-[`CommandInfo`](@ref) structures to be used during baking.
-
-Render nodes will not be mutated; instead, copies which contain the
-generated draw infos will be reinserted into the render graph.
-"""
-function generate_command_infos!(rg::RenderGraph, node::RenderNode, materialized_resources)
-  isempty(node.program_invocations) && return
-  # Do not mutate nodes so that they can be reused in other render graphs.
-  generated_node = setproperties(node, (;
-    command_infos = CommandInfo[],
-    program_invocations = nothing,
-  ))
-  for invocation in node.program_invocations
-    command_info = command_info!(rg.allocator, rg.device, invocation, node.id, materialized_resources)
-    push!(generated_node.command_infos, command_info)
+function allocate_blocks!(rg::RenderGraph, materialized_resources)
+  for node in rg.nodes
+    allocate_blocks!(rg, node, materialized_resources)
   end
-  rg.nodes[node.id] = generated_node
 end
 
-function generate_command_infos!(rg::RenderGraph, materialized_resources)
-  for node in rg.nodes
-    !isnothing(node.program_invocations) || continue
-    generate_command_infos!(rg, node, materialized_resources)
+function allocate_blocks!(rg::RenderGraph, node::RenderNode, materialized_resources)
+  for command in node.commands
+    is_graphics(command) || is_compute(command) || continue
+    allocate_block!(command.impl::Union{GraphicsCommand, ComputeCommand}, rg.allocator, rg.device, node.id, materialized_resources)
   end
+end
+
+function allocate_block!(command::Union{GraphicsCommand, ComputeCommand}, allocator::LinearAllocator, device::Device, node_id::NodeID, materialized_resources)
+  isnothing(command.data) && return command
+  data_address = device_address_block!(allocator, device.descriptors, materialized_resources, node_id, command.data)
+  command.data_address = data_address
+  command
 end
 
 function check_physical_resources(rg::RenderGraph, uses)

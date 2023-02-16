@@ -1,6 +1,6 @@
 function signal_fence(device, fence)
   cb = request_command_buffer(device)
-  wait(Lava.submit(cb, SubmissionInfo(; signal_fence = fence)))
+  wait(Lava.submit!(SubmissionInfo(; signal_fence = fence), cb))
 end
 
 @testset "Fence pool" begin

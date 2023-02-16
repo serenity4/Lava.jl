@@ -13,13 +13,13 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRender
 
   begin_render_node(cb, baked, record.node)
   for (program, calls) in pairs(record.draws)
-    for ((data, state), draws) in pairs(calls)
-      for (draw, targets) in draws
+    for ((data, state), commands) in pairs(calls)
+      for (command, targets) in commands
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht_graphics[hash]
         reqs = BindRequirements(pipeline, data, device.descriptors.gset)
         bind_state = bind(cb, reqs, bind_state)
-        draw.type == COMMAND_TYPE_DRAW_INDEXED ? apply(cb, draw.impl::DrawIndexed, baked.index_data) : apply(cb, draw.impl::Union{DrawIndirect, DrawIndexedIndirect})
+        command.type == COMMAND_TYPE_DRAW_INDEXED ? apply(cb, command.graphics.draw::DrawIndexed, baked.index_data) : apply(cb, command.graphics.draw::Union{DrawIndirect, DrawIndexedIndirect}, baked.resources)
       end
     end
   end
@@ -28,13 +28,17 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRender
   for (program, calls) in pairs(record.dispatches)
     hash = pipeline_hashes[ProgramInstance(program, nothing, nothing)]
     pipeline = device.pipeline_ht_compute[hash]
-    for (data, dispatches) in pairs(calls)
+    for (data, commands) in pairs(calls)
       reqs = BindRequirements(pipeline, data, device.descriptors.gset)
       bind_state = bind(cb, reqs, bind_state)
-      for dispatch in dispatches
-        apply(cb, dispatch.impl::Union{Dispatch, DispatchIndirect})
+      for command in commands
+        command.type == COMMAND_TYPE_DISPATCH ? apply(cb, command.compute.dispatch::Dispatch) : apply(cb, command.compute.dispatch::DispatchIndirect, baked.resources)
       end
     end
+  end
+
+  for command in record.transfers
+    apply(cb, command.transfer, baked.resources)
   end
 
   bind_state

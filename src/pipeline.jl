@@ -53,6 +53,7 @@ function pipeline_info_graphics(
   invocation_state::ProgramInvocationState,
   targets::RenderTargets,
   layout::PipelineLayout,
+  resources,
 )
   program_data = program.data::GraphicsProgram
   shader_stages = Vk.PipelineShaderStageCreateInfo.([program_data.vertex_shader, program_data.fragment_shader])
@@ -106,7 +107,7 @@ function pipeline_info_graphics(
     state.line_width;
     invocation_state.cull_mode,
   )
-  color_samples = [(c.data::Attachment).view.image.samples for c in targets.color]
+  color_samples = samples.(get_physical_resource.(Ref(resources), targets.color))
   all(==(first(color_samples)), color_samples) || error("Incoherent number of samples detected for color attachments: ", color_samples)
   nsamples = first(color_samples)
   multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), false, 1.0, false, false)

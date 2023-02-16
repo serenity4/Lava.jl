@@ -103,21 +103,23 @@ function queue_infos(::Type{QueueDispatch}, physical_device::Vk.PhysicalDevice, 
 end
 
 function get_queue_family(dispatch::QueueDispatch, properties::Vk.QueueFlag)
-  # try exact match
+  iszero(properties) && throw(ArgumentError("At least one queue flag must be specified"))
+
+  # Try exact match.
   for (family, queues) in pairs(dispatch.queues)
     properties == first(queues).capabilities && return family
   end
 
-  # try queues that contain the required properties
+  # Try queues that contain the required properties.
   for (family, queues) in pairs(dispatch.queues)
     properties in first(queues).capabilities && return family
   end
 
-  # panic
   error("Could not find a queue matching with the required properties $properties")
 end
 
 function queue(dispatch::QueueDispatch, family_index)
+  @assert family_index ≠ -1
   haskey(dispatch.queues, family_index) && return first(dispatch.queues[family_index])
   !isnothing(dispatch.present_queue) && dispatch.present_queue.family == family_index && return dispatch.present_queue
   error("Could not find queue with family index $family_index")

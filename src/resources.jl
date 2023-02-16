@@ -34,6 +34,16 @@ struct Resource
   flags::ResourceFlags
 end
 
+@inline function Base.getproperty(resource::Resource, name::Symbol)
+  name === :buffer && return resource.data::Buffer
+  name === :image && return resource.data::Image
+  name === :attachment && return resource.data::Attachment
+  name === :logical_buffer && return resource.data::LogicalBuffer
+  name === :logical_image && return resource.data::LogicalImage
+  name === :logical_attachment && return resource.data::LogicalAttachment
+  getfield(resource, name)
+end
+
 Resource(type::ResourceType, data, flags = ResourceFlags(0)) = Resource(ResourceID(type), data, flags)
 Resource(data::Union{Buffer,Image,Attachment}, flags = ResourceFlags(0)) = Resource(resource_type(data), data, flags)
 
@@ -61,3 +71,14 @@ end
 
 include("resources/logical.jl")
 include("resources/usage.jl")
+
+function samples(r::Resource)
+  islogical(r) && throw(ArgumentError("The number of samples can only be retrieved from a physical resource."))
+  isattachment(r) ? samples(r.attachment) : isimage(r) ? samples(r.image) : 1
+end
+
+function image_format(r::Resource)
+  isimage(r) && return (r.data::Union{Image,LogicalImage}).format
+  isattachment(r) && return islogical(r) ? r.logical_attachment.format : r.attachment.view.image.format
+  throw(ArgumentError("Formats can only be extracted from image or attachment resources."))
+end

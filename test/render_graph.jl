@@ -35,10 +35,10 @@ using Graphs: nv, ne
   lighting = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
   postprocess = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
-  push!(gbuffer.command_infos, fake_command_info(targets = RenderTargets(emissive, albedo, normal, pbr; depth), command = Command(COMMAND_TYPE_DRAW_INDEXED_INDIRECT, DrawIndexedIndirect(indirect.data::Buffer, 10))))
-  push!(compute_luminance.command_infos, fake_command_info(; program_type = PROGRAM_TYPE_COMPUTE))
-  push!(lighting.command_infos, fake_command_info(targets = RenderTargets(color, emissive, albedo, normal, pbr; depth)))
-  push!(postprocess.command_infos, fake_command_info(targets = RenderTargets(postprocessed, color)))
+  push!(gbuffer.commands, fake_graphics_command(targets = RenderTargets(emissive, albedo, normal, pbr; depth), draw = DrawIndexedIndirect(indirect, 10)))
+  push!(compute_luminance.commands, fake_compute_command())
+  push!(lighting.commands, fake_graphics_command(targets = RenderTargets(color, emissive, albedo, normal, pbr; depth)))
+  push!(postprocess.commands, fake_graphics_command(targets = RenderTargets(postprocessed, color)))
 
   @add_resource_dependencies rg begin
     (emissive => (0.0, 0.0, 1.0, 1.0))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(indirect::Buffer::Indirect)
@@ -53,25 +53,25 @@ using Graphs: nv, ne
 
     # Per-node resource usage.
     (; usage) = only(rg.uses[postprocess.id][bloom_downsample.id])
-    @test usage.type == SHADER_RESOURCE_TYPE_TEXTURE
+    @test usage.type == RESOURCE_USAGE_TEXTURE
     @test usage.samples == 4
 
     (; usage) = only(rg.uses[gbuffer.id][emissive.id])
-    @test usage.type == SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT
+    @test usage.type == RESOURCE_USAGE_COLOR_ATTACHMENT
     @test usage.clear_value == (0.0f0, 0.0f0, 1.0f0, 1.0f0)
 
     # Combined resource usage.
     uses = combine_resource_uses(combine_resource_uses_per_node(rg.uses))
 
     (; usage) = uses[color.id]
-    @test usage.type == SHADER_RESOURCE_TYPE_COLOR_ATTACHMENT
+    @test usage.type == RESOURCE_USAGE_COLOR_ATTACHMENT
     @test usage.access == WRITE | READ
     @test usage.stages == Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
     @test usage.aspect == Vk.IMAGE_ASPECT_COLOR_BIT
     @test usage.samples == 1
 
     (; usage) = uses[depth.id]
-    @test usage.type == SHADER_RESOURCE_TYPE_DEPTH_ATTACHMENT
+    @test usage.type == RESOURCE_USAGE_DEPTH_ATTACHMENT
     @test usage.aspect == Vk.IMAGE_ASPECT_DEPTH_BIT
     @test usage.stages == Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
 
@@ -126,12 +126,10 @@ using Graphs: nv, ne
     color = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
     normal = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
-    rec = StatefulRecording()
     graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
-    set_program(rec, prog)
-    set_data(rec, rg, [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)])
-    info = draw!(graphics, rec, collect(1:4), color; depth)
+    data = @invocation_data prog @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]
+    push!(graphics.commands, graphics_command(DrawIndexed(collect(1:4)), prog, data, color; depth))
 
     @add_resource_dependencies rg begin
       (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
@@ -166,7 +164,7 @@ using Graphs: nv, ne
 
       command_buffer = Lava.SnoopCommandBuffer()
       Lava.fill_indices!(baked.index_data, records)
-      Lava.initialize(command_buffer, device, baked.index_data)
+      Lava.initialize_index_buffer(command_buffer, device, baked.index_data)
       flush(command_buffer, baked, records, pipeline_hashes)
       @test !isempty(command_buffer)
       @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_draw_indexed, :cmd_end_rendering]
@@ -187,7 +185,7 @@ using Graphs: nv, ne
       test_validation_msg(x -> @test isempty(x)) do
         command_buffer = Lava.request_command_buffer(device)
         Lava.fill_indices!(baked.index_data, records)
-        Lava.initialize(command_buffer, device, baked.index_data)
+        Lava.initialize_index_buffer(command_buffer, device, baked.index_data)
         flush(command_buffer, baked, records, pipeline_hashes)
       end
     end
@@ -198,7 +196,7 @@ using Graphs: nv, ne
     normal = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
     graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
-    cmd = DrawIndexed(1:4)
+    draw = DrawIndexed(1:4)
     dependencies = @resource_dependencies begin
       @read
       normal::Texture
@@ -206,8 +204,8 @@ using Graphs: nv, ne
       (color => (0.0, 0.0, 0.0, 1.0))::Color
       depth::Depth
     end
-    invocation = ProgramInvocation(prog, cmd, @invocation_data(prog, @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
-    push!(graphics.program_invocations, invocation)
+    command = graphics_command(draw, prog, @invocation_data(prog, @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
+    push!(graphics.commands, command)
 
     rg = RenderGraph(device)
     add_node!(rg, graphics)
@@ -215,7 +213,6 @@ using Graphs: nv, ne
     baked = Lava.bake!(rg)
     @test isa(baked, Lava.BakedRenderGraph)
     @test length(baked.nodes) == 1
-    @test baked.nodes[1].id == graphics.id
-    @test baked.nodes[1] ≠ graphics # the node must be copied to preserve original invocation data
+    @test command.graphics.data_address ≠ DeviceAddressBlock(0)
   end
 end;

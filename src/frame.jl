@@ -122,12 +122,13 @@ function cycle!(f, fc::FrameCycle, idx::Integer)
     # Submit rendering commands.
     @timeit to "Submit rendering commands" begin
         submission = f(frame.image)
+        isa(submission, SubmissionInfo) || throw(ArgumentError("A `SubmissionInfo` must be returned to properly synchronize with frame presentation."))
         push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfo(image_acquired.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
         push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.image_rendered.handle, next_value!(frame.image_rendered), 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
         # For syncing with the presentation engine only.
         push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.may_present.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
         push!(submission.release_after_completion, frame)
-        state = submit(queues, get_queue_family(queues, Vk.QUEUE_GRAPHICS_BIT), submission)
+        state = submit(queues, submission)
     end
 
     # Submit the presentation command.

@@ -11,11 +11,10 @@ function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp
   end
 end
 
-graphics_node(invocation = nothing) = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, program_invocations = isnothing(invocation) ? ProgramInvocation[] : ProgramInvocation[invocation])
-compute_node(invocations::Vector{ProgramInvocation}) = RenderNode(; stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, program_invocations = invocations)
-compute_node(invocations::ProgramInvocation...) = compute_node(collect(invocations))
+graphics_node(commands) = RenderNode(; render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, commands)
+compute_node(commands) = RenderNode(; stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, commands)
 
-render_graphics(device, node::RenderNode) = render_graphics(device, only(node.program_invocations[end].targets.color), [node])
+render_graphics(device, node::RenderNode) = render_graphics(device, only(node.commands[end].graphics.targets.color), [node])
 function render_graphics(device, color, nodes)
   render(device, nodes)
   read_data(device, color)

@@ -12,20 +12,26 @@ struct CompactRecord <: CommandRecord
   node::RenderNode
   draws::Dictionary{Program,Dictionary{Tuple{DeviceAddressBlock, DrawState},Vector{Pair{Command,RenderTargets}}}}
   dispatches::Dictionary{Program,Dictionary{DeviceAddressBlock, Vector{Command}}}
+  transfers::Vector{Command}
+  presentations::Vector{Command}
 end
 
-draw!(record::CommandRecord, info::CommandInfo) = draw!(record, info.command, info.program, info.data, info.targets, info.state)
-function draw!(record::CompactRecord, command::Command, program::Program, data::DeviceAddressBlock, targets::RenderTargets, state::DrawState)
-  program_draws = get!(Dictionary, record.draws, program)
-  draws = get!(Vector{Pair{Command,RenderTargets}}, program_draws, (data, state))
-  push!(draws, command => targets)
-  nothing
-end
-dispatch!(record::CommandRecord, info::CommandInfo) = dispatch!(record, info.command, info.program, info.data)
-function dispatch!(record::CompactRecord, command::Command, program::Program, data::DeviceAddressBlock)
-  program_dispatches = get!(Dictionary, record.dispatches, program)
-  dispatches = get!(Vector{Command}, program_dispatches, data)
-  push!(dispatches, command)
+function record!(record::CompactRecord, command::Command)
+  if is_graphics(command)
+    (; draw, program, data_address, targets, state) = command.graphics
+    program_draws = get!(Dictionary, record.draws, program)
+    draws = get!(Vector{Pair{Command,RenderTargets}}, program_draws, (data_address, state))
+    push!(draws, command => targets)
+  elseif is_compute(command)
+    (; dispatch, program, data_address) = command.compute
+    program_dispatches = get!(Dictionary, record.dispatches, program)
+    dispatches = get!(Vector{Command}, program_dispatches, data_address)
+    push!(dispatches, command)
+  elseif is_transfer(command)
+    push!(record.transfers, command)
+  elseif is_present(command)
+    push!(record.presentations, command)
+  end
   nothing
 end
 
@@ -40,14 +46,7 @@ Base.show(io::IO, record::CompactRecord) = print(
   ')',
 )
 
-function draw_command(program::Program, data_address, idata, color...; depth = nothing, stencil = nothing, instances = 1:1, render_state::RenderState = RenderState(), invocation_state::ProgramInvocationState = ProgramInvocationState())
-  state = DrawState(render_state, invocation_state)
-  command = Command(DrawIndexed(idata; instances))
-  targets = RenderTargets(color...; depth, stencil)
-  CommandInfo(command, program, data_address, targets, state)
-end
-
-function initialize(cb::CommandBuffer, device::Device, id::IndexData)
+function initialize_index_buffer(cb::CommandBuffer, device::Device, id::IndexData)
   allocate_index_buffer(id, device)
   Vk.cmd_bind_index_buffer(cb, id.index_buffer[], 0, Vk.INDEX_TYPE_UINT32)
 end

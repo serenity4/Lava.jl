@@ -30,14 +30,14 @@ function scalar_displacement_program(device)
   Program(vert, frag)
 end
 
-function displacement_invocation(device, vmesh::VertexMesh, color::Resource, height_map::Resource, camera::Mat4, prog = scalar_displacement_program(device))
+function draw_terrain(device, vmesh::VertexMesh, color::Resource, height_map::Resource, camera::Mat4, prog = scalar_displacement_program(device))
   height_map_texture = texture_descriptor(Texture(height_map, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
   invocation_data = @invocation_data prog begin
     @block DisplacementData(@address(@block vmesh.vertex_data), @descriptor(height_map_texture), camera)
   end
-  ProgramInvocation(
-    prog,
+  graphics_command(
     DrawIndexed(foldl(vcat, vmesh.indices.indices); vertex_offset = 0),
+    prog,
     invocation_data,
     RenderTargets(color),
     RenderState(),
@@ -74,8 +74,8 @@ end
     0 0 1 0
     0 0 0 1
   ]
-  invocation = displacement_invocation(device, vmesh, color, height_map, camera)
-  data = render_graphics(device, graphics_node(invocation))
+  draw = draw_terrain(device, vmesh, color, height_map, camera)
+  data = render_graphics(device, graphics_node([draw]))
   h = save_test_render("displacement.png", data)
   @test isa(h, UInt64)
 end;

@@ -4,6 +4,8 @@ vk_handle_type(::Type{<:CommandBuffer}) = Vk.CommandBuffer
 
 struct SimpleCommandBuffer <: CommandBuffer
   handle::Vk.CommandBuffer
+  # We need to know the exact queue family to allocate the command pool and then the command buffer,
+  # so we can't use a `QueueFlag` and resolve the queue family later.
   queue_family_index::Int64
   queues::QueueDispatch
   to_preserve::Vector{Any}
@@ -20,13 +22,15 @@ start_recording(cb::SimpleCommandBuffer) =
   unwrap(Vk.begin_command_buffer(cb, Vk.CommandBufferBeginInfo(flags = Vk.COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)))
 end_recording(cb) = unwrap(Vk.end_command_buffer(cb))
 
-SubmissionInfo(cb::SimpleCommandBuffer) = SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(cb)], release_after_completion = cb.to_preserve, free_after_completion = cb.to_free)
+SubmissionInfo(cb::SimpleCommandBuffer) = SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(cb)], release_after_completion = cb.to_preserve, free_after_completion = cb.to_free, queue_family = cb.queue_family_index)
 
-function submit(command_buffer::SimpleCommandBuffer, info::SubmissionInfo = SubmissionInfo())
+submit(command_buffer::SimpleCommandBuffer) = submit(command_buffer.queues, SubmissionInfo(command_buffer))
+function submit!(info::SubmissionInfo, command_buffer::SimpleCommandBuffer)
+  set_queue_family!(info, command_buffer.queue_family_index)
   push!(info.command_buffers, Vk.CommandBufferSubmitInfo(command_buffer))
   append!(info.release_after_completion, command_buffer.to_preserve)
   append!(info.free_after_completion, command_buffer.to_free)
-  submit(command_buffer.queues, command_buffer.queue_family_index, info)
+  submit(command_buffer.queues, info)
 end
 
 struct CommandPools

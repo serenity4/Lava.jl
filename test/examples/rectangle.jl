@@ -20,11 +20,11 @@ function rectangle_program(device)
   Program(vert, frag)
 end
 
-function rectangle_invocation(device, vdata, color, prog = rectangle_program(device))
+function draw_rectangle(device, vdata, color, prog = rectangle_program(device))
   invocation_data = @invocation_data prog @block vdata
-  ProgramInvocation(
-    prog,
+  graphics_command(
     DrawIndexed(1:4),
+    prog,
     invocation_data,
     RenderTargets(color),
     RenderState(),
@@ -46,7 +46,7 @@ end
     PosColor(Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
     PosColor(Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
   ]
-  invocation = rectangle_invocation(device, vdata, color)
-  data = render_graphics(device, graphics_node(invocation))
+  draw = draw_rectangle(device, vdata, color)
+  data = render_graphics(device, graphics_node([draw]))
   save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
 end;

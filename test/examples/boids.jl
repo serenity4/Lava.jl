@@ -154,25 +154,25 @@ function boid_simulation_nodes(device, agents::Resource, forces::Resource, param
     @block BoidsInfo(DeviceAddress(agents), parameters, Δt, DeviceAddress(forces))
   end
   dispatch = Dispatch(DISPATCH_SIZE)
-  invocation_forces = ProgramInvocation(
-    prog_1,
+  command_1 = compute_command(
     dispatch,
+    prog_1,
     data,
     @resource_dependencies begin
       @read agents::Buffer::Physical
       @write forces::Buffer::Physical
     end
   )
-  invocation_update = ProgramInvocation(
-    prog_2,
+  command_2 = compute_command(
     dispatch,
+    prog_2,
     data,
     @resource_dependencies begin
       @read forces::Buffer::Physical
       @write agents::Buffer::Physical
     end
   )
-  [compute_node(invocation_forces), compute_node(invocation_update)]
+  [compute_node([command_1]), compute_node([command_2])]
 end
 
 struct BoidDrawData
@@ -228,9 +228,9 @@ function boid_drawing_node(device, agents::Resource, color, image)
   data = @invocation_data prog begin
     @block BoidDrawData(DeviceAddress(agents), @descriptor(image_texture), 0.1)
   end
-  invocation = ProgramInvocation(
-    prog,
+  draw = graphics_command(
     DrawIndexed(1:4; instances = 1:512),
+    prog,
     data,
     RenderTargets(color),
     RenderState(),
@@ -243,7 +243,7 @@ function boid_drawing_node(device, agents::Resource, color, image)
       @write (color => (0.08, 0.05, 0.1, 1.0))::Color
     end
   )
-  graphics_node(invocation)
+  graphics_node([draw])
 end
 
 @testset "Simulation of boids" begin

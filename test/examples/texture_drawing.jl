@@ -34,7 +34,7 @@ function texture_program(device)
   Program(vert, frag)
 end
 
-function texture_invocation(device, vdata, color; prog = texture_program(device), image = nothing)
+function draw_texture(device, vdata, color; prog = texture_program(device), image = nothing)
   image = @something(image, read_normal_map(device))
   image_texture = texture_descriptor(Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
   invocation_data = @invocation_data prog begin
@@ -42,9 +42,9 @@ function texture_invocation(device, vdata, color; prog = texture_program(device)
     b2 = @block TextureDrawing(Vec2(0.1, 1.0), @descriptor image_texture)
     @block TextureData(@address(b1), @address(b2))
   end
-  ProgramInvocation(
-    prog,
+  graphics_command(
     DrawIndexed(1:4),
+    prog,
     invocation_data,
     RenderTargets(color),
     RenderState(),
@@ -68,7 +68,7 @@ end
     TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
-  invocation = texture_invocation(device, vdata, color)
-  data = render_graphics(device, graphics_node(invocation))
+  draw = draw_texture(device, vdata, color)
+  data = render_graphics(device, graphics_node([draw]))
   save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
 end;
