@@ -62,7 +62,7 @@ function stage_flags(command::Command, resource::Resource)
   Vk.PIPELINE_STAGE_2_NONE
 end
 
-stage_flags(command::Command) = foldl((x, y) -> x | stage_flags(command, y), keys(resource_dependencies(command)); init = Vk.PIPELINE_STAGE_2_NONE)
+stage_flags(command::Command) = stage_flags(command.any)
 
 function stage_flags(targets::RenderTargets, render_state::RenderState, resource::Resource)
   stages = Vk.PIPELINE_STAGE_2_NONE

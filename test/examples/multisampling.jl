@@ -22,6 +22,6 @@ end
     PosColor(Vec2(-0.5, -0.8), Arr{Float32}(0.0, 1.0, 0.0)),
   ]
   draw = draw_triangle_multisampled(device, vdata, color_ms)
-  data = render_graphics(device, graphics_node([draw]))
+  data = render_graphics(device, draw)
   save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
 end;

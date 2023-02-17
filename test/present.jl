@@ -34,7 +34,7 @@ end
 
   function _draw_on_screen(swapchain_image, t)
     uv_scale = Vec2(0.1 + t * 0.9, 0.5cos(t))
-    nodes = [graphics_node([draw_texture(device, vdata, color; prog, uv_scale, image)])]
+    nodes = [draw_texture(device, vdata, color; prog, uv_scale, image)]
     target = Resource(swapchain_image)
     draw_on_screen(device, nodes, color, target)
   end

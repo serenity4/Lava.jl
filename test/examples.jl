@@ -11,16 +11,14 @@ function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp
   end
 end
 
-graphics_node(commands) = RenderNode(; render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, commands)
-compute_node(commands) = RenderNode(; stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, commands)
-
-render_graphics(device, node::RenderNode) = render_graphics(device, only(node.commands[end].graphics.targets.color), [node])
+render_graphics(device, node::RenderNode) = render_graphics(device, node.commands[end])
+render_graphics(device, command::Command) = render_graphics(device, only(command.graphics.targets.color), [command])
 function render_graphics(device, color, nodes)
   render(device, nodes)
   read_data(device, color)
 end
 
-read_data(device, color) = clamp01nan!(collect(RGBA{Float16}, color.data.view.image, device))
+read_data(device, color) = clamp01nan!(collect(RGBA{Float16}, color.attachment.view.image, device))
 
 include("examples/textures.jl")
 

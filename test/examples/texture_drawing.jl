@@ -69,6 +69,6 @@ end
     TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
   ]
   draw = draw_texture(device, vdata, color)
-  data = render_graphics(device, graphics_node([draw]))
+  data = render_graphics(device, draw)
   save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
 end;

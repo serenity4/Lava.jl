@@ -66,6 +66,7 @@ present_command(args...; kwargs...) = Command(COMMAND_TYPE_PRESENT, PresentComma
   name === :compute && return command.impl::ComputeCommand
   name === :present && return command.impl::PresentCommand
   name === :transfer && return command.impl::TransferCommand
+  name === :any && return command.impl::Union{GraphicsCommand, ComputeCommand, PresentCommand, TransferCommand}
   getfield(command, name)
 end
 

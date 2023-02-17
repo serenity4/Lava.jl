@@ -75,7 +75,7 @@ end
     0 0 0 1
   ]
   draw = draw_terrain(device, vmesh, color, height_map, camera)
-  data = render_graphics(device, graphics_node([draw]))
+  data = render_graphics(device, draw)
   h = save_test_render("displacement.png", data)
   @test isa(h, UInt64)
 end;

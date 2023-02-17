@@ -56,7 +56,7 @@ end
 
 render!(rg::RenderGraph, command_buffer::CommandBuffer) = render(command_buffer, bake!(rg))
 
-render(device::Device, node::RenderNode) = render(device, [node])
+render(device::Device, node::Union{RenderNode,Command}) = render(device, [node])
 render(device::Device, nodes) = render!(RenderGraph(device, nodes))
 
 function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)

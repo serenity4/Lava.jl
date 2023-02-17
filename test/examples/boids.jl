@@ -172,7 +172,7 @@ function boid_simulation_nodes(device, agents::Resource, forces::Resource, param
       @write agents::Buffer::Physical
     end
   )
-  [compute_node([command_1]), compute_node([command_2])]
+  [command_1, command_2]
 end
 
 struct BoidDrawData
@@ -243,7 +243,7 @@ function boid_drawing_node(device, agents::Resource, color, image)
       @write (color => (0.08, 0.05, 0.1, 1.0))::Color
     end
   )
-  graphics_node([draw])
+  draw
 end
 
 @testset "Simulation of boids" begin
