@@ -24,7 +24,6 @@ end
   color = attachment_resource(Vk.FORMAT_R16G16B16A16_SFLOAT, [1920, 1080])
   image = read_normal_map(device)
   prog = texture_program(device)
-  set_presentation_queue(device, [swapchain.surface])
   vdata = [
     TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
     TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),

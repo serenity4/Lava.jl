@@ -7,38 +7,23 @@ end
 
 vk_handle_type(::Type{Queue}) = Vk.Queue
 
-mutable struct QueueDispatch
+struct QueueDispatch
   device::Vk.Device
-  const queues::Dictionary{Int64,Vector{Queue}}
-  present_queue::Optional{Queue}
+  queues::Dictionary{Int64,Vector{Queue}}
   """
   Build a `QueueDispatch` structure from a given device and configuration.
-  If a surface is provided, then a queue that supports presentation on this surface will be filled in `present_queue`.
 
   !!! warning
       `device` must have been created with a consistent number of queues as requested in the provided queue configuration.
       It is highly recommended to have created the device with the result of `queue_infos(QueueDispatch, physical_device, config)`.
   """
-  function QueueDispatch(device, infos; surface = nothing)
+  function QueueDispatch(device, infos)
     pdevice = physical_device(device)
     families = dictionary(map(infos) do info
       info.queue_family_index => length(info.queue_priorities)
     end)
     queues = queues_by_family(device, families)
-    present_queue = if !isnothing(surface)
-      find_present_queue(pdevice, surface, families)
-      idx = findfirst(families) do family
-        unwrap(Vk.get_physical_device_surface_support_khr(pdevice, family, surface))
-      end
-      if isnothing(idx)
-        error("Could not find a queue that supports presentation on the provided surface.")
-      else
-        first(values(queues)[idx])
-      end
-    else
-      nothing
-    end
-    new(device, queues, present_queue)
+    new(device, queues)
   end
 end
 
@@ -120,12 +105,10 @@ end
 
 function queue(dispatch::QueueDispatch, family_index)
   @assert family_index ≠ -1
-  haskey(dispatch.queues, family_index) && return first(dispatch.queues[family_index])
-  !isnothing(dispatch.present_queue) && dispatch.present_queue.family == family_index && return dispatch.present_queue
-  error("Could not find queue with family index $family_index")
+  get(() -> error("Could not find queue with family index $family_index"), dispatch.queues, family_index)
 end
 
-function set_presentation_queue(dispatch::QueueDispatch, surfaces)
+function find_presentation_queue(dispatch::QueueDispatch, surfaces)
   (; device) = dispatch
   family_index = findfirst(keys(dispatch.queues)) do family
     all(surfaces) do surface
@@ -134,20 +117,6 @@ function set_presentation_queue(dispatch::QueueDispatch, surfaces)
   end
   !isnothing(family_index) || error("Could not find a presentation queue among the queues created with this device that is compatible with all the surfaces $surfaces. You will have to provide the surfaces when initializing the device.")
   queue = first(dispatch.queues[family_index])
-  dispatch.present_queue = queue
 end
 
-function present(dispatch::QueueDispatch, present_info::Vk.PresentInfoKHR)
-  (; present_queue) = dispatch
-  if isnothing(present_queue)
-    error("No presentation queue was specified. Set one with `set_presentation_queue`.")
-  else
-    Vk.queue_present_khr(present_queue, present_info)
-  end
-end
-
-function queue_family_indices(dispatch::QueueDispatch; include_present = true)
-  indices = collect(keys(dispatch.queues))
-  !isnothing(dispatch.present_queue) && include_present && union!(indices, dispatch.present_queue.family)
-  indices
-end
+queue_family_indices(dispatch::QueueDispatch) = collect(keys(dispatch.queues))

@@ -57,12 +57,6 @@ function deduce_render_area(command::GraphicsCommand)
   RenderArea(dimensions(targets.color[1])...)
 end
 
-# These stage flags can be later refined if needed, instead of over-estimating so much.
-stage_flags(command::GraphicsCommand) = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT
-stage_flags(command::ComputeCommand) = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-stage_flags(command::TransferCommand) = Vk.PIPELINE_STAGE_2_BLIT_BIT | Vk.PIPELINE_STAGE_2_RESOLVE_BIT | Vk.PIPELINE_STAGE_2_COPY_BIT
-stage_flags(command::PresentCommand) = Vk.PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
-
 struct DrawIndirect <: DrawCommand
   parameters::Resource
   count::Int64

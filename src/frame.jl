@@ -131,7 +131,7 @@ function cycle!(f, fc::FrameCycle, idx::Integer)
     # Submit the presentation command.
     @timeit to "Submit presentation commands" begin
         present_info = Vk.PresentInfoKHR([frame.may_present.handle], [fc.swapchain.handle], [idx - 1])
-        ret = present(queues, present_info)
+        ret = Vk.queue_present_khr(fc.swapchain.queue, present_info)
         # Ignore out of date errors, but throw if others are encountered.
         iserror(ret) && unwrap_error(ret).code ≠ Vk.ERROR_OUT_OF_DATE_KHR && unwrap(ret)
     end

@@ -9,6 +9,7 @@ struct Swapchain{T} <: LavaAbstraction
   handle::Vk.SwapchainKHR
   info::Vk.SwapchainCreateInfoKHR
   surface::Surface{T}
+  queue::Queue
 end
 
 vk_handle_type(::Type{<:Swapchain}) = Vk.SwapchainKHR
@@ -49,7 +50,7 @@ function Swapchain(device::Device, surface::Surface, usage_flags::Vk.ImageUsageF
     false,
   )
   handle = unwrap(Vk.create_swapchain_khr(device, info))
-  Swapchain(handle, info, surface)
+  Swapchain(handle, info, surface, find_presentation_queue(device.queues, [surface]))
 end
 
 """

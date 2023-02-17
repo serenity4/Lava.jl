@@ -61,6 +61,12 @@ end
 transfer_command(args...; kwargs...) = Command(COMMAND_TYPE_TRANSFER, TransferCommand(args...; kwargs...))
 present_command(args...; kwargs...) = Command(COMMAND_TYPE_PRESENT, PresentCommand(args...; kwargs...))
 
+# These stage flags can be later refined if needed, instead of over-estimating so much.
+stage_flags(command::GraphicsCommand) = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT
+stage_flags(command::ComputeCommand) = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+stage_flags(command::TransferCommand) = Vk.PIPELINE_STAGE_2_BLIT_BIT | Vk.PIPELINE_STAGE_2_RESOLVE_BIT | Vk.PIPELINE_STAGE_2_COPY_BIT
+stage_flags(command::PresentCommand) = Vk.PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
+
 @inline function Base.getproperty(command::Command, name::Symbol)
   name === :graphics && return command.impl::GraphicsCommand
   name === :compute && return command.impl::ComputeCommand
