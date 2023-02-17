@@ -184,7 +184,7 @@ export
   Surface, Swapchain,
 
   # frame
-  Frame, FrameCycle, cycle!, acquire_next_image,
+  Frame, FrameCycle, cycle!, acquire_next_image, draw_and_prepare_for_presentation,
 
   # SPIR-V reexports
   ShaderInterface, Decorations, Vec, Arr, Mat, Vec2, Vec3, Vec4, Mat2, Mat3, Mat4

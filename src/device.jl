@@ -22,7 +22,7 @@ end
 vk_handle_type(::Type{Device}) = Vk.Device
 
 function Device(physical_device::Vk.PhysicalDevice, application_version::VersionNumber, extensions, queue_config,
-  features::Vk.PhysicalDeviceFeatures2; surface = nothing, next = C_NULL)
+  features::Vk.PhysicalDeviceFeatures2; next = C_NULL)
 
   infos = queue_infos(QueueDispatch, physical_device, queue_config)
   info = Vk.DeviceCreateInfo(
@@ -36,7 +36,7 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
   api_version = min(application_version, supported_device_version)
 
   handle = unwrap(create(Device, physical_device, info))
-  queues = QueueDispatch(handle, infos; surface)
+  queues = QueueDispatch(handle, infos)
   alignment = VulkanAlignment()
   Device(
     handle,

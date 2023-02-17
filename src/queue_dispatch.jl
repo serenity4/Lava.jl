@@ -105,7 +105,7 @@ end
 
 function queue(dispatch::QueueDispatch, family_index)
   @assert family_index ≠ -1
-  get(() -> error("Could not find queue with family index $family_index"), dispatch.queues, family_index)
+  first(get(() -> error("Could not find queue with family index $family_index"), dispatch.queues, family_index))
 end
 
 function find_presentation_queue(dispatch::QueueDispatch, surfaces)

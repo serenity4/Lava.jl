@@ -22,6 +22,10 @@ function FrameCycle(device::Device, swapchain::Swapchain)
     FrameCycle(device, swapchain, get_frames(device, swapchain), 1, 0)
 end
 
+function FrameCycle(device::Device, surface::Surface; swapchain_kwargs...)
+    FrameCycle(device, Swapchain(device, surface, Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT; swapchain_kwargs...))
+end
+
 function surface_capabilities(fc::FrameCycle)
     unwrap(Vk.get_physical_device_surface_capabilities_2_khr(fc.device.handle.physical_device, Vk.PhysicalDeviceSurfaceInfo2KHR(; fc.swapchain.surface))).surface_capabilities
 end
@@ -138,3 +142,15 @@ function cycle!(f, fc::FrameCycle, idx::Integer)
 
     state
 end
+
+function draw_and_prepare_for_presentation(device::Device, nodes, source::Resource, target::Resource)
+    transfer = transfer_command(source, target)
+    present = present_command(target)
+    rg = RenderGraph(device, nodes)
+    add_nodes!(rg, transfer, present)
+    command_buffer = request_command_buffer(device)
+    baked = render!(rg, command_buffer)
+    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], release_after_completion = [baked], queue_family = command_buffer.queue_family_index, signal_fence = fence(device))
+end
+
+draw_and_prepare_for_presentation(device::Device, nodes, source::Resource, target::Image) = draw_and_prepare_for_presentation(device, nodes, source, Resource(target))
