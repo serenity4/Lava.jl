@@ -34,12 +34,12 @@ function texture_program(device)
   Program(vert, frag)
 end
 
-function draw_texture(device, vdata, color; prog = texture_program(device), image = nothing)
+function draw_texture(device, vdata, color; prog = texture_program(device), image = nothing, uv_scale = Vec2(0.1, 1.0))
   image = @something(image, read_normal_map(device))
   image_texture = texture_descriptor(Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
   invocation_data = @invocation_data prog begin
     b1 = @block vdata
-    b2 = @block TextureDrawing(Vec2(0.1, 1.0), @descriptor image_texture)
+    b2 = @block TextureDrawing(uv_scale, @descriptor image_texture)
     @block TextureData(@address(b1), @address(b2))
   end
   graphics_command(

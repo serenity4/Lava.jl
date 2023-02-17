@@ -56,19 +56,8 @@ end
 
 render!(rg::RenderGraph, command_buffer::CommandBuffer) = render(command_buffer, bake!(rg))
 
-function render(device::Device, node::RenderNode)
-  rg = RenderGraph(device)
-  add_node!(rg, node)
-  render!(rg)
-end
-
-function render(device::Device, nodes)
-  rg = RenderGraph(device)
-  for node in nodes
-    add_node!(rg, node)
-  end
-  render!(rg)
-end
+render(device::Device, node::RenderNode) = render(device, [node])
+render(device::Device, nodes) = render!(RenderGraph(device, nodes))
 
 function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
   records, pipeline_hashes = record_commands!(baked)

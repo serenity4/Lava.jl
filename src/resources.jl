@@ -73,8 +73,13 @@ include("resources/logical.jl")
 include("resources/usage.jl")
 
 function samples(r::Resource)
-  islogical(r) && throw(ArgumentError("The number of samples can only be retrieved from a physical resource."))
-  isattachment(r) ? samples(r.attachment) : isimage(r) ? samples(r.image) : 1
+  isbuffer(r) && return 1
+  samples(r.data::Union{Image,LogicalImage,Attachment,LogicalAttachment})
+end
+
+function dimensions(r::Resource)
+  isbuffer(r) && error("Cannot retrieve image dimensions for buffer resources.")
+  dimensions(r.data::Union{Image,LogicalImage,Attachment,LogicalAttachment})
 end
 
 function image_format(r::Resource)

@@ -13,6 +13,13 @@ Base.@kwdef struct RenderNode
   end
 end
 
+function RenderNode(command::Command)
+  stages = stage_flags(command)
+  render_area = nothing
+  is_graphics(command) && (render_area = deduce_render_area(command.graphics))
+  RenderNode(; stages, render_area, commands = [command])
+end
+
 Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
 
 function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDependency)
@@ -42,17 +49,20 @@ end
 function stage_flags(command::Command, resource::Resource)
   command.type == COMMAND_TYPE_DISPATCH_INDIRECT && (command.compute.dispatch::DispatchIndirect).buffer.id == resource.id && return Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT
   command.type == COMMAND_TYPE_DRAW_INDIRECT && (command.graphics.draw::DrawIndirect).parameters.id == resource.id && return Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT
-  if command.type == COMMAND_TYPE_TRANSFER
+  is_presentation(command) && return Vk.PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
+  if is_transfer(command)
     (; transfer) = command
-    if resource.id in (transfer.src, transfer.dst)
-      is_copy(command) && return Vk.PIPELINE_STAGE_2_COPY_BIT
-      is_resolve(command) && return Vk.PIPELINE_STAGE_2_RESOLVE_BIT
-      is_blit(command) && return Vk.PIPELINE_STAGE_2_BLIT_BIT
+    if any(r.id == resource.id for r in (transfer.src, transfer.dst))
+      is_copy(transfer) && return Vk.PIPELINE_STAGE_2_COPY_BIT
+      is_resolve(transfer) && return Vk.PIPELINE_STAGE_2_RESOLVE_BIT
+      is_blit(transfer) && return Vk.PIPELINE_STAGE_2_BLIT_BIT
       @assert false
     end
   end
   Vk.PIPELINE_STAGE_2_NONE
 end
+
+stage_flags(command::Command) = foldl((x, y) -> x | stage_flags(command, y), keys(resource_dependencies(command)); init = Vk.PIPELINE_STAGE_2_NONE)
 
 function stage_flags(targets::RenderTargets, render_state::RenderState, resource::Resource)
   stages = Vk.PIPELINE_STAGE_2_NONE
@@ -116,8 +126,10 @@ struct RenderGraph
   temporary::Vector{ResourceID}
 end
 
-function RenderGraph(device::Device; linear_allocator_size = 2^20 #= 1_000_000 KiB =#)
-  RenderGraph(device, LinearAllocator(device, linear_allocator_size), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), [])
+function RenderGraph(device::Device, nodes = nothing; linear_allocator_size = 2^20 #= 1_000_000 KiB =#)
+  rg = RenderGraph(device, LinearAllocator(device, linear_allocator_size), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), [])
+  !isnothing(nodes) && add_nodes!(rg, nodes)
+  rg
 end
 
 device(rg::RenderGraph) = rg.device
@@ -134,6 +146,16 @@ function add_node!(rg::RenderGraph, node::RenderNode)
   insert!(rg.node_indices, node.id, nv(g))
   insert!(rg.node_indices_inv, nv(g), node.id)
   nothing
+end
+
+add_node!(rg::RenderGraph, command::Command) = add_node!(rg, RenderNode(command))
+
+add_nodes!(rg::RenderGraph, nodes::T...) where {T<:Union{RenderNode, Command}} = add_nodes!(rg, collect(nodes))
+
+function add_nodes!(rg::RenderGraph, nodes)
+  for node in nodes
+    add_node!(rg, node)
+  end
 end
 
 new!(rg::RenderGraph, args...) = add_resource!(rg, new!(rg.logical_resources, args...))
@@ -404,18 +426,18 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
     @switch resource_type(resource) begin
       @case &RESOURCE_TYPE_BUFFER
       usage = use.usage::BufferUsage
-      info = resource.data::LogicalBuffer
-      insert!(res, resource.id, promote_to_physical(resource, Buffer(rg.device; info.size, usage.usage_flags)))
+      (; logical_buffer) = resource
+      insert!(res, resource.id, promote_to_physical(resource, Buffer(rg.device; logical_buffer.size, usage.usage_flags)))
 
       @case &RESOURCE_TYPE_IMAGE
       usage = use.usage::ImageUsage
-      info = resource.data::LogicalImage
-      insert!(res, resource.id, promote_to_physical(resource, Image(rg.device; info.format, info.dims, usage.usage_flags, info.mip_levels, array_layers = info.layers)))
+      (; logical_image) = resource
+      insert!(res, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.mip_levels, array_layers = logical_image.layers, usage.samples)))
 
       @case &RESOURCE_TYPE_ATTACHMENT
       usage = use.usage::AttachmentUsage
-      info = resource.data::LogicalAttachment
-      (; dims) = info
+      (; logical_attachment) = resource
+      (; dims) = logical_attachment
       if isnothing(dims)
         # Try to inherit image dimensions from a render area in which the node is used.
         for node in rg.nodes
@@ -430,7 +452,7 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
           "Could not determine the dimensions of the attachment $(resource.id). You must either provide them or use the attachment with a node that has a render area.",
         )
       end
-      insert!(res, resource.id, promote_to_physical(resource, Attachment(rg.device; info.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, info.mip_range, info.layer_range)))
+      insert!(res, resource.id, promote_to_physical(resource, Attachment(rg.device; logical_attachment.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, logical_attachment.mip_range, logical_attachment.layer_range)))
     end
   end
   res

@@ -59,9 +59,9 @@ struct OutOfDeviceMemoryError <: Exception
 end
 
 function Base.showerror(io::IO, exc::OutOfDeviceMemoryError)
-  show(io, "OutOfDeviceMemoryError")
+  print(io, "OutOfDeviceMemoryError")
   iszero(exc.requested_size) && return
-  show(io, " (requested allocation size: ", Base.format_bytes(exc.requested_size), ')')
+  print(io, " (requested allocation size: ", Base.format_bytes(exc.requested_size), ')')
 end
 
 function Memory(device, size::Integer, type::Integer, domain::MemoryDomain)

@@ -29,7 +29,7 @@ function record!(record::CompactRecord, command::Command)
     push!(dispatches, command)
   elseif is_transfer(command)
     push!(record.transfers, command)
-  elseif is_present(command)
+  elseif is_presentation(command)
     push!(record.presentations, command)
   end
   nothing

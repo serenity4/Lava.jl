@@ -114,8 +114,7 @@ function cycle!(f, fc::FrameCycle, idx::Integer)
     (; image_acquired) = last_frame
     frame = next_frame!(fc, idx)
     # Exchange semaphores.
-    last_frame.image_acquired = frame.image_acquired
-    frame.image_acquired = image_acquired
+    last_frame.image_acquired, frame.image_acquired = frame.image_acquired, last_frame.image_acquired
 
     (; queues) = fc.device
 
@@ -123,18 +122,18 @@ function cycle!(f, fc::FrameCycle, idx::Integer)
     @timeit to "Submit rendering commands" begin
         submission = f(frame.image)
         isa(submission, SubmissionInfo) || throw(ArgumentError("A `SubmissionInfo` must be returned to properly synchronize with frame presentation."))
-        push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfo(image_acquired.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
-        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.image_rendered.handle, next_value!(frame.image_rendered), 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
-        # For syncing with the presentation engine only.
-        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.may_present.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR))
+        push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfo(image_acquired.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT))
+        push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.may_present.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT))
         push!(submission.release_after_completion, frame)
         state = submit(queues, submission)
     end
 
     # Submit the presentation command.
     @timeit to "Submit presentation commands" begin
-        present_info = Vk.PresentInfoKHR([frame.may_present], [fc.swapchain], [idx - 1])
-        present(queues, present_info)
+        present_info = Vk.PresentInfoKHR([frame.may_present.handle], [fc.swapchain.handle], [idx - 1])
+        ret = present(queues, present_info)
+        # Ignore out of date errors, but throw if others are encountered.
+        iserror(ret) && unwrap_error(ret).code ≠ Vk.ERROR_OUT_OF_DATE_KHR && unwrap(ret)
     end
 
     state

@@ -4,6 +4,22 @@ abstract type DrawCommand end
   color::Vector{Resource}
   depth::Optional{Resource}
   stencil::Optional{Resource}
+  function RenderTargets(color::AbstractVector, depth, stencil)
+    check_dimensions(color, depth, stencil)
+    new(color, depth, stencil)
+  end
+end
+
+function check_dimensions(color, depth, stencil)
+  all_dimensions = Vector{Int64}[]
+  for r in [color; depth; stencil]
+    isnothing(r) && continue
+    dims = dimensions(r)
+    !isnothing(dims) && push!(all_dimensions, dims)
+  end
+  isempty(all_dimensions) && return
+  dim, dims = all_dimensions[1], @view all_dimensions[2:end]
+  all(==(dim), dims) || throw(ArgumentError("Color, depth and/or stencil attachments have inconsistent dimensions."))
 end
 
 RenderTargets(color::AbstractVector; depth = nothing, stencil = nothing) = RenderTargets(color, depth, stencil)
@@ -34,6 +50,12 @@ GraphicsCommand(draw::DrawCommand, program::Program, data::Union{ProgramInvocati
 GraphicsCommand(draw::DrawCommand, program::Program, data::Union{ProgramInvocationData, DeviceAddressBlock}, targets::RenderTargets, render_state::RenderState, invocation_state::ProgramInvocationState, resource_dependencies::Dictionary = Dictionary{Resource, ResourceDependency}()) = GraphicsCommand(draw, program, data, targets, DrawState(render_state, invocation_state), resource_dependencies)
 
 resource_dependencies(command::GraphicsCommand) = command.resource_dependencies
+
+function deduce_render_area(command::GraphicsCommand)
+  (; targets) = command
+  @assert !isempty(targets.color)
+  RenderArea(targets.color[1])
+end
 
 struct DrawIndirect <: DrawCommand
   parameters::Resource

@@ -162,7 +162,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
   include("render_graph.jl")
   include("examples.jl")
   include("cycles.jl")
-  # include("present.jl")
+  include("present.jl")
 
   # Make sure we don't have fences that are never signaled.
   Lava.compact!(device.fence_pool)

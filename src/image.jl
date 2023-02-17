@@ -18,6 +18,7 @@ end
 vk_handle_type(::Type{Image}) = Vk.Image
 
 Base.ndims(image::Image) = length(image.dims)
+dimensions(image::Image) = image.dims
 
 Vk.bind_image_memory(image::Image, memory::Memory) = Vk.bind_image_memory(device(image), image, memory, memory.offset)
 
@@ -139,7 +140,7 @@ end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward ImageView.image (Vk.Offset3D, Vk.Extent3D, image_layout, samples)
+@forward ImageView.image (Vk.Offset3D, Vk.Extent3D, image_layout, samples, dimensions)
 
 aspect_flags(view::ImageView) = view.aspect
 

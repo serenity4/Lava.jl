@@ -67,7 +67,7 @@ end
 Base.merge(x::T, y::T) where {T <: Union{BufferUsage, ImageUsage}} = combine(x, y)
 
 function combine(x::AttachmentUsage, y::AttachmentUsage)
-  AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.aspect | y.aspect, x.samples | y.samples, x.clear_value, y.resolve_mode)
+  AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.aspect | y.aspect, x.samples | y.samples, y.clear_value, y.resolve_mode)
 end
 
 struct ResourceUsage
@@ -84,8 +84,10 @@ end
 
 function combine(x::ResourceUsage, y::ResourceUsage)
   x.id == y.id || error("Resource uses for different resource IDs cannot be combined.")
-  x.type == y.type || error("Resource uses for different resource types cannot be merged.")
-  ResourceUsage(x.id, x.type, combine(x.usage, y.usage))
+  if x.type ≠ y.type
+    typeof(x.usage) == typeof(y.usage) || error("Resource uses for different resource types cannot be merged.")
+  end
+  ResourceUsage(x.id, x.type | y.type, combine(x.usage, y.usage))
 end
 
 const DEFAULT_CLEAR_VALUE = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
@@ -151,6 +153,8 @@ function image_usage_flags(type::ResourceUsageType, access::MemoryAccess)
   RESOURCE_USAGE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
   RESOURCE_USAGE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
   RESOURCE_USAGE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
+  RESOURCE_USAGE_TRANSFER_SRC in type && (bits |= Vk.IMAGE_USAGE_TRANSFER_SRC_BIT)
+  RESOURCE_USAGE_TRANSFER_DST in type && (bits |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
 
   bits
 end

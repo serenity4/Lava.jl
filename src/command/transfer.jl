@@ -16,8 +16,8 @@ function resource_dependencies(transfer::TransferCommand)
   )
 end
 
-is_blit(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && dims(transfer.src.data) ≠ dims(transfer.dst.data)
-is_resolve(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && samples(transfer.src.data) ≠ samples(transfer.dst.data)
+is_blit(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && dimensions(transfer.src) ≠ dimensions(transfer.dst)
+is_resolve(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && samples(transfer.src) ≠ samples(transfer.dst)
 is_copy(transfer::TransferCommand) = isbuffer(transfer.src) || isbuffer(transfer.dst) || (!is_blit(transfer) && !is_resolve(transfer))
 
 function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
@@ -35,9 +35,10 @@ function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
     # TODO: Implement resolve operations for multisampled images.
     # We could consider the resolve attachment to be a "dynamic" resource dependency, that would be added to `resource_dependencies` above.
     samples(src_image) == samples(dst_image) || throw(error("Only transfers between images of identical sample counts are currently supported"))
-    if dims(src_image) != dims(dst_image)
+    if dimensions(src_image) != dimensions(dst_image)
       # Perform a blit operation instead.
-      info = Vk.BlitImageInfo2(src_image, image_layout(src), dst_image, image_layout(dst), [], Vk.FILTER_CUBIC_IMG)
+      region = Vk.ImageBlit2(C_NULL, subresource_layers(src), (Vk.Offset3D(src), Vk.Offset3D(dimensions(src)..., 1)), subresource_layers(dst), (Vk.Offset3D(dst), Vk.Offset3D(dimensions(dst)..., 1)))
+      info = Vk.BlitImageInfo2(C_NULL, src_image, image_layout(src), dst_image, image_layout(dst), [region], Vk.FILTER_LINEAR)
       Vk.cmd_blit_image_2(cb, info)
     else
       info = Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src), subresource_layers(dst), Vk.Offset3D(dst), Vk.Extent3D(src))
@@ -53,7 +54,7 @@ function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
     dst_image = get_image(dst)
     info = Vk.BufferImageCopy(
       src.offset,
-      dims(dst)...,
+      dimensions(dst)...,
       subresource_layers(dst),
       Vk.Offset3D(dst),
       Vk.Extent3D(dst),
@@ -65,7 +66,7 @@ function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
     src_image = get_image(src)
     info = Vk.BufferImageCopy(
       dst.offset,
-      dims(src)...,
+      dimensions(src)...,
       subresource_layers(src),
       Vk.Offset3D(src),
       Vk.Extent3D(src),
