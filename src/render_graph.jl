@@ -158,8 +158,6 @@ function add_nodes!(rg::RenderGraph, nodes)
   end
 end
 
-new!(rg::RenderGraph, args...) = add_resource!(rg, new!(rg.logical_resources, args...))
-
 @forward RenderGraph.logical_resources (buffer, image, attachment)
 
 function add_resource!(rg::RenderGraph, resource::Resource)
@@ -388,13 +386,13 @@ function resolve_attachment_pairs(rg::RenderGraph)
         if combined_uses.usage.samples > 1
           attachment = resource.data::LogicalAttachment
           is_multisampled(attachment) || break
-          resolve_attachment = logical_attachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect)
+          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect))
         end
       end
     else
       attachment = resource.data::Attachment
       is_multisampled(attachment) || continue
-      resolve_attachment = logical_attachment(attachment.view.format, attachment.view.image.dims; attachment.view.mip_range, attachment.view.layer_range)
+      resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims; attachment.view.mip_range, attachment.view.layer_range))
     end
     !isnothing(resolve_attachment) && insert!(resolve_pairs, resource, resolve_attachment)
   end

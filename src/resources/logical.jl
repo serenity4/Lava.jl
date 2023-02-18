@@ -4,8 +4,6 @@ struct LogicalBuffer <: LogicalResource
   size::Int64
 end
 
-logical_buffer(size) = logical_resource(RESOURCE_TYPE_BUFFER, LogicalBuffer(size))
-
 struct LogicalImage <: LogicalResource
   format::Vk.Format
   dims::Vector{Int64}
@@ -14,9 +12,9 @@ struct LogicalImage <: LogicalResource
   samples::Optional{Int64}
 end
 
-function logical_image(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1, samples = nothing)
+function LogicalImage(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1, samples = nothing)
   isa(format, DataType) && (format = Lava.format(format))
-  logical_resource(RESOURCE_TYPE_IMAGE, LogicalImage(format, dims, mip_levels, layers, samples))
+  LogicalImage(format, dims, mip_levels, layers, samples)
 end
 
 struct LogicalAttachment <: LogicalResource
@@ -29,7 +27,7 @@ struct LogicalAttachment <: LogicalResource
   samples::Optional{Int64}
 end
 
-function logical_attachment(
+function LogicalAttachment(
   format::Union{Vk.Format, DataType},
   dims = nothing;
   mip_range = 1:1,
@@ -39,7 +37,7 @@ function logical_attachment(
 )
   isa(format, DataType) && (format = Lava.format(format))
   aspect = @something(aspect, aspect_flags(format))
-  logical_resource(RESOURCE_TYPE_ATTACHMENT, LogicalAttachment(format, dims, mip_range, layer_range, aspect, samples))
+  LogicalAttachment(format, dims, mip_range, layer_range, aspect, samples)
 end
 
 aspect_flags(attachment::LogicalAttachment) = attachment.aspect

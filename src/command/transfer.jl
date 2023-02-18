@@ -35,8 +35,10 @@ function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
     # TODO: Implement resolve operations for multisampled images.
     # We could consider the resolve attachment to be a "dynamic" resource dependency, that would be added to `resource_dependencies` above.
     samples(src_image) == samples(dst_image) || throw(error("Only transfers between images of identical sample counts are currently supported"))
-    if dimensions(src_image) != dimensions(dst_image)
+    if dimensions(src_image) != dimensions(dst_image) || src_image.format != dst_image.format
       # Perform a blit operation instead.
+      # TODO: Allow copying for size-compatible image formats instead of blitting,
+      # See https://registry.khronos.org/vulkan/specs/1.3-extensions/html/chap47.html#formats-compatibility-classes.
       region = Vk.ImageBlit2(C_NULL, subresource_layers(src), (Vk.Offset3D(src), Vk.Offset3D(dimensions(src)..., 1)), subresource_layers(dst), (Vk.Offset3D(dst), Vk.Offset3D(dimensions(dst)..., 1)))
       info = Vk.BlitImageInfo2(C_NULL, src_image, image_layout(src), dst_image, image_layout(dst), [region], Vk.FILTER_LINEAR)
       Vk.cmd_blit_image_2(cb, info)

@@ -112,18 +112,18 @@ export
   LinearAllocator, available_size,
 
   # buffers
-  Buffer,
+  LogicalBuffer, Buffer,
   device_address, allocate!, isallocated, bind!,
   transfer,
 
   # images
-  Image, ImageView,
+  LogicalImage, Image, ImageView,
 
   # textures
   Texture, Sampling, DEFAULT_SAMPLING,
 
   # attachments
-  Attachment, READ, WRITE, RenderTargets,
+  LogicalAttachment, Attachment, READ, WRITE, RenderTargets,
 
   # attachment dimensions
   SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
@@ -138,8 +138,7 @@ export
   Shader,
 
   # resources
-  new!,
-  buffer_resource, image_resource, attachment_resource,
+  Resource, buffer_resource, image_resource, attachment_resource,
 
   # descriptors
   Descriptor, DescriptorID,

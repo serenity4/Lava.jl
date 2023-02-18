@@ -201,14 +201,14 @@ function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")
 end
 
-buffer_resource(size::Integer) = logical_buffer(size)
+buffer_resource(size::Integer) = Resource(LogicalBuffer(size))
 
 function buffer_resource(device::Device, data; memory_domain::MemoryDomain = MEMORY_DOMAIN_DEVICE, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, submission = nothing, queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE)
   buffer = Buffer(device; data, memory_domain, usage_flags, submission, queue_family_indices, sharing_mode)
   Resource(buffer)
 end
 
-image_resource(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1) = logical_image(format, dims; mip_levels, layers)
+image_resource(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1) = Resource(LogicalImage(format, dims; mip_levels, layers))
 
 function image_resource(device::Device, data;
   format = nothing,
@@ -229,7 +229,7 @@ function image_resource(device::Device, data;
 end
 
 function attachment_resource(format::Union{Vk.Format, DataType}, dims = nothing; kwargs...)
-  logical_attachment(format, dims; kwargs...)
+  Resource(LogicalAttachment(format, dims; kwargs...))
 end
 
 function attachment_resource(device::Device, data; access::MemoryAccess = READ | WRITE, aspect::Vk.ImageAspectFlag = Vk.IMAGE_ASPECT_COLOR_BIT, kwargs...)

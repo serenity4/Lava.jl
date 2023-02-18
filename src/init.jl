@@ -26,7 +26,7 @@ const REQUIRED_DEVICE_EXTENSIONS = String[
 function init(;
   instance_layers = String[],
   instance_extensions = String[],
-  vulkan_version = unwrap(Vk.enumerate_instance_version()),
+  vulkan_version = v"1.3.207", # always make sure to match the version of the Vulkan API wrapped by Vulkan.jl
   application_info = Vk.ApplicationInfo(v"1", v"1", vulkan_version),
   device_extensions = String[],
   device_specific_features::AbstractVector{Symbol} = Symbol[],
