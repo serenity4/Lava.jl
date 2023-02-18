@@ -130,9 +130,9 @@ function pick_supported_device(physical_devices, features)
   for pdevice in physical_devices
     pdevice_features = Vk.get_physical_device_features_2(
       pdevice,
-      Vk.PhysicalDeviceVulkan13Features,
-      Vk.PhysicalDeviceVulkan12Features,
-      Vk.PhysicalDeviceVulkan11Features,
+      # Vk.PhysicalDeviceVulkan13Features,
+      # Vk.PhysicalDeviceVulkan12Features,
+      # Vk.PhysicalDeviceVulkan11Features,
     )
     unsupported = unsupported_features(features, pdevice_features)
     isempty(unsupported) && return pdevice
@@ -142,8 +142,9 @@ end
 
 function unsupported_features(requested::Vk.PhysicalDeviceFeatures2, available::Vk.PhysicalDeviceFeatures2)
   d = Dictionary{Symbol,Vector{Symbol}}()
-  unsupported_vulkan = unsupported_features(requested.next, available.next)
-  isempty(unsupported_vulkan) || insert!(d, :vulkan, unsupported_vulkan)
+  # TODO: Reenable this once we figure out why the `next` chain of core Vulkan features produces segfaults.
+  # unsupported_vulkan = unsupported_features(requested.next, available.next)
+  # isempty(unsupported_vulkan) || insert!(d, :vulkan, unsupported_vulkan)
   unsupported_device = unsupported_features(requested.features, available.features)
   isempty(unsupported_device) || insert!(d, :device, unsupported_device)
   d
