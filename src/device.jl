@@ -60,8 +60,10 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
   )
 end
 
+Base.wait(device::Device) = Vk.device_wait_idle(device)
+
 function Base.empty!(device::Device)
-  Vk.device_wait_idle(device)
+  unwrap(wait(device))
   empty!(device.pipeline_ht_graphics)
   empty!(device.pipeline_layout_ht)
   empty!(device.pipeline_layouts)

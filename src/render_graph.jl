@@ -19,6 +19,7 @@ function RenderNode(command::Command)
   is_graphics(command) && (render_area = deduce_render_area(command.graphics))
   RenderNode(; stages, render_area, commands = [command])
 end
+Base.convert(::Type{RenderNode}, command::Command) = RenderNode(command)
 
 Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
 
@@ -134,7 +135,8 @@ end
 
 device(rg::RenderGraph) = rg.device
 
-function add_node!(rg::RenderGraph, node::RenderNode)
+function add_node!(rg::RenderGraph, node::Union{RenderNode, Command})
+  node = convert(RenderNode, node)
   existing = get(rg.nodes, node.id, nothing)
   if !isnothing(existing)
     existing === node || error("Trying to overwrite a node ID with a different node.")
@@ -148,9 +150,7 @@ function add_node!(rg::RenderGraph, node::RenderNode)
   nothing
 end
 
-add_node!(rg::RenderGraph, command::Command) = add_node!(rg, RenderNode(command))
-
-add_nodes!(rg::RenderGraph, nodes::T...) where {T<:Union{RenderNode, Command}} = add_nodes!(rg, collect(nodes))
+add_nodes!(rg::RenderGraph, nodes::Union{RenderNode, Command}...) = add_nodes!(rg, collect(nodes))
 
 function add_nodes!(rg::RenderGraph, nodes)
   for node in nodes
