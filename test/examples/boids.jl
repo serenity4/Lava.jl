@@ -208,8 +208,7 @@ end
 function boid_frag(color::Vec4, uv::Vec2, data::DeviceAddressBlock, textures)
   (; texture_index) = @load data::BoidDrawData 
   texture = textures[texture_index]
-  sampled = texture(uv)
-  color[] = Vec4(sampled.r, sampled.g, sampled.b, 1F)
+  color[] = texture(uv)
 end
 
 function boid_drawing_program(device)
@@ -307,6 +306,6 @@ end
     nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
     push!(nodes, boid_drawing_node(device, agents, color, read_boid_image(device)))
     data = render_graphics(device, color, nodes)
-    save_test_render("boid_agents.png", data, 0xd92d905b26320512)
+    save_test_render("boid_agents.png", data, 0x131d8eea6d711f14)
   end
 end;
