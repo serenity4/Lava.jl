@@ -120,7 +120,7 @@ function submit(dispatch::QueueDispatch, info::SubmissionInfo)
   unwrap(Vk.queue_submit_2(q, [submit_info]; fence = something(info.signal_fence, C_NULL)))
   fences = Vk.Fence[]
   !isnothing(info.signal_fence) && push!(fences, info.signal_fence)
-  ExecutionState(q; fences, semaphores = timeline_semaphores(info.signal_semaphores), info.free_after_completion, release_after_completion = [info.release_after_completion; info.command_buffers])
+  ExecutionState(q; fences, semaphores = timeline_semaphores(info.signal_semaphores), free_after_completion = [info.free_after_completion; info.command_buffers], release_after_completion = [info.release_after_completion])
 end
 
 function Base.show(io::IO, exec::ExecutionState)
