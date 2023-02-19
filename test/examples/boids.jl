@@ -318,9 +318,17 @@ end
 
     agents = buffer_resource(device, initial; memory_domain = MEMORY_DOMAIN_HOST)
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
-    nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
+    nodes = boid_simulation_nodes(device, agents, forces, parameters, 0.01F)
     push!(nodes, boid_drawing_node(device, agents, color, read_boid_image(device)))
     data = render_graphics(device, color, nodes)
     save_test_render("boid_agents.png", data, 0x15323ce1756b507b)
+
+    # frames = Matrix{RGBA{Float16}}[]
+    # n = 100
+    # for i in 1:n
+    #   print("$(cld(100i, n))%\r")
+    #   push!(frames, render_graphics(device, color, nodes))
+    # end
+    # save(render_file("boid_agents.mp4"), convert.(Matrix{RGB{N0f8}}, transpose.(frames)))
   end
 end;

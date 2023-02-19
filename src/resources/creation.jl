@@ -308,7 +308,7 @@ end
 function Base.collect(memory::Memory, size::Integer = memory.size)
   map(memory) do ptr
     arrptr = Libc.malloc(size)
-    @ccall memmove(arrptr::Ptr{Cvoid}, ptr::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
+    @ccall memcpy(arrptr::Ptr{Cvoid}, ptr::Ptr{Cvoid}, size::Csize_t)::Ptr{Cvoid}
     Base.unsafe_wrap(Array, Ptr{UInt8}(arrptr), (size,); own = true)
   end
 end
