@@ -12,3 +12,8 @@ function read_normal_map(device)
   normal = convert(Matrix{RGBA{Float16}}, load(texture_file("normal.png")))
   normal_map = image_resource(device, normal; usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT)
 end
+
+function read_boid_image(device)
+  boid = convert(Matrix{RGBA{Float16}}, load(texture_file("boid.png"))')
+  image_resource(device, boid; usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT)
+end

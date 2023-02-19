@@ -305,8 +305,8 @@ end
     @test all(res .≈ expected)
 
     nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
-    push!(nodes, boid_drawing_node(device, agents, color, read_normal_map(device)))
+    push!(nodes, boid_drawing_node(device, agents, color, read_boid_image(device)))
     data = render_graphics(device, color, nodes)
-    save_test_render("boid_agents.png", data, 0xd0836fe98c2e7471)
+    save_test_render("boid_agents.png", data, 0xd92d905b26320512)
   end
 end;
