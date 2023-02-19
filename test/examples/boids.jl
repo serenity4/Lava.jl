@@ -31,6 +31,12 @@ distance2(x::Vec, y::Vec) = sum(x -> x^2, y - x)
 distance(x::Vec, y::Vec) = sqrt(distance2(x, y))
 norm(x::Vec) = distance(x, zero(x))
 normalize(x::Vec) = ifelse(iszero(x), x, x / norm(x))
+function rotate(v::Vec2, angle::Float32)
+  cv = v.x + v.y * im
+  crot = cos(angle) + sin(angle) * im
+  cv′ = cv * crot
+  Vec2(real(cv′), imag(cv′))
+end
 
 const WORKGROUP_SIZE = (8U, 8U, 1U)
 const DISPATCH_SIZE = (8U, 1U, 1U)
@@ -200,13 +206,20 @@ end
 function boid_vert(uv::Vec2, position::Vec4, vertex_index::UInt32, instance_index::UInt32, data::DeviceAddressBlock)
   boid_data = @load data::BoidDrawData
   agent = @load boid_data.agents[instance_index]::BoidAgent
-  v = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index]
+  angle = angle_2d(Vec2(0F, 1F), agent.velocity)
+  corner = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index]
+
+  # Temporarily revert to using a X-right, Y-up coordinate system to apply the rotation.
+  corner.y *= -1F
+  v = rotate(corner, angle)
+  v.y *= -1F
+
   uv[] = quad_2d(Vec2(0.5F, 0.5F), Vec2(1F, -1F))[vertex_index]
   position[] = Vec4(v.x, v.y, 0F, 1F)
 end
 
 function boid_frag(color::Vec4, uv::Vec2, data::DeviceAddressBlock, textures)
-  (; texture_index) = @load data::BoidDrawData 
+  (; texture_index) = @load data::BoidDrawData
   texture = textures[texture_index]
   color[] = texture(uv)
 end
@@ -290,22 +303,24 @@ end
 
     parameters = BoidParameters()
     Δt = 0.01F
-    data = rand(MersenneTwister(1), BoidAgent, 512)
-    agents = buffer_resource(device, data; memory_domain = MEMORY_DOMAIN_HOST)
+    initial = rand(MersenneTwister(1), BoidAgent, 512)
+    agents = buffer_resource(device, initial; memory_domain = MEMORY_DOMAIN_HOST)
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
-    @test collect(BoidAgent, agents.data) == data
+    @test collect(BoidAgent, agents.data) == initial
     nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
     @test render(device, nodes)
     res = collect(BoidAgent, agents.data)
     res_forces = collect(Vec2, forces.data)
-    expected_forces = [compute_forces(data, parameters, i, Δt) for i in eachindex(data)]
-    expected = next!(BoidSimulation(deepcopy(data), parameters), Δt)
+    expected_forces = [compute_forces(initial, parameters, i, Δt) for i in eachindex(initial)]
+    expected = next!(BoidSimulation(deepcopy(initial), parameters), Δt)
     @test res_forces ≈ expected_forces
     @test all(res .≈ expected)
 
+    agents = buffer_resource(device, initial; memory_domain = MEMORY_DOMAIN_HOST)
+    forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
     nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
     push!(nodes, boid_drawing_node(device, agents, color, read_boid_image(device)))
     data = render_graphics(device, color, nodes)
-    save_test_render("boid_agents.png", data, 0x131d8eea6d711f14)
+    save_test_render("boid_agents.png", data, 0x15323ce1756b507b)
   end
 end;
