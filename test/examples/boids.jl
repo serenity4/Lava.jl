@@ -13,12 +13,12 @@ Base.rand(rng::AbstractRNG, ::BoidAgentSampler) = BoidAgent(Vec2(rand_square(rng
 rand_square(rng, n) = 2 .* rand(rng, n) .- 1
 
 Base.@kwdef struct BoidParameters
-  separation_radius::Float32 = separation_radius = 0.02
-  alignment_factor::Float32 = alignment_factor = 0.8
-  cohesion_factor::Float32 = cohesion_factor = 0.4
-  awareness_radius::Float32 = awareness_radius = 0.2
-  alignment_strength::Float32 = alignment_strength = 1.0
-  cohesion_strength::Float32 = cohesion_strength = 1.0
+  separation_radius::Float32 = 0.02
+  alignment_factor::Float32 = 0.8
+  cohesion_factor::Float32 = 0.4
+  awareness_radius::Float32 = 0.2
+  alignment_strength::Float32 = 1.0
+  cohesion_strength::Float32 = 1.0
 end
 
 struct BoidSimulation{V<:AbstractVector{BoidAgent}}
@@ -153,16 +153,14 @@ function boids_update_program(device)
   Program(compute)
 end
 
-function boid_simulation_nodes(device, agents::Resource, forces::Resource, parameters::BoidParameters, Δt::Float32)
-  prog_1 = boids_forces_program(device)
-  prog_2 = boids_update_program(device)
-  data = @invocation_data (prog_1, prog_2) begin
+function boid_simulation_nodes(device, agents::Resource, forces::Resource, parameters::BoidParameters, Δt::Float32, progs = (boids_forces_program(device), boids_update_program(device)))
+  data = @invocation_data progs begin
     @block BoidsInfo(DeviceAddress(agents), parameters, Δt, DeviceAddress(forces))
   end
   dispatch = Dispatch(DISPATCH_SIZE)
   command_1 = compute_command(
     dispatch,
-    prog_1,
+    progs[1],
     data,
     @resource_dependencies begin
       @read agents::Buffer::Physical
@@ -171,7 +169,7 @@ function boid_simulation_nodes(device, agents::Resource, forces::Resource, param
   )
   command_2 = compute_command(
     dispatch,
-    prog_2,
+    progs[2],
     data,
     @resource_dependencies begin
       @read forces::Buffer::Physical
@@ -206,16 +204,17 @@ end
 function boid_vert(uv::Vec2, position::Vec4, vertex_index::UInt32, instance_index::UInt32, data::DeviceAddressBlock)
   boid_data = @load data::BoidDrawData
   agent = @load boid_data.agents[instance_index]::BoidAgent
-  angle = angle_2d(Vec2(0F, 1F), agent.velocity)
+  angle = angle_2d(agent.velocity, Vec2(0F, 1F))
   corner = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index]
 
-  # Temporarily revert to using a X-right, Y-up coordinate system to apply the rotation.
-  corner.y *= -1F
-  v = rotate(corner, angle)
-  v.y *= -1F
+  # Revert to using a X-right, Y-up coordinate system to apply the rotation.
+  # We'll invert the Y component again when writing to `position`.
+  corner.y = -corner.y
+  # Rotate `corner` relative to the center of the quad, i.e. `agent.position.xy`.
+  v = agent.position.xy + rotate(corner - agent.position.xy, angle)
 
   uv[] = quad_2d(Vec2(0.5F, 0.5F), Vec2(1F, -1F))[vertex_index]
-  position[] = Vec4(v.x, v.y, 0F, 1F)
+  position[] = Vec4(v.x, -v.y, 0F, 1F)
 end
 
 function boid_frag(color::Vec4, uv::Vec2, data::DeviceAddressBlock, textures)
@@ -234,8 +233,7 @@ function boid_drawing_program(device)
   Program(vert, frag)
 end
 
-function boid_drawing_node(device, agents::Resource, color, image)
-  prog = boid_drawing_program(device)
+function boid_drawing_node(device, agents::Resource, color, image, prog = boid_drawing_program(device))
   image_texture = texture_descriptor(Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
   data = @invocation_data prog begin
     @block BoidDrawData(DeviceAddress(agents), @descriptor(image_texture), 0.1)
@@ -321,7 +319,7 @@ end
     nodes = boid_simulation_nodes(device, agents, forces, parameters, 0.01F)
     push!(nodes, boid_drawing_node(device, agents, color, read_boid_image(device)))
     data = render_graphics(device, color, nodes)
-    save_test_render("boid_agents.png", data, 0x15323ce1756b507b)
+    save_test_render("boid_agents.png", data, 0x3cf9ea2c0fceedd2)
 
     # frames = Matrix{RGBA{Float16}}[]
     # n = 100

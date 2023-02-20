@@ -21,7 +21,9 @@ function get_required_property_types(api_version)
 end
 
 function spirv_features(physical_device, api_version, device_extensions, device_features)
-  props = Vk.get_physical_device_properties_2(physical_device, get_required_property_types(api_version)...)
+  props = Vk.get_physical_device_properties_2(physical_device)
+  # TODO: Re-enable this when `get_physical_device_properties_2` no longer crashes.
+  # props = Vk.get_physical_device_properties_2(physical_device, get_required_property_types(api_version)...)
 
   exts = String[]
   for spec in Vk.SPIRV_EXTENSIONS

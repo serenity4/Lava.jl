@@ -5,10 +5,8 @@ using Dictionaries
 using SPIRV: SPIRV, ShaderInterface, U, F, @mat, image_type
 using GeometryExperiments
 using FixedPointNumbers
-using FileIO
-using ImageIO
+using FileIO, ImageIO, VideoIO
 using Accessors
-using OpenType
 # XCB must be loaded prior to creating the instance that will use VK_KHR_xcb_surface.
 using XCB: XCB, XWindowManager, current_screen, XCBWindow, resize, extent
 using ImageMagick: clamp01nan, clamp01nan!
