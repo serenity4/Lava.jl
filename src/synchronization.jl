@@ -37,17 +37,22 @@ struct ExecutionState
   queue::Queue
   fences::Vector{Vk.Fence}
   semaphores::Vector{TimelineSemaphore}
+  command_buffers::Vector{Vk.CommandBuffer}
   free_after_completion::Vector{Any}
   release_after_completion::Vector{Any}
 end
 
-function ExecutionState(queue::Queue; fences = Vk.Fence[], semaphores = TimelineSemaphore[], free_after_completion = [], release_after_completion = [])
-  ExecutionState(queue, fences, semaphores, free_after_completion, release_after_completion)
+function ExecutionState(queue::Queue; command_buffers = Vk.CommandBuffer[], fences = Vk.Fence[], semaphores = TimelineSemaphore[], free_after_completion = [], release_after_completion = [])
+  ExecutionState(queue, fences, semaphores, command_buffers, free_after_completion, release_after_completion)
 end
 
 function finalize!(exec::ExecutionState)
   for resource in exec.free_after_completion
     finalize(resource)
+  end
+  if !isempty(exec.command_buffers)
+    cb = first(exec.command_buffers)
+    Vk.free_command_buffers(Vk.device(cb), cb.command_pool, exec.command_buffers)
   end
   empty!(exec.free_after_completion)
   empty!(exec.release_after_completion)
@@ -110,9 +115,11 @@ end
 
 function submit(dispatch::QueueDispatch, info::SubmissionInfo)
   q = queue(dispatch, info.queue_family)
+  command_buffers = Vk.CommandBuffer[]
 
   for cb_info in info.command_buffers
     end_recording(cb_info.command_buffer)
+    push!(command_buffers, cb_info.command_buffer)
   end
 
   submit_info = Vk.SubmitInfo2(info.wait_semaphores, info.command_buffers, info.signal_semaphores)
@@ -120,7 +127,7 @@ function submit(dispatch::QueueDispatch, info::SubmissionInfo)
   unwrap(Vk.queue_submit_2(q, [submit_info]; fence = something(info.signal_fence, C_NULL)))
   fences = Vk.Fence[]
   !isnothing(info.signal_fence) && push!(fences, info.signal_fence)
-  ExecutionState(q; fences, semaphores = timeline_semaphores(info.signal_semaphores), free_after_completion = [info.free_after_completion; info.command_buffers], release_after_completion = [info.release_after_completion])
+  ExecutionState(q; command_buffers, fences, semaphores = timeline_semaphores(info.signal_semaphores), info.free_after_completion, info.release_after_completion)
 end
 
 function Base.show(io::IO, exec::ExecutionState)

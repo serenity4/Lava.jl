@@ -84,8 +84,6 @@ function request_command_buffer(device::Device, queue_usage_bits::Vk.QueueFlag =
   index = get_queue_family(device.queues, queue_usage_bits)
   pool = request_pool!(device.command_pools, index)
   handle = first(unwrap(Vk.allocate_command_buffers(device, Vk.CommandBufferAllocateInfo(pool, Vk.COMMAND_BUFFER_LEVEL_PRIMARY, 1))))
-  # Inefficient, but will at least prevent memory leaks.
-  finalizer(x -> Vk.free_command_buffers(x.command_pool.device, x.command_pool, [x]), handle)
   cb = SimpleCommandBuffer(handle, index, device.queues)
   push!(cb.to_free, cb)
   start_recording(cb)
