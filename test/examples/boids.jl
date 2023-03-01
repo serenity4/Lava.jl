@@ -14,8 +14,6 @@ rand_square(rng, n) = 2 .* rand(rng, n) .- 1
 
 Base.@kwdef struct BoidParameters
   separation_radius::Float32 = 0.02
-  alignment_factor::Float32 = 0.8
-  cohesion_factor::Float32 = 0.4
   awareness_radius::Float32 = 0.2
   alignment_strength::Float32 = 1.0
   cohesion_strength::Float32 = 1.0
@@ -65,10 +63,9 @@ end
 function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Float32)
   forces = zero(Vec2)
   (; position, velocity, mass) = agents[i]
-  average_heading = zero(Vec2)
+  average_velocity = zero(Vec2)
   flock_center = zero(Vec2)
   flock_size = 0U
-  direction = normalize(velocity)
 
   for (j, other) in enumerate(agents)
     i == j && continue
@@ -78,18 +75,16 @@ function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Flo
     flock_center[] = flock_center + other.position
     repulsion_strength = exp(-d^2 / (2 * parameters.separation_radius^2))
     forces[] = forces - (other.position - position) * repulsion_strength
-    average_heading[] = average_heading + normalize(other.velocity)
+    average_velocity[] = average_velocity + other.velocity
   end
 
   if !iszero(flock_size)
-    flock_center /= flock_size
-    target_position = lerp(position, flock_center, 1 - parameters.cohesion_factor)
-    forces[] = forces + (target_position - position) * parameters.cohesion_strength
+    flock_center[] = flock_center / flock_size
+    forces[] = forces + (flock_center - position) * parameters.cohesion_strength
 
-    if !iszero(average_heading)
-      average_heading = normalize(average_heading)
-      target_heading = slerp(direction, average_heading, parameters.alignment_factor)
-      forces[] = forces + (velocity - target_heading * norm(velocity)) * parameters.alignment_strength
+    if !iszero(average_velocity)
+      average_velocity[] = average_velocity / flock_size
+      forces[] = forces + (average_velocity - velocity) * parameters.alignment_strength
     end
   end
 
@@ -204,17 +199,16 @@ end
 function boid_vert(uv::Vec2, position::Vec4, vertex_index::UInt32, instance_index::UInt32, data::DeviceAddressBlock)
   boid_data = @load data::BoidDrawData
   agent = @load boid_data.agents[instance_index]::BoidAgent
-  angle = angle_2d(agent.velocity, Vec2(0F, 1F))
+  # `-y` points up, so we need to invert `y` to position the direction relative to 12 o'clock.
+  direction = Vec2(agent.velocity.x, -agent.velocity.y)
+  angle = angle_2d(direction, Vec2(0F, -1F))
   corner = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index]
 
-  # Revert to using a X-right, Y-up coordinate system to apply the rotation.
-  # We'll invert the Y component again when writing to `position`.
-  corner.y = -corner.y
-  # Rotate `corner` relative to the center of the quad, i.e. `agent.position.xy`.
-  v = agent.position.xy + rotate(corner - agent.position.xy, angle)
+  # Rotate `corner` relative to the center of the quad, i.e. `agent.position`.
+  v = agent.position + rotate(corner - agent.position, angle)
 
   uv[] = quad_2d(Vec2(0.5F, 0.5F), Vec2(1F, -1F))[vertex_index]
-  position[] = Vec4(v.x, -v.y, 0F, 1F)
+  position[] = Vec4(v.x, v.y, 0F, 1F)
 end
 
 function boid_frag(color::Vec4, uv::Vec2, data::DeviceAddressBlock, textures)
@@ -233,10 +227,10 @@ function boid_drawing_program(device)
   Program(vert, frag)
 end
 
-function boid_drawing_node(device, agents::Resource, color, image, prog = boid_drawing_program(device))
+function boid_drawing_node(device, agents::Resource, color, image, prog = boid_drawing_program(device); size = 0.02)
   image_texture = texture_descriptor(Texture(image, setproperties(DEFAULT_SAMPLING, (magnification = Vk.FILTER_LINEAR, minification = Vk.FILTER_LINEAR))))
   data = @invocation_data prog begin
-    @block BoidDrawData(DeviceAddress(agents), @descriptor(image_texture), 0.1)
+    @block BoidDrawData(DeviceAddress(agents), @descriptor(image_texture), size)
   end
   draw = graphics_command(
     DrawIndexed(1:4; instances = 1:512),
@@ -299,16 +293,18 @@ end
     @test linearize_index((1, 0, 0), (8, 1, 1), (1, 0, 0), (8, 8, 1)) == 65
     @test linearize_index((7, 0, 0), (8, 1, 1), (7, 7, 0), (8, 8, 1)) == 511
 
+    sprite_image = read_boid_image(device)
+
     parameters = BoidParameters()
     Δt = 0.01F
     initial = rand(MersenneTwister(1), BoidAgent, 512)
     agents = buffer_resource(device, initial; memory_domain = MEMORY_DOMAIN_HOST)
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
-    @test collect(BoidAgent, agents.data) == initial
+    @test collect(BoidAgent, agents.buffer) == initial
     nodes = boid_simulation_nodes(device, agents, forces, parameters, Δt)
     @test render(device, nodes)
-    res = collect(BoidAgent, agents.data)
-    res_forces = collect(Vec2, forces.data)
+    res = collect(BoidAgent, agents.buffer)
+    res_forces = collect(Vec2, forces.buffer)
     expected_forces = [compute_forces(initial, parameters, i, Δt) for i in eachindex(initial)]
     expected = next!(BoidSimulation(deepcopy(initial), parameters), Δt)
     @test res_forces ≈ expected_forces
@@ -317,16 +313,54 @@ end
     agents = buffer_resource(device, initial; memory_domain = MEMORY_DOMAIN_HOST)
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
     nodes = boid_simulation_nodes(device, agents, forces, parameters, 0.01F)
-    push!(nodes, boid_drawing_node(device, agents, color, read_boid_image(device)))
+    push!(nodes, boid_drawing_node(device, agents, color, sprite_image))
     data = render_graphics(device, color, nodes)
-    save_test_render("boid_agents.png", data, 0x3cf9ea2c0fceedd2)
+    save_test_render("boid_agents.png", data, 0xd82a8320371e17a2)
 
-    # frames = Matrix{RGBA{Float16}}[]
-    # n = 100
-    # for i in 1:n
-    #   print("$(cld(100i, n))%\r")
-    #   push!(frames, render_graphics(device, color, nodes))
-    # end
-    # save(render_file("boid_agents.mp4"), convert.(Matrix{RGB{N0f8}}, transpose.(frames)))
+    graphics_prog = boid_drawing_program(device)
+    function next_nodes!(boids, agents, Δt)
+      next!(boids, Δt)
+      cpu_agents = buffer_resource(device, boids.agents; memory_domain = MEMORY_DOMAIN_HOST, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
+      nodes = [transfer_command(cpu_agents, agents), boid_drawing_node(device, agents, color, sprite_image, graphics_prog)]
+      nodes
+    end
+
+    # initial2 .= [BoidAgent(Vec2(-100, -100), Vec2(0, 0), 1.0) for _ in 1:512]
+    initial2 = [BoidAgent(Vec2(cos(θ), sin(θ)) * 0.8, Vec2(-cos(θ), -sin(θ)) * 0.8, 1.0) for θ in range(0, 2π; length = 512)]
+
+    # To check that the drawing is correct, with proper orientations.
+    # initial2[1] = BoidAgent(Vec(-0.5, -0.2), Vec(1.0, 0.1), 1.0)
+    # initial2[2] = BoidAgent(Vec(-0.5, 0.1), Vec(1.0, 0.1), 1.0)
+    # initial2[3] = BoidAgent(Vec(0.3, 0.3), Vec(-0.3, -0.2), 1.0)
+
+    # All parallel, spread out along the y axis facing the +x direction.
+    # for i in 1:15; initial2[i] = BoidAgent(Vec(-0.5, -0.2) + Vec(0., 0.7)*i/15, Vec(1.0, 0.1), 1.0); end
+    # Spread out along the y axis, but with velocities going towards the flock center.
+    # for i in 1:15; initial2[i] = BoidAgent(Vec(-0.5, -0.2) + Vec(0., 0.7)*i/15, Vec(1.0, 0.2) + Vec(0.0, -0.4)*i/15, 1.0); end
+
+    forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
+    agents = buffer_resource(device, initial2; memory_domain = MEMORY_DOMAIN_HOST, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+    parameters = BoidParameters(;
+      separation_radius = 0.2,
+      awareness_radius = 0.6,
+      alignment_strength = 1.0,
+      cohesion_strength = 1.5,
+      # separation_radius = 0.0,
+      # awareness_radius = 0.0,
+      # alignment_strength = 0.0,
+      # cohesion_strength = 0.0,
+    )
+    boids = BoidSimulation(deepcopy(initial2), parameters)
+    save_test_render("boid_agents.png", render_graphics(device, color, next_nodes!(boids, agents, 0.01F)); tmp = true)
+    n = 50
+    frames = Matrix{RGBA{Float16}}[]
+    @time for i in 1:n
+      print("$(cld(100i, n))%\r")
+      # nodes = next_nodes!(boids, agents, 0.02F)
+      nodes = [boid_simulation_nodes(device, agents, forces, parameters, 0.02F); boid_drawing_node(device, agents, color, sprite_image)]
+      # push!(frames, render_graphics(device, color, next_nodes!(boids, agents, 0.02F)))
+      push!(frames, render_graphics(device, color, nodes))
+    end
+    @time save(render_file("boid_agents.mp4"), convert.(Matrix{RGB{N0f8}}, transpose.(frames)); target_pix_fmt = VideoIO.AV_PIX_FMT_YUV420P)
   end
 end;
