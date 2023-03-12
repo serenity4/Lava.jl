@@ -1,3 +1,5 @@
+# See the original article for boid models at https://team.inria.fr/imagine/files/2014/10/flocks-hers-and-schools.pdf
+
 struct BoidAgent
   position::Vec2
   velocity::Vec2 # facing direction is taken to be the normalized velocity
@@ -56,16 +58,16 @@ end
 lerp(x, y, t) = x * t + (1 - t)y
 
 function next!(boids::BoidSimulation{V}, Δt::Float32) where {V}
-  forces = [compute_forces(boids.agents, boids.parameters, i, Δt) for i in eachindex(boids.agents)]
+  forces = [compute_forces(boids.agents, boids.parameters, i, Δt) for i in 1:length(boids.agents)]
   boids.agents .= step_euler.(boids.agents, forces, Δt)
 end
 
-function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Float32)
+function compute_forces(agents, parameters::BoidParameters, i::Signed, Δt::Float32)
   forces = zero(Vec2)
-  (; position, velocity, mass) = agents[i]
+  flock_size = 0U
   average_velocity = zero(Vec2)
   flock_center = zero(Vec2)
-  flock_size = 0U
+  (; position, velocity, mass) = agents[i]
 
   for (j, other) in enumerate(agents)
     i == j && continue
@@ -80,27 +82,31 @@ function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Flo
 
   if !iszero(flock_size)
     flock_center[] = flock_center / flock_size
-    forces[] = forces + (flock_center - position) * parameters.cohesion_strength
+    average_velocity[] = average_velocity / flock_size
 
-    if !iszero(average_velocity)
-      average_velocity[] = average_velocity / flock_size
-      forces[] = forces + (average_velocity - velocity) * parameters.alignment_strength
-    end
+    forces[] = forces + (flock_center - position) * parameters.cohesion_strength
+    forces[] = forces + (average_velocity - velocity) * parameters.alignment_strength
   end
 
   forces
 end
 
+!@isdefined(OUT_OF_SCENE) && (const OUT_OF_SCENE = Vec2(-1000, -1000))
+
 function step_euler(agent::BoidAgent, forces, Δt)
   (; position, velocity, mass) = agent
 
+  position == OUT_OF_SCENE && return agent
+
   # Use a simple Euler integration scheme to get the next state.
   acceleration = forces / mass
-  new_position = position + velocity * Δt
+  new_position = wrap_around(position + velocity * Δt)
   new_velocity = velocity + acceleration * Δt
 
   BoidAgent(new_position, new_velocity, mass)
 end
+
+wrap_around(position::Vec2) = mod.(position .+ 1F, 2F) .- 1F
 
 linearize_index((x, y, z), (nx, ny, nz)) = x + y * nx + z * nx * ny
 function linearize_index(global_id, global_size, local_id, local_size)
@@ -115,7 +121,7 @@ struct BoidsInfo
 end
 
 function compute_forces!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
-  i = linearize_index(global_id, DISPATCH_SIZE, local_id, WORKGROUP_SIZE)
+  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE))
   (; agents, parameters, Δt, forces) = @load data_address::BoidsInfo
   agents = @load agents::Arr{512,BoidAgent}
   @store forces[i]::Vec2 = compute_forces(agents, parameters, i + 1, Δt)
@@ -123,7 +129,7 @@ function compute_forces!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt3
 end
 
 function step_euler!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
-  i = linearize_index(global_id, DISPATCH_SIZE, local_id, WORKGROUP_SIZE)
+  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE))
   (; agents, Δt, forces) = @load data_address::BoidsInfo
   agent = @load agents[i]::BoidAgent
   @store agents[i]::BoidAgent = step_euler(agent, (@load forces[i]::Vec2), Δt)
@@ -314,8 +320,7 @@ end
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
     nodes = boid_simulation_nodes(device, agents, forces, parameters, 0.01F)
     push!(nodes, boid_drawing_node(device, agents, color, sprite_image))
-    data = render_graphics(device, color, nodes)
-    save_test_render("boid_agents.png", data, 0xd82a8320371e17a2)
+    save_test_render("boid_agents.png", render_graphics(device, color, nodes), 0xd7e4c6b29e4e52e9)
 
     graphics_prog = boid_drawing_program(device)
     function next_nodes!(boids, agents, Δt)
@@ -325,8 +330,9 @@ end
       nodes
     end
 
-    # initial2 .= [BoidAgent(Vec2(-100, -100), Vec2(0, 0), 1.0) for _ in 1:512]
-    initial2 = [BoidAgent(Vec2(cos(θ), sin(θ)) * 0.8, Vec2(-cos(θ), -sin(θ)) * 0.8, 1.0) for θ in range(0, 2π; length = 512)]
+    initial2 = initial
+    # initial2 .= [BoidAgent(OUT_OF_SCENE, Vec2(0, 0), 1.0) for _ in 1:512]
+    # initial2 = [BoidAgent(Vec2(cos(θ), sin(θ)) * 0.8, Vec2(-cos(θ), -sin(θ)) * 0.8, 1.0) for θ in range(0, 2π; length = 512)]
 
     # To check that the drawing is correct, with proper orientations.
     # initial2[1] = BoidAgent(Vec(-0.5, -0.2), Vec(1.0, 0.1), 1.0)
@@ -350,17 +356,16 @@ end
       # alignment_strength = 0.0,
       # cohesion_strength = 0.0,
     )
-    boids = BoidSimulation(deepcopy(initial2), parameters)
-    save_test_render("boid_agents.png", render_graphics(device, color, next_nodes!(boids, agents, 0.01F)); tmp = true)
-    n = 50
-    frames = Matrix{RGBA{Float16}}[]
-    @time for i in 1:n
-      print("$(cld(100i, n))%\r")
-      # nodes = next_nodes!(boids, agents, 0.02F)
-      nodes = [boid_simulation_nodes(device, agents, forces, parameters, 0.02F); boid_drawing_node(device, agents, color, sprite_image)]
-      # push!(frames, render_graphics(device, color, next_nodes!(boids, agents, 0.02F)))
-      push!(frames, render_graphics(device, color, nodes))
-    end
-    @time save(render_file("boid_agents.mp4"), convert.(Matrix{RGB{N0f8}}, transpose.(frames)); target_pix_fmt = VideoIO.AV_PIX_FMT_YUV420P)
+    # boids = BoidSimulation(deepcopy(initial2), parameters)
+    nodes = [boid_simulation_nodes(device, agents, forces, parameters, 0.02F); boid_drawing_node(device, agents, color, sprite_image)]
+    save_test_render("boid_agents.png", render_graphics(device, color, nodes); tmp = true)
+    # n = 50
+    # frames = Matrix{RGBA{Float16}}[]
+    # @time for i in 1:n
+    #   print("$(cld(100i, n))%\r")
+    #   # nodes = next_nodes!(boids, agents, 0.02F)
+    #   push!(frames, render_graphics(device, color, nodes))
+    # end
+    # @time save(render_file("boid_agents.mp4"), convert.(Matrix{RGB{N0f8}}, transpose.(frames)); target_pix_fmt = VideoIO.AV_PIX_FMT_YUV420P)
   end
 end;
