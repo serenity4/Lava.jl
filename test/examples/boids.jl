@@ -62,6 +62,8 @@ function next!(boids::BoidSimulation{V}, Δt::Float32) where {V}
   boids.agents .= step_euler.(boids.agents, forces, Δt)
 end
 
+periodic_distance(x, y) = Distances.evaluate(PeriodicEuclidean(Vec2(2, 2)), x, y)
+
 function compute_forces(agents, parameters::BoidParameters, i::Signed, Δt::Float32)
   forces = zero(Vec2)
   flock_size = 0U
@@ -71,7 +73,7 @@ function compute_forces(agents, parameters::BoidParameters, i::Signed, Δt::Floa
 
   for (j, other) in enumerate(agents)
     i == j && continue
-    d = distance(position, other.position)
+    d = periodic_distance(position, other.position)
     d < parameters.awareness_radius || continue
     flock_size += 1U
     flock_center[] = flock_center + other.position
@@ -320,7 +322,7 @@ end
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
     nodes = boid_simulation_nodes(device, agents, forces, parameters, 0.01F)
     push!(nodes, boid_drawing_node(device, agents, color, sprite_image))
-    save_test_render("boid_agents.png", render_graphics(device, color, nodes), 0xd7e4c6b29e4e52e9)
+    save_test_render("boid_agents.png", render_graphics(device, color, nodes), 0xf3695bd9fd577f77)
 
     graphics_prog = boid_drawing_program(device)
     function next_nodes!(boids, agents, Δt)
@@ -347,8 +349,8 @@ end
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
     agents = buffer_resource(device, initial2; memory_domain = MEMORY_DOMAIN_HOST, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT | Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
     parameters = BoidParameters(;
-      separation_radius = 0.2,
-      awareness_radius = 0.6,
+      separation_radius = 0.05,
+      awareness_radius = 0.2,
       alignment_strength = 1.0,
       cohesion_strength = 1.5,
       # separation_radius = 0.0,
@@ -358,14 +360,17 @@ end
     )
     # boids = BoidSimulation(deepcopy(initial2), parameters)
     nodes = [boid_simulation_nodes(device, agents, forces, parameters, 0.02F); boid_drawing_node(device, agents, color, sprite_image)]
-    save_test_render("boid_agents.png", render_graphics(device, color, nodes); tmp = true)
-    # n = 50
-    # frames = Matrix{RGBA{Float16}}[]
-    # @time for i in 1:n
-    #   print("$(cld(100i, n))%\r")
-    #   # nodes = next_nodes!(boids, agents, 0.02F)
-    #   push!(frames, render_graphics(device, color, nodes))
+    frame = render_graphics(device, color, nodes)
+    save_test_render("boid_agents.png", frame; tmp = true)
+    # Iterative encoding.
+    n = 500
+    # @time open_video_out(render_file("boid_agents.mp4"), video_frame(frame); target_pix_fmt = VideoIO.AV_PIX_FMT_YUV420P) do stream
+    #   for i in 1:n
+    #     print("$(cld(100i, n))%\r")
+    #     # nodes = next_nodes!(boids, agents, 0.02F)
+    #     frame = render_graphics(device, color, nodes)
+    #     write(stream, video_frame(frame))
+    #   end
     # end
-    # @time save(render_file("boid_agents.mp4"), convert.(Matrix{RGB{N0f8}}, transpose.(frames)); target_pix_fmt = VideoIO.AV_PIX_FMT_YUV420P)
   end
 end;

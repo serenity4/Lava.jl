@@ -5,3 +5,4 @@ tmp
 /LocalPreferences.toml
 lava.code-workspace
 /test/dev.jl
+*.mp4
