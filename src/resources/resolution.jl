@@ -14,12 +14,13 @@ function request_index!(gdescs::GlobalDescriptors, descriptor::Descriptor)
 end
 request_index!(device::Device, descriptor::Descriptor) = request_index!(device.descriptors, descriptor)
 
-function write_descriptors!(gdescs::GlobalDescriptors, uses::Dictionary{NodeID,Dictionary{ResourceID,ResourceUsage}}, resources::Dictionary{ResourceID, Resource})
+function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictionary{NodeID,Dictionary{ResourceID,ResourceUsage}}, resources::Dictionary{ResourceID, Resource})
   (; gset) = gdescs
   device = Lava.device(gset)
   writes = Vk.WriteDescriptorSet[]
+  batch_ids = DescriptorID[]
 
-  for descriptor in gdescs.descriptors
+  for descriptor in descriptors
     haskey(uses, descriptor.node_id::NodeID) || continue
     type = descriptor_type(descriptor)
     dtype = Vk.DescriptorType(type)
@@ -69,8 +70,11 @@ function write_descriptors!(gdescs::GlobalDescriptors, uses::Dictionary{NodeID,D
       push!(writes, Vk.WriteDescriptorSet(gset.handle, 3, index, dtype, [info], [], []))
     end
 
-    push!(gdescs.delete_after_cycle, descriptor.id)
+    push!(batch_ids, descriptor.id)
   end
 
   Vk.update_descriptor_sets(device, writes, [])
+  batch_index = (@atomic gdescs.counter += 1)
+  insert!(gdescs.pending, batch_index, batch_ids)
+  batch_index
 end

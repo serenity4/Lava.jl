@@ -35,13 +35,9 @@ Base.@kwdef struct ImageUsage
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
   samples::Int64 = 1
-  function ImageUsage(type, access, stages, usage_flags, samples)
-    ispow2(samples) || error("The number of samples must be a power of two.")
-    new(type, access, stages, usage_flags, samples)
-  end
 end
 
-combine(x::ImageUsage, y::ImageUsage) = ImageUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.samples | y.samples)
+combine(x::ImageUsage, y::ImageUsage) = ImageUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, merge_sample_count(x.samples, y.samples))
 
 Base.@kwdef struct AttachmentUsage
   type::ResourceUsageType = zero(ResourceUsageType)
@@ -52,10 +48,6 @@ Base.@kwdef struct AttachmentUsage
   samples::Int64 = 1
   clear_value::Optional{NTuple{4,Float32}} = nothing
   resolve_mode::Vk.ResolveModeFlag = Vk.RESOLVE_MODE_AVERAGE_BIT
-  function AttachmentUsage(type, access, stages, usage_flags, aspect, samples, clear_value, resolve_mode)
-    ispow2(samples) || error("The number of samples must be a power of two.")
-    new(type, access, stages, usage_flags, aspect, samples, clear_value, resolve_mode)
-  end
 end
 
 function Base.merge(x::AttachmentUsage, y::AttachmentUsage)
@@ -67,7 +59,7 @@ end
 Base.merge(x::T, y::T) where {T <: Union{BufferUsage, ImageUsage}} = combine(x, y)
 
 function combine(x::AttachmentUsage, y::AttachmentUsage)
-  AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.aspect | y.aspect, x.samples | y.samples, y.clear_value, y.resolve_mode)
+  AttachmentUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, x.aspect | y.aspect, merge_sample_count(x.samples, y.samples), y.clear_value, y.resolve_mode)
 end
 
 struct ResourceUsage

@@ -43,9 +43,12 @@ function bake!(rg::RenderGraph)
   resources = dictionary(r.id => islogical(r) ? materialized_resources[r.id] : r for r in rg.resources)
   resolve_pairs = dictionary(resources[r.id] => resources[resolve_r.id] for (r, resolve_r) in pairs(resolve_pairs))
 
-  descriptors = write_descriptors!(rg.device.descriptors, node_uses, resources)
+  # Allocate descriptors and get the batch index to free them when execution has finished.
+  descriptors = descriptors_for_cycle(rg)
+  descriptor_batch = write_descriptors!(rg.device.descriptors, descriptors, node_uses, resources)
+
   baked = BakedRenderGraph(rg.device, rg.allocator, IndexData(), sort_nodes(rg, node_uses), resources, node_uses, combined_uses, resolve_pairs)
-  finalizer(x -> free_unused_descriptors!(x.device.descriptors), baked)
+  finalizer(x -> free_descriptor_batch!(rg.device.descriptors, descriptor_batch), baked)
 end
 
 function render!(rg::Union{RenderGraph,BakedRenderGraph})

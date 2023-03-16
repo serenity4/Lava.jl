@@ -46,5 +46,5 @@ end
   draw_and_present(cycle, 0.5)
   @test any(!iszero, collect(BGRA{N0f8}, cycle))
 
-  finalize(win)
+  close(wm, win)
 end;

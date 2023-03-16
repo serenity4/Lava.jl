@@ -52,6 +52,8 @@ function Image(device, dims, format, usage_flags;
   array_layers = 1,
   samples = 1)
 
+  ispow2(samples) || error("The number of samples for must be a power of two.")
+
   n = length(dims)
   initial_layout = preinitialized ? Vk.IMAGE_LAYOUT_PREINITIALIZED : Vk.IMAGE_LAYOUT_UNDEFINED
   extent_dims = ones(Int64, 3)

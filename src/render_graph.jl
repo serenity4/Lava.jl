@@ -29,12 +29,12 @@ function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDepend
   end
   usage = @match resource_type(resource) begin
     &RESOURCE_TYPE_BUFFER => BufferUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = buffer_usage_flags(dep.type, dep.access))
-    &RESOURCE_TYPE_IMAGE => ImageUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = image_usage_flags(dep.type, dep.access), dep.samples)
+    &RESOURCE_TYPE_IMAGE => ImageUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = image_usage_flags(dep.type, dep.access), samples = resolve_sample_count(resource, dep))
     &RESOURCE_TYPE_ATTACHMENT => AttachmentUsage(;
         dep.type,
         dep.access,
         dep.clear_value,
-        dep.samples,
+        samples = resolve_sample_count(resource, dep),
         stages = stage_flags(node, resource),
         usage_flags = image_usage_flags(dep.type, dep.access),
         aspect = aspect_flags(resource.data::Union{LogicalAttachment,Attachment}),
@@ -245,7 +245,7 @@ function resource_dependencies(reads::AbstractVector, writes::AbstractVector)
       WRITE ∉ read_deps[2] || error("Resource $expr specified multiple times in write access.")
       type |= read_deps[1]
       access |= read_deps[2]
-      samples = max(samples, read_deps[4])
+      samples = something(samples, read_deps[4])
     end
     set!(dependencies, expr, (type, access, clear_value, samples))
   end
@@ -313,14 +313,14 @@ macro resource_dependencies(ex)
     end
   end
   for (expr, dependency) in pairs(resource_dependencies(reads, writes))
-    push!(ret.args, :($(esc(expr)) => ResourceDependency($(dependency...))))
+    push!(ret.args, :($(esc(expr)) => ResourceDependency($(esc.(dependency)...))))
   end
   :(dictionary($ret))
 end
 
 function extract_special_usage(ex)
   clear_value = nothing
-  samples = 1
+  samples = nothing
   if Meta.isexpr(ex, :call) && ex.args[1] == :(=>)
     clear_value = ex.args[3]
     ex = ex.args[2]
@@ -456,26 +456,6 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
   res
 end
 
-function allocate_blocks!(rg::RenderGraph, materialized_resources)
-  for node in rg.nodes
-    allocate_blocks!(rg, node, materialized_resources)
-  end
-end
-
-function allocate_blocks!(rg::RenderGraph, node::RenderNode, materialized_resources)
-  for command in node.commands
-    is_graphics(command) || is_compute(command) || continue
-    allocate_block!(command.impl::Union{GraphicsCommand, ComputeCommand}, rg.allocator, rg.device, node.id, materialized_resources)
-  end
-end
-
-function allocate_block!(command::Union{GraphicsCommand, ComputeCommand}, allocator::LinearAllocator, device::Device, node_id::NodeID, materialized_resources)
-  isnothing(command.data) && return command
-  data_address = device_address_block!(allocator, device.descriptors, materialized_resources, node_id, command.data)
-  command.data_address = data_address
-  command
-end
-
 function check_physical_resources(rg::RenderGraph, uses)
   for use in uses
     resource = rg.resources[use.id]
@@ -496,12 +476,53 @@ function check_physical_resources(rg::RenderGraph, uses)
       attachment = resource.data::Attachment
       usage.usage_flags in attachment.view.image.usage_flags ||
         error("An existing attachment with usage $(attachment.view.image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
-      usage.samples == attachment.view.image.samples ||
-        error(
-          "An existing attachment with a multisampling setting of $(attachment.view.image.samples) samples was provided, but is used with $(usage.samples) samples.",
-        )
       usage.aspect in attachment.view.aspect ||
         error("An existing attachment with aspect $(attachment.view.aspect) was provided, but is used with an aspect of $(usage.aspect).")
     end
   end
+end
+
+function resolve_sample_count(resource, dependency::ResourceDependency)
+  isnothing(dependency.samples) && return samples(resource)
+  # Allow an unspecified sample count for logical resources.
+  s = islogical(resource) ? (resource.data::Union{LogicalImage,LogicalAttachment}).samples : samples(resource)
+  isnothing(s) && return dependency.samples
+  s == dependency.samples || error("Sample counts differ between the resource $resource and its dependency $dependency.")
+  s
+end
+
+function allocate_blocks!(rg::RenderGraph, materialized_resources)
+  for node in rg.nodes
+    allocate_blocks!(rg, node, materialized_resources)
+  end
+end
+
+function allocate_blocks!(rg::RenderGraph, node::RenderNode, materialized_resources)
+  for command in node.commands
+    is_graphics(command) || is_compute(command) || continue
+    allocate_block!(command.impl::Union{GraphicsCommand, ComputeCommand}, rg.allocator, rg.device, node.id, materialized_resources)
+  end
+end
+
+function allocate_block!(command::Union{GraphicsCommand, ComputeCommand}, allocator::LinearAllocator, device::Device, node_id::NodeID, materialized_resources)
+  isnothing(command.data) && return command
+  data_address = device_address_block!(allocator, device.descriptors, materialized_resources, node_id, command.data)
+  command.data_address = data_address
+  command
+end
+
+function descriptors_for_cycle(rg::RenderGraph)
+  descriptors = Descriptor[]
+  for node in rg.nodes
+    for command in node.commands
+      is_graphics(command) || is_compute(command) || continue
+      impl = command.impl::Union{GraphicsCommand, ComputeCommand}
+      if !isnothing(impl.data)
+        for descriptor in impl.data.descriptors
+          push!(descriptors, rg.device.descriptors.descriptors[descriptor.id])
+        end
+      end
+    end
+  end
+  unique!(descriptors)
 end

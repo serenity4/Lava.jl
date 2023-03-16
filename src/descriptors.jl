@@ -80,12 +80,13 @@ function delete_descriptor!(arr::DescriptorArray, id::DescriptorID)
   push!(arr.holes, index)
 end
 
-struct GlobalDescriptors
-  pool::Vk.DescriptorPool
-  gset::DescriptorSet
-  arrays::Dictionary{Vk.DescriptorType,DescriptorArray}
-  descriptors::Dictionary{DescriptorID, Descriptor}
-  delete_after_cycle::Set{DescriptorID}
+mutable struct GlobalDescriptors
+  const pool::Vk.DescriptorPool
+  const gset::DescriptorSet
+  const arrays::Dictionary{Vk.DescriptorType,DescriptorArray}
+  const descriptors::Dictionary{DescriptorID, Descriptor}
+  const pending::Dictionary{Int64,Vector{DescriptorID}}
+  @atomic counter::Int64
 end
 
 function Base.delete!(gdescs::GlobalDescriptors, id::DescriptorID)
@@ -130,17 +131,18 @@ function GlobalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescr
     ], next = Vk.DescriptorSetLayoutBindingFlagsCreateInfo(repeat([Vk.DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT], 4)))
 
   set = DescriptorSet(first(unwrap(Vk.allocate_descriptor_sets(device, Vk.DescriptorSetAllocateInfo(pool, [layout])))), layout)
-  GlobalDescriptors(pool, set, Dictionary(), Dictionary(), Set{DescriptorID}())
+  GlobalDescriptors(pool, set, Dictionary(), Dictionary(), Dictionary(), 0)
 end
 
 # Must only be called in-between cycles.
-function free_unused_descriptors!(gdescs::GlobalDescriptors)
-  for id in gdescs.delete_after_cycle
+function free_descriptor_batch!(gdescs::GlobalDescriptors, batch::Int64)
+  !haskey(gdescs.pending, batch) && return
+  for id in gdescs.pending[batch]
     dtype = Vk.DescriptorType(id)
     delete_descriptor!(gdescs.arrays[dtype], id)
     delete!(gdescs.descriptors, id)
   end
-  empty!(gdescs.delete_after_cycle)
+  delete!(gdescs.pending, batch)
 end
 
 primitive type DescriptorIndex 32 end

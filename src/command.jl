@@ -21,13 +21,18 @@ struct ResourceDependency
   type::ResourceUsageType
   access::MemoryAccess
   clear_value::Optional{NTuple{4,Float32}}
-  samples::Int64
+  samples::Optional{Int64}
 end
-ResourceDependency(type, access; clear_value = nothing, samples = 1) = ResourceDependency(type, access, clear_value, samples)
+ResourceDependency(type, access; clear_value = nothing, samples = nothing) = ResourceDependency(type, access, clear_value, samples)
 
 function Base.merge(x::ResourceDependency, y::ResourceDependency)
   @assert x.id === y.id
-  ResourceDependency(x.id, x.type | y.type, x.access | y.access)
+  ResourceDependency(x.id, x.type | y.type, x.access | y.access, merge_sample_count(x.samples, y.samples))
+end
+
+function merge_sample_count(xsamples, ysamples)
+  isnothing(xsamples) || isnothing(ysamples) || xsamples == ysamples || error("Cannot merge resource dependencies with inconsistent sampling parameters ($(xsamples) samples ≠ $(ysamples) samples).")
+  something(xsamples, ysamples, Some(nothing))
 end
 
 include("command/graphics.jl")

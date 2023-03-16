@@ -321,14 +321,14 @@ end
     agents = buffer_resource(device, initial; memory_domain = MEMORY_DOMAIN_HOST)
     forces = buffer_resource(device, zeros(Vec2, 512); memory_domain = MEMORY_DOMAIN_HOST)
     nodes = boid_simulation_nodes(device, agents, forces, parameters, 0.01F)
-    push!(nodes, boid_drawing_node(device, agents, color, sprite_image))
-    save_test_render("boid_agents.png", render_graphics(device, color, nodes), 0xf3695bd9fd577f77)
+    push!(nodes, boid_drawing_node(device, agents, color_ms, sprite_image))
+    save_test_render("boid_agents.png", render_graphics(device, color_ms, nodes), 0x2e0f1d1fe591e574)
 
     graphics_prog = boid_drawing_program(device)
     function next_nodes!(boids, agents, Δt)
       next!(boids, Δt)
       cpu_agents = buffer_resource(device, boids.agents; memory_domain = MEMORY_DOMAIN_HOST, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
-      nodes = [transfer_command(cpu_agents, agents), boid_drawing_node(device, agents, color, sprite_image, graphics_prog)]
+      nodes = [transfer_command(cpu_agents, agents), boid_drawing_node(device, agents, color_ms, sprite_image, graphics_prog)]
       nodes
     end
 

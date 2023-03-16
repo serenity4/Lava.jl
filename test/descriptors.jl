@@ -40,9 +40,9 @@
     idx = request_index!(gdescs, d4)
     @test idx == 1
     @test length(gdescs.descriptors) == 2
-    push!(gdescs.delete_after_cycle, d4.id)
+    insert!(gdescs.pending, 1, [d4.id])
 
-    free_unused_descriptors!(gdescs)
+    free_descriptor_batch!(gdescs, 1)
     @test length(gdescs.descriptors) == 1
     @test !haskey(gdescs.descriptors, d4.id)
 

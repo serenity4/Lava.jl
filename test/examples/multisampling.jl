@@ -1,4 +1,12 @@
-function draw_triangle_multisampled(device, vdata, color; prog = rectangle_program(device))
+function draw_triangle_multisampled(device, vdata, color; prog = rectangle_program(device), samples)
+  dependencies = if isnothing(samples)
+    @resource_dependencies @write (color => (0.08, 0.05, 0.1, 1.0))::Color
+  elseif samples == :four
+    @resource_dependencies @write (color * 4 => (0.08, 0.05, 0.1, 1.0))::Color
+  else
+    @resource_dependencies @write (color * samples => (0.08, 0.05, 0.1, 1.0))::Color
+  end
+
   invocation_data = @invocation_data prog @block vdata
   graphics_command(
     DrawIndexed(1:3),
@@ -7,21 +15,20 @@ function draw_triangle_multisampled(device, vdata, color; prog = rectangle_progr
     RenderTargets(color),
     RenderState(),
     ProgramInvocationState(),
-    @resource_dependencies begin
-      @write
-      (color * 4 => (0.08, 0.05, 0.1, 1.0))::Color
-    end
+    dependencies,
   )
 end
 
 @testset "Multisampled triangle" begin
-  color_ms = attachment_resource(device, nothing; format = Vk.FORMAT_R16G16B16A16_SFLOAT, samples = 4, usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, dims = [1920, 1080])
   vdata = [
     PosColor(Vec2(0.0, 0.8), Arr{Float32}(1.0, 0.0, 0.0)),
     PosColor(Vec2(0.5, -0.8), Arr{Float32}(0.0, 0.0, 1.0)),
     PosColor(Vec2(-0.5, -0.8), Arr{Float32}(0.0, 1.0, 0.0)),
   ]
-  draw = draw_triangle_multisampled(device, vdata, color_ms)
-  data = render_graphics(device, draw)
-  save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
+
+  for samples in (4, :four, nothing)
+    draw = draw_triangle_multisampled(device, vdata, color_ms; samples)
+    data = render_graphics(device, draw)
+    save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
+  end
 end;
