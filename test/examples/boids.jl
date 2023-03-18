@@ -83,11 +83,11 @@ function compute_forces(agents, parameters::BoidParameters, i::Signed, Δt::Floa
   end
 
   if !iszero(flock_size)
-    flock_center[] = flock_center / flock_size
-    average_velocity[] = average_velocity / flock_size
+    flock_center[] = flock_center ./ flock_size
+    average_velocity[] = average_velocity ./ flock_size
 
-    forces[] = forces + (flock_center - position) * parameters.cohesion_strength
-    forces[] = forces + (average_velocity - velocity) * parameters.alignment_strength
+    forces[] = forces + (flock_center - position) .* parameters.cohesion_strength
+    forces[] = forces + (average_velocity - velocity) .* parameters.alignment_strength
   end
 
   forces

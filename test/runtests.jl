@@ -2,7 +2,7 @@ using Lava
 using Test
 using Random: Random, MersenneTwister, AbstractRNG
 using Dictionaries
-using SPIRV: SPIRV, ShaderInterface, U, F, @mat, image_type
+using SPIRV: SPIRV, ShaderInterface, U, F, @mat, image_type, invalidate_all!
 using GeometryExperiments
 using FixedPointNumbers
 using FileIO, ImageIO, VideoIO

@@ -16,9 +16,9 @@ function compute_blur((; σ)::GaussianBlur, reference, uv)
     for j in -ry:ry
       uv_offset = Vec2(i, j) .* pixel_size
       weight = gaussian_2d(uv_offset, σ) * 0.5(pixel_size[1]^2 + pixel_size[2]^2)
-      sampled = reference(uv .+ uv_offset)
+      sampled = reference(uv + uv_offset)
       color = sampled.rgb
-      res .+= color .* weight
+      res .+= color * weight
     end
   end
   res
@@ -45,7 +45,7 @@ function blur_frag(out_color, uv, data_address, images)
   (; uv_scaling, img_index) = drawing
   reference = images[img_index]
   # color = reference(uv * uv_scaling)
-  color = compute_blur(data.blur, reference, uv * uv_scaling)
+  color = compute_blur(data.blur, reference, uv .* uv_scaling)
   out_color[] = Vec(color.r, color.g, color.b, 1F)
 end
 

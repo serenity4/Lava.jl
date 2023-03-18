@@ -20,7 +20,7 @@ function texture_frag(out_color, uv, data_address, images)
   data = @load data_address::TextureData
   drawing = @load data.drawing::TextureDrawing
   (; uv_scaling, img_index) = drawing
-  texcolor = images[img_index](uv * uv_scaling)
+  texcolor = images[img_index](uv .* uv_scaling)
   out_color[] = Vec(texcolor.r, texcolor.g, texcolor.b, 1F)
 end
 
