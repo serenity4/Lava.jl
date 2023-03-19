@@ -47,7 +47,7 @@ function shader(device, ex::Expr, execution_model::SPIRV.ExecutionModel, options
         end
       end
       if !has_decorations && sc in (SPIRV.StorageClassInput, SPIRV.StorageClassOutput)
-        get!(Decorations, variable_decorations, i).decorate!(SPIRV.DecorationLocation, count(==(sc), storage_classes) - 1)
+        get!(Decorations, variable_decorations, i).decorate!(SPIRV.DecorationLocation, count(i -> storage_classes[i] == sc && !haskey(variable_decorations, i), eachindex(storage_classes)))
       end
       push!(argtypes, T)
       @case _
