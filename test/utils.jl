@@ -1,4 +1,3 @@
-shader_file(filename) = joinpath(@__DIR__, "resources", "shaders", filename)
 texture_file(filename) = joinpath(@__DIR__, "resources", "textures", filename)
 font_file(filename) = joinpath(@__DIR__, "resources", "fonts", filename)
 render_file(filename; tmp = false) = joinpath(@__DIR__, "examples", "renders", tmp ? "tmp" : "", filename)
