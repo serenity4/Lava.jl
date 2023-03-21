@@ -13,8 +13,8 @@ function intensity(curve_points, pixel_per_em)
     (t₁, t₂) = compute_roots(y₁ - 2y₂ + y₃, y₁ - y₂, y₁)
     if !isnan(t₁)
       val = zero(res)
-      code & 0x0001 == 0x0001 && (val += saturated_softmax(pixel_per_em, first(bezier(t₁, curve_points))))
-      code > 0x0001 && (val -= saturated_softmax(pixel_per_em, first(bezier(t₂, curve_points))))
+      code & 0x0001 == 0x0001 && (val += winding_contribution(pixel_per_em, first(bezier(t₁, curve_points))))
+      code > 0x0001 && (val -= winding_contribution(pixel_per_em, first(bezier(t₂, curve_points))))
       res += val
     end
   end
@@ -25,8 +25,8 @@ function intensity(curve_points, pixel_per_em)
     (t₁, t₂) = compute_roots(x₁ - 2x₂ + x₃, x₁ - x₂, x₁)
     if !isnan(t₁)
       val = zero(res)
-      code & 0x0001 == 0x0001 && (val += saturated_softmax(pixel_per_em, last(bezier(t₁, curve_points))))
-      code > 0x0001 && (val -= saturated_softmax(pixel_per_em, last(bezier(t₂, curve_points))))
+      code & 0x0001 == 0x0001 && (val += winding_contribution(pixel_per_em, last(bezier(t₁, curve_points))))
+      code > 0x0001 && (val -= winding_contribution(pixel_per_em, last(bezier(t₂, curve_points))))
       res -= val
     end
   end
@@ -34,36 +34,12 @@ function intensity(curve_points, pixel_per_em)
   res
 end
 
+winding_contribution(pixel_per_em, value) = clamp(0.5F + pixel_per_em * value, 0F, 1F)
+
 function classify_bezier_curve(points)
   (x₁, x₂, x₃) = points
   rshift = ifelse(x₁ > 0, 1 << 1, 0) + ifelse(x₂ > 0, 1 << 2, 0) + ifelse(x₃ > 0, 1 << 3, 0)
   (0x2e74 >> rshift) & 0x0003
-end
-
-function compute_roots(a, b, c)
-  if isapprox(a, zero(a), atol = 1e-7)
-    t₁ = t₂ = c / 2b
-    return (t₁, t₂)
-  end
-  Δ = b^2 - a * c
-  T = typeof(a)
-  Δ < 0 && return (T(NaN), T(NaN))
-  δ = sqrt(Δ)
-  t₁ = (b - δ) / a
-  t₂ = (b + δ) / a
-  (t₁, t₂)
-end
-
-function saturated_softmax(slope, value)
-  T = typeof(slope)
-  clamp(T(0.5) + slope * value, zero(T), one(T))
-end
-
-function smoothstep(min, max, value)
-  value < min && return zero(value)
-  value ≥ max && return one(value)
-  x = (value - min) / (max - min)
-  x^2 * (3 - 2x)
 end
 
 function intensity(position, curves::DeviceAddress, range)

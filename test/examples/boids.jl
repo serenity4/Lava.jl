@@ -27,35 +27,9 @@ struct BoidSimulation{V<:AbstractVector{BoidAgent}}
 end
 BoidSimulation(agents) = BoidSimulation(agents, BoidParameters())
 
-distance2(x::Vec, y::Vec) = sum(x -> x^2, y - x)
-distance(x::Vec, y::Vec) = sqrt(distance2(x, y))
-norm(x::Vec) = distance(x, zero(x))
-normalize(x::Vec) = ifelse(iszero(x), x, x / norm(x))
-function rotate(v::Vec2, angle::Float32)
-  cv = v.x + v.y * im
-  crot = cos(angle) + sin(angle) * im
-  cv′ = cv * crot
-  Vec2(real(cv′), imag(cv′))
-end
-
 const WORKGROUP_SIZE = (8U, 8U, 1U)
 const DISPATCH_SIZE = (8U, 1U, 1U)
 const COMPUTE_EXECUTION_OPTIONS = ComputeExecutionOptions(local_size = WORKGROUP_SIZE)
-
-# from https://stackoverflow.com/questions/21483999/using-atan2-to-find-angle-between-two-vectors
-function angle_2d(x, y)
-  θ = atan(y[2], y[1]) - atan(x[2], x[1])
-  θ % 2(π)F
-end
-
-# from https://en.wikipedia.org/wiki/Slerp
-function slerp(x, y, t)
-  θ = angle_2d(x, y)
-  wx = sin((1 - t)θ)
-  wy = sin(t * θ)
-  normalize(x * wx + y * wy)
-end
-lerp(x, y, t) = x * t + (1 - t)y
 
 function next!(boids::BoidSimulation{V}, Δt::Float32) where {V}
   forces = [compute_forces(boids.agents, boids.parameters, i, Δt) for i in 1:length(boids.agents)]
@@ -213,7 +187,7 @@ function boid_vert(uv::Vec2, position::Vec4, vertex_index::UInt32, instance_inde
   corner = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index]
 
   # Rotate `corner` relative to the center of the quad, i.e. `agent.position`.
-  v = agent.position + rotate(corner - agent.position, angle)
+  v = agent.position + rotate_2d(corner - agent.position, angle)
 
   uv[] = quad_2d(Vec2(0.5F, 0.5F), Vec2(1F, -1F))[vertex_index]
   position[] = Vec4(v.x, v.y, 0F, 1F)
@@ -259,22 +233,6 @@ function boid_drawing_node(device, agents::Resource, color, image, prog = boid_d
 end
 
 @testset "Simulation of boids" begin
-  @testset "Mathematical functions" begin
-    @test lerp(0.1, 0.9, 0.5) == 0.5
-    @test lerp(0.1, 1.2, 0.5) == 0.65
-
-    x = Vec2(1, 0)
-    y = Vec2(0, 1)
-    @test norm(x) == norm(y) == 1
-    @test distance2(x, y) == 2
-    @test distance(x, y) ≈ sqrt(2)
-    @test slerp(x, y, 0.5) ≈ normalize(Vec2(1, 1))
-    @test slerp(x, y, 1.0) == normalize(y)
-    @test slerp(x, y, 0.0) == normalize(x)
-
-    @test length(rand(BoidAgent, 5)) == 5
-  end
-
   @testset "CPU implementation" begin
     a1 = BoidAgent(Vec2(0.5, 0.5), Vec2(0.1, 0.1))
     a2 = BoidAgent(Vec2(0.6, 0.5), Vec2(0.1, 0.5))
@@ -287,6 +245,7 @@ end
       next!(boids, Δt)
     end
     @test all(all(!isnan, a.position) && all(!isnan, a.velocity) for a in boids.agents)
+    @test length(rand(BoidAgent, 5)) == 5
     boids = BoidSimulation(rand(BoidAgent, 512))
     @test all(all(!isnan, a.position) && all(!isnan, a.velocity) for a in boids.agents)
     for _ in 1:100
