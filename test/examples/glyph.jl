@@ -12,10 +12,8 @@ function intensity(curve_points, pixel_per_em)
   if !iszero(code)
     (t₁, t₂) = compute_roots(y₁ - 2y₂ + y₃, y₁ - y₂, y₁)
     if !isnan(t₁)
-      val = zero(res)
-      code & 0x0001 == 0x0001 && (val += winding_contribution(pixel_per_em, first(bezier(t₁, curve_points))))
-      code > 0x0001 && (val -= winding_contribution(pixel_per_em, first(bezier(t₂, curve_points))))
-      res += val
+      code & 0x0001 == 0x0001 && (res += winding_contribution(pixel_per_em, first(bezier(t₁, curve_points))))
+      code > 0x0001 && (res -= winding_contribution(pixel_per_em, first(bezier(t₂, curve_points))))
     end
   end
 
@@ -24,10 +22,8 @@ function intensity(curve_points, pixel_per_em)
   if !iszero(code)
     (t₁, t₂) = compute_roots(x₁ - 2x₂ + x₃, x₁ - x₂, x₁)
     if !isnan(t₁)
-      val = zero(res)
-      code & 0x0001 == 0x0001 && (val += winding_contribution(pixel_per_em, last(bezier(t₁, curve_points))))
-      code > 0x0001 && (val -= winding_contribution(pixel_per_em, last(bezier(t₂, curve_points))))
-      res -= val
+      code & 0x0001 == 0x0001 && (res -= winding_contribution(pixel_per_em, last(bezier(t₁, curve_points))))
+      code > 0x0001 && (res += winding_contribution(pixel_per_em, last(bezier(t₂, curve_points))))
     end
   end
 
@@ -123,7 +119,9 @@ end
 
 nothing;
 
-#= Prototyping area
+# Prototyping area
+
+#=
 
 function intensity(point, glyph, font_size)
     res = sum(curves_normalized(glyph)) do p
