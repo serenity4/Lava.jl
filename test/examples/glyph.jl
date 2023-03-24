@@ -85,7 +85,7 @@ function draw_glyph(device, vdata, glyph, glyph_color, color; prog = glyph_progr
   data = @invocation_data prog begin
     b1 = @block vdata
     b2 = @block curves
-    @block GlyphData(@address(b1), @address(b2), eachindex(curves), Vec3(glyph_color.r, glyph_color.g, glyph_color.b))
+    @block GlyphData(@address(b1), @address(b2), 0:(length(curves) - 1), Vec3(glyph_color.r, glyph_color.g, glyph_color.b))
   end
   graphics_command(
     DrawIndexed(eachindex(vdata)),
@@ -114,7 +114,7 @@ end
   ]
   draw = draw_glyph(device, vdata, font['A'], RGB(0.6, 0.4, 1.0), color)
   data = render_graphics(device, draw)
-  save_test_render("glyph.png", data)
+  save_test_render("glyph.png", data, 0x29cebbf69bf12f45)
 end
 
 nothing;
