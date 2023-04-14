@@ -84,7 +84,8 @@ include("node_synchronization.jl")
 include("flush.jl")
 include("resources/resolution.jl")
 include("debug.jl")
-include("precompile.jl")
+
+@precompile_all_calls @compile_traces verbose = false joinpath(pkgdir(Lava), "traces", "precompilation_traces.jl")
 
 function __init__()
   # for debugging in Vulkan
