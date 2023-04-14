@@ -4,6 +4,8 @@ using Core: MethodInstance
 using BitMasks
 using Vulkan: Vk, VkCore
 
+using CompileTraces
+using SnoopPrecompile
 using Reexport
 using Dictionaries
 using Accessors
