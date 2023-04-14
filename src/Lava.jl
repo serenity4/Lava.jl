@@ -61,6 +61,7 @@ include("shaders/dependencies.jl")
 include("shaders/formats.jl")
 include("shaders/source.jl")
 include("shaders/vulkan.jl")
+include("shaders/creation.jl")
 include("shaders/macros.jl")
 
 include("program.jl")

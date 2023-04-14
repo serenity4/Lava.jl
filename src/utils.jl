@@ -69,3 +69,5 @@ function unblock(ex::Expr)
         ex isa Expr && ex.head == :block && length(ex.args) == 1 ? ex.args[1] : ex
     end
 end
+
+propagate_source(__source__, ex) = Expr(:block, LineNumberNode(__source__.line, __source__.file), ex)
