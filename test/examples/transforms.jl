@@ -55,6 +55,11 @@ Base.inv((; translation, rotation, scaling)::Transform) = Transform(-translation
 """
 The image plane is taken to be z = 0.
 The optical center is placed a z = focal_length.
+
+Projection through the camera yields a z-component which describes how far
+or near the camera the point was. The resulting value is between 0 and 1,
+where 0 corresponds to a point on the near clipping plane, and 1 to one on
+the far clipping plane.
 """
 Base.@kwdef struct PinholeCamera
   focal_length::Float32 = 0.35

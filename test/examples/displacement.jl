@@ -10,7 +10,9 @@ function displace_height_vert(position, index, textures, data_address)
   height_map = textures[data.texture_index]
   height = height_map(uv, 0F).r
   global_position = Vec4(pos.x, pos.y, height, 1)
-  position[] = global_position # TODO: project into camera
+  position[] = global_position
+  # TODO: project into camera
+  # position[] = project(global_position, data.camera)
 end
 
 displace_height_frag(out_color) = out_color[] = Vec4(0.2, 0.2, 0.2, 1.0)
