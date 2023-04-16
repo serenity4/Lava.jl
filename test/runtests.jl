@@ -4,7 +4,7 @@ using Random: Random, MersenneTwister, AbstractRNG
 using Dictionaries
 using SPIRV: SPIRV, ShaderInterface, U, F, @mat, image_type, invalidate_all!
 using SPIRV.MathFunctions
-using GeometryExperiments
+using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve
 using FixedPointNumbers
 using FileIO, ImageIO, VideoIO
 using Accessors
