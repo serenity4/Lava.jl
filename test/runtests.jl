@@ -2,8 +2,9 @@ using Lava
 using Test
 using Random: Random, MersenneTwister, AbstractRNG
 using Dictionaries
-using SPIRV: SPIRV, ShaderInterface, U, F, @mat, image_type, invalidate_all!
+using SPIRV: SPIRV, @compile, validate, ShaderInterface, SPIRVInterpreter, U, F, @mat, image_type, invalidate_all!
 using SPIRV.MathFunctions
+using SymbolicGA: @ga
 using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve
 using FixedPointNumbers
 using FileIO, ImageIO, VideoIO

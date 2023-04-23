@@ -73,13 +73,6 @@ function glyph_program(device)
   Program(vert, frag)
 end
 
-"""
-Remap a value from `(low1, high1)` to `(low2, high2)`.
-"""
-function remap(value, low1, high1, low2, high2)
-  low2 + (value - low1) * (high2 - low2) / (high1 - low1)
-end
-
 function draw_glyph(device, vdata, glyph, glyph_color, color; prog = glyph_program(device))
   curves = map(x -> Arr{3,Vec2}(Vec2.(broadcast.(remap, x, 0.0, 1.0, -0.9, 0.9))), curves_normalized(glyph))
   data = @invocation_data prog begin

@@ -20,6 +20,7 @@ end
 read_data(device, color) = clamp01nan!(collect(RGBA{Float16}, color.attachment.view.image, device))
 video_frame(frame::Matrix) = transpose(convert(Matrix{RGB{N0f8}}, frame))
 
+include("examples/utils.jl")
 include("examples/textures.jl")
 include("examples/transforms.jl")
 

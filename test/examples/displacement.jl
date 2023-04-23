@@ -10,9 +10,8 @@ function displace_height_vert(position, index, textures, data_address)
   height_map = textures[data.texture_index]
   height = height_map(uv, 0F).r
   global_position = Vec4(pos.x, pos.y, height, 1)
-  position[] = global_position
-  # TODO: project into camera
-  # position[] = project(global_position, data.camera)
+  position.xyz = project(global_position.xyz, data.camera)
+  position.w = 1
 end
 
 displace_height_frag(out_color) = out_color[] = Vec4(0.2, 0.2, 0.2, 1.0)
@@ -71,7 +70,7 @@ end
   vmesh = VertexMesh(mesh)
   height_map = rand(MersenneTwister(0), Float32, 1920, 1080)
   height_map = image_resource(device, height_map; usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT, format = Vk.FORMAT_R32_SFLOAT)
-  camera = PinholeCamera(focal_length = 0.05F)
+  camera = PinholeCamera(focal_length = 2F)
   draw = draw_terrain(device, vmesh, color, height_map, camera)
   data = render_graphics(device, draw)
   h = save_test_render("displacement.png", data)

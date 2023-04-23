@@ -7,8 +7,6 @@ end
 Base.:(==)(x::Plane, y::Plane) = x.u == y.u && x.v == y.v
 Base.isapprox(x::Plane, y::Plane) = x.u ≈ y.u && x.v ≈ y.v
 
-using SymbolicGA
-
 Plane(normal) = Plane(convert(Vec3, normal))
 function Plane(normal::Vec3)
   iszero(normal) && return Plane(Vec3(1, 0, 0), Vec3(0, 1, 0))
@@ -93,13 +91,14 @@ end
     @test p′.z == p.z
     @test p′.xy ≈ Vec2(0, 0.2sqrt(2))
     @test apply_rotation(p, @set rot.angle = 0) == p
-    rot = Rotation(Plane(Tuple(rand(3))), rand())
+    rot = Rotation(Plane(Tuple(rand(3))), 1.5)
     @test apply_rotation(p, rot) ≉ p
-    # Floating point errors make up for quite a big difference.
+    # Works fairly well for small angles, but will not work in general
+    # because the rotation is expressed in terms of rotated axes (body frame).
+    # We'd need to express rotation with respect to a fixed reference frame to obtain an inverse.
     @test_broken apply_rotation(apply_rotation(p, rot), inv(rot)) ≈ p
 
-    code = first(@code_typed debuginfo=:source interp=SPIRVInterpreter() apply_rotation(p, rot))
-    @test unwrap(SPIRV.validate(code))
+    @test unwrap(validate(@compile apply_rotation(::Vec3, ::Rotation)))
   end
 
   @testset "Camera" begin
@@ -113,10 +112,6 @@ end
     p.z = camera.far_clipping_plane
     @test project(p, camera).z == 1
 
-    code = first(@code_typed debuginfo=:source interp=SPIRVInterpreter() project(p, camera))
-    @test unwrap(SPIRV.validate(code))
+    @test unwrap(validate(@compile project(::Vec3, ::PinholeCamera)))
   end
 end
-
-# SPIRV.@code_typed apply_rotation(p, rot)
-# SPIRV.@code_typed project(p, camera)
