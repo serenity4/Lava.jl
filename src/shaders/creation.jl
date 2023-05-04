@@ -6,6 +6,8 @@ function shader(device, ex::Expr, execution_model::SPIRV.ExecutionModel, options
   argtypes = []
   storage_classes = SPIRV.StorageClass[]
   variable_decorations = Dictionary{Int,Decorations}()
+  input_location = -1
+  output_location = -1
   for (i, arg) in enumerate(args)
     @switch arg begin
       @case :(::$T::$C)
@@ -33,7 +35,10 @@ function shader(device, ex::Expr, execution_model::SPIRV.ExecutionModel, options
         end
       end
       if !has_decorations && sc in (SPIRV.StorageClassInput, SPIRV.StorageClassOutput)
-        get!(Decorations, variable_decorations, i).decorate!(SPIRV.DecorationLocation, count(i -> storage_classes[i] == sc && !haskey(variable_decorations, i), eachindex(storage_classes)))
+        if !haskey(variable_decorations, i) || !has_decoration(variable_decorations[i], SPIRV.DecorationBuiltIn)
+          location = sc == SPIRV.StorageClassInput ? (input_location += 1) : (output_location += 1)
+          get!(Decorations, variable_decorations, i).decorate!(SPIRV.DecorationLocation, UInt32(location))
+        end
       end
       push!(argtypes, T)
       @case _

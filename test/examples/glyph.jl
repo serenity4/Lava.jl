@@ -49,7 +49,7 @@ end
 
 struct GlyphData
   positions::DeviceAddress # Vector{Vec2}
-  curves::DeviceAddress # Vector{Vec3}
+  curves::DeviceAddress # Vector{Arr{3,Vec2}}
   range::UnitRange{UInt32}
   color::Vec3
 end
