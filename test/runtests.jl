@@ -5,7 +5,7 @@ using Dictionaries
 using SPIRV: SPIRV, @compile, validate, ShaderInterface, SPIRVInterpreter, U, F, @mat, image_type, invalidate_all!
 using SPIRV.MathFunctions
 using SymbolicGA: @ga
-using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve, Point, Point2, Point2f, box, PointSet, HyperCube
+using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve, Point, Point2, Point2f, box, PointSet, HyperCube, TriangleList, TriangleStrip
 using FixedPointNumbers
 using FileIO, ImageIO, VideoIO
 using Accessors

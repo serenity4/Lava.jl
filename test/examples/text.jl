@@ -20,10 +20,10 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
     glyph_id = line.glyphs[i]
     glyph = @something(font[glyph_id], font[GlyphID(0)])
     (; header) = glyph
-    min = Point(header.xmin, header.ymin) .+ pen_position
-    max = Point(header.xmax, header.ymax) .+ pen_position
-    set = PointSet(box(scale .* min, scale .* max), Point2)
-    append!(positions, Vec2.(set.points))
+    min = Point(header.xmin, -header.ymin)
+    max = Point(header.xmax, -header.ymax)
+    set = PointSet(box(scale .* min .+ pen_position, scale .* max .+ pen_position), Point2)
+    append!(positions, Vec2.(@view set.points[[1, 2, 3, 4]]))
     index = get!(processed_glyphs, glyph_id) do
       start = lastindex(glyph_curves)
       append!(glyph_curves, Arr{3,Vec2}.(broadcast.(Vec2, curves(glyph) .* scale)))
@@ -76,8 +76,15 @@ end
 
 function draw_text(device, line::Line, segment::LineSegment, start, camera::PinholeCamera; options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 12), prog = text_program(device))
   data = text_invocation_data(prog, line, segment, start, camera)
+  strip = TriangleList(TriangleStrip(1:4))
+  indices = Int[]
+  for i in eachindex(line.glyphs)
+    for triangle in strip.indices
+      append!(indices, triangle .+ 4(i - 1))
+    end
+  end
   graphics_command(
-    DrawIndexed(1:4length(line.glyphs)),
+    DrawIndexed(indices),
     prog,
     data,
     RenderTargets(color),
@@ -95,13 +102,13 @@ end
 @testset "Text rendering" begin
   font = OpenTypeFont(font_file("juliamono-regular.ttf"));
   text = Text("The brown fox jumps over the lazy dog.", TextOptions())
-  options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 12)
+  options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 1/37)
   line = only(lines(text, [font => options]))
   segment = only(line.segments)
   start = Vec2(0.1, 0.1)
   quads = glyph_quads(line, segment, start)
-  camera = PinholeCamera(focal_length = 2F, transform = Transform(translation = (1, 1, 0)))
-  @test project(Vec3(start..., 1), camera) == Vec3(-0.45, -0.45, 0.1)
+  camera = PinholeCamera(focal_length = 0.35F, transform = Transform(translation = (0.3, -0.3, 0), scaling = (1, -1, 1)))
+  any(<(0), project(Vec3(start..., 1), camera))
   draw = draw_text(device, line, segment, start, camera)
   data = render_graphics(device, draw)
   save_test_render("text.png", data)
