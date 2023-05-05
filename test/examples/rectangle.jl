@@ -41,12 +41,12 @@ end
 
 @testset "Rectangle" begin
   vdata = [
-    PosColor(Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
-    PosColor(Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
-    PosColor(Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
-    PosColor(Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
+    PosColor(Vec2(-0.7, -0.7), Arr{Float32}(1.0, 0.0, 0.0)),
+    PosColor(Vec2(0.3, -0.7), Arr{Float32}(0.0, 1.0, 0.0)),
+    PosColor(Vec2(-0.7, 0.3), Arr{Float32}(1.0, 1.0, 1.0)),
+    PosColor(Vec2(0.3, 0.3), Arr{Float32}(0.0, 0.0, 1.0)),
   ]
   draw = draw_rectangle(device, vdata, color)
   data = render_graphics(device, draw)
-  save_test_render("colored_rectangle.png", data, 0x9430efd8e0911300)
+  save_test_render("colored_rectangle.png", data, 0xc92df9461d3cc743)
 end;
