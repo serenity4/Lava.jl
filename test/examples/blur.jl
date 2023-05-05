@@ -55,7 +55,7 @@ function blur_program(device)
     ::Vec4::Output,
     ::Vec2::Input,
     ::DeviceAddressBlock::PushConstant,
-    ::Arr{2048,SPIRV.SampledImage{IT}}::UniformConstant{DescriptorSet = 0, Binding = 3})
+    ::Arr{2048,SPIRV.SampledImage{IT}}::UniformConstant{@DescriptorSet(0), @Binding(3)})
   Program(vert, frag)
 end
 

@@ -37,8 +37,7 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
   (; positions, glyph_curves, glyph_ranges, glyph_data_indices)
 end
 
-function text_invocation_data(prog, line::Line, start::Vec2, camera::PinholeCamera)
-  segment = only(line.segments)
+function text_invocation_data(prog, line::Line, segment::LineSegment, start::Vec2, camera::PinholeCamera)
   pen_position = start
   (; positions, glyph_curves, glyph_ranges, glyph_data_indices) = glyph_quads(line, segment, pen_position)
   (; r, g, b) = segment.style.color
@@ -56,8 +55,8 @@ function text_vert(position, frag_position, frag_quad_index, index, data_address
   xy = @load data.positions[index]::Vec2
   frag_position[] = xy
   frag_quad_index[0U] = index ÷ 4U
-  position.xyz = project(Vec3(xy..., 1), data.camera)
-  position.w = 1
+  position.xyz = project(Vec3(xy..., 1F), data.camera)
+  position.w = 1F
 end
 
 function text_frag(out_color, position, quad_index, data_address)
@@ -65,19 +64,18 @@ function text_frag(out_color, position, quad_index, data_address)
   (; glyph_ranges, curves, color) = @load data_address::TextData
   range = @load glyph_ranges[quad_index]::UnitRange{UInt32}
   out_color.rgb = color
-  out_color.a = intensity(position, curves, range)
+  out_color.a = 1F # intensity(position, curves, range)
 end
 
 function text_program(device)
   vert = @vertex device text_vert(::Vec4::Output{Position}, ::Vec2::Output, ::Vec{2,UInt32}::Output, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
-  frag = @fragment device text_frag(::Vec4::Output, ::Vec2::Input, ::Vec{2,UInt32}::Input, ::DeviceAddressBlock::PushConstant)
+  frag = @fragment device text_frag(::Vec4::Output, ::Vec2::Input, ::Vec{2,UInt32}::Input{@Flat}, ::DeviceAddressBlock::PushConstant)
 
   Program(vert, frag)
 end
 
-function draw_text(device, text::Text, font, start, camera::PinholeCamera; options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 12), prog = text_program(device))
-  line = only(lines(text, [font => options]))
-  data = text_invocation_data(prog, line, start, camera)
+function draw_text(device, line::Line, segment::LineSegment, start, camera::PinholeCamera; options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 12), prog = text_program(device))
+  data = text_invocation_data(prog, line, segment, start, camera)
   graphics_command(
     DrawIndexed(1:4length(line.glyphs)),
     prog,
@@ -97,8 +95,14 @@ end
 @testset "Text rendering" begin
   font = OpenTypeFont(font_file("juliamono-regular.ttf"));
   text = Text("The brown fox jumps over the lazy dog.", TextOptions())
-  camera = PinholeCamera(focal_length = 2F)
-  draw = draw_text(device, text, font, Vec2(0.1, 0.1), camera)
+  options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 12)
+  line = only(lines(text, [font => options]))
+  segment = only(line.segments)
+  start = Vec2(0.1, 0.1)
+  quads = glyph_quads(line, segment, start)
+  camera = PinholeCamera(focal_length = 2F, transform = Transform(translation = (1, 1, 0)))
+  @test project(Vec3(start..., 1), camera) == Vec3(-0.45, -0.45, 0.1)
+  draw = draw_text(device, line, segment, start, camera)
   data = render_graphics(device, draw)
   save_test_render("text.png", data)
 end

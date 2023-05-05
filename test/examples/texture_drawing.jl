@@ -30,7 +30,7 @@ function texture_program(device)
     ::Vec4::Output,
     ::Vec2::Input,
     ::DeviceAddressBlock::PushConstant,
-    ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)}}::UniformConstant{DescriptorSet = 0, Binding = 3})
+    ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)}}::UniformConstant{@DescriptorSet(0), @Binding(3)})
   Program(vert, frag)
 end
 

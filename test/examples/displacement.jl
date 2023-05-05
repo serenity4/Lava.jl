@@ -25,7 +25,7 @@ function scalar_displacement_program(device)
   vert = @vertex device displace_height_vert(
     ::Vec4::Output{Position},
     ::UInt32::Input{VertexIndex},
-    ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatR16f,SPIRV.Dim2D,0,false,false,1)}}::UniformConstant{DescriptorSet = 0, Binding = 3},
+    ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatR16f,SPIRV.Dim2D,0,false,false,1)}}::UniformConstant{@DescriptorSet(0), @Binding(3)},
     ::DeviceAddressBlock::PushConstant,
   )
   frag = @fragment device displace_height_frag(::Vec4::Output)
