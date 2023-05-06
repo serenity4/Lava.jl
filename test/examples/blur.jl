@@ -71,9 +71,7 @@ function blur_image(device, vdata, color, blur::GaussianBlur, uv_scale::Vec{2,Fl
 
   invocation_data = @invocation_data prog begin
     tex1 = @block vdata
-    tex2 = @block TextureDrawing(
-      uv_scale, @descriptor(texture_descriptor(image_texture))
-    )
+    tex2 = @block TextureDrawing(uv_scale, @descriptor(texture_descriptor(image_texture)))
     tex = TextureData(@address(tex1), @address(tex2))
     @block BlurData(tex, blur)
   end

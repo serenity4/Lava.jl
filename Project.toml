@@ -1,7 +1,7 @@
 name = "Lava"
 uuid = "8fb73131-e68b-4921-b325-b6dc47707796"
 authors = ["Cédric Belmant"]
-version = "0.5.0"
+version = "0.5.1"
 
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
