@@ -21,7 +21,7 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
   scale = options.font_size / font.units_per_em
   for i in segment.indices
     position = line.positions[i]
-    origin = pen_position .+ position.origin ./ scale
+    origin = pen_position .+ position.origin .* scale
     pen_position = pen_position .+ position.advance .* scale
     glyph_id = line.glyphs[i]
     glyph = font[glyph_id]
@@ -114,17 +114,27 @@ end
 
 @testset "Text rendering" begin
   font = OpenTypeFont(font_file("juliamono-regular.ttf"));
-  text = Text("The brown fox jumps over the lazy dog.", TextOptions())
   options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 1/37)
+  camera = PinholeCamera(focal_length = 0.35F, transform = Transform(translation = (0.3, 0, 0), scaling = (1, 1, 1)))
+  start = Vec2(0.1, 0.1)
+
+  text = Text("The brown fox jumps over the lazy dog.", TextOptions())
   line = only(lines(text, [font => options]))
   segment = only(line.segments)
-  start = Vec2(0.1, 0.1)
   quads = glyph_quads(line, segment, start)
   @test length(quads.glyph_indices) == count(!isspace, text.chars)
   @test length(quads.glyph_ranges) == count(x -> !isnothing(font[x]), unique(line.glyphs))
-  camera = PinholeCamera(focal_length = 0.35F, transform = Transform(translation = (0.3, 0, 0), scaling = (1, 1, 1)))
   any(<(0), project(Vec3(start..., 1), camera))
   draw = draw_text(device, line, segment, start, camera)
   data = render_graphics(device, draw)
-  save_test_render("text.png", data)
+  save_test_render("text.png", data, 0xe158233b14b89ab6)
+
+  font = OpenTypeFont(font_file("NotoSerifLao.ttf"));
+  options = FontOptions(ShapingOptions(tag"lao ", tag"dflt"; enabled_features = Set([tag"aalt"])), 1/37)
+  text = Text("ກີບ ສົ \ue99\ueb5\uec9", TextOptions())
+  line = only(lines(text, [font => options]))
+  segment = only(line.segments)
+  draw = draw_text(device, line, segment, start, camera)
+  data = render_graphics(device, draw)
+  save_test_render("text_2.png", data, 0x48c0220e84a9f04d)
 end
