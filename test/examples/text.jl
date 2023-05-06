@@ -130,11 +130,11 @@ end
   save_test_render("text.png", data, 0xe158233b14b89ab6)
 
   font = OpenTypeFont(font_file("NotoSerifLao.ttf"));
-  options = FontOptions(ShapingOptions(tag"lao ", tag"dflt"; enabled_features = Set([tag"aalt"])), 1/37)
+  options = FontOptions(ShapingOptions(tag"lao ", tag"dflt"; enabled_features = Set([tag"aalt"])), 1/10)
   text = Text("ກີບ ສົ \ue99\ueb5\uec9", TextOptions())
   line = only(lines(text, [font => options]))
   segment = only(line.segments)
   draw = draw_text(device, line, segment, start, camera)
   data = render_graphics(device, draw)
-  save_test_render("text_2.png", data, 0x48c0220e84a9f04d)
+  save_test_render("text_2.png", data, 0xf7f6e947afd362b3)
 end
