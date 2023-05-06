@@ -12,7 +12,7 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
   glyph_ranges = UnitRange{UInt32}[] # ranges are 0-based
   processed_glyphs = Dict{GlyphID,Int}() # to glyph data index
   n = length(segment.indices)
-  glyph_data_indices = Vector{UInt32}(undef, n) # data indices are 0-based
+  glyph_range_indices = Vector{Int}(undef, n) # glyph range index from quad index
   (; font, options) = segment
   scale = options.font_size / font.units_per_em
   for i in segment.indices
@@ -20,8 +20,8 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
     glyph_id = line.glyphs[i]
     glyph = @something(font[glyph_id], font[GlyphID(0)])
     (; header) = glyph
-    min = Point(header.xmin, -header.ymin)
-    max = Point(header.xmax, -header.ymax)
+    min = Point(header.xmin, header.ymin)
+    max = Point(header.xmax, header.ymax)
     set = PointSet(box(scale .* min .+ pen_position, scale .* max .+ pen_position), Point2)
     append!(positions, Vec2.(@view set.points[[1, 2, 3, 4]]))
     index = get!(processed_glyphs, glyph_id) do
@@ -29,17 +29,18 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
       append!(glyph_curves, Arr{3,Vec2}.(broadcast.(Vec2, curves(glyph) .* scale)))
       stop = lastindex(glyph_curves) - 1
       push!(glyph_ranges, start:stop)
-      length(processed_glyphs)
+      length(processed_glyphs) + 1
     end
-    glyph_data_indices[i] = index
+    glyph_range_indices[i] = index
     pen_position = pen_position .+ position.advance .* scale
   end
-  (; positions, glyph_curves, glyph_ranges, glyph_data_indices)
+  glyph_ranges = glyph_ranges[glyph_range_indices]
+  (; positions, glyph_curves, glyph_ranges)
 end
 
 function text_invocation_data(prog, line::Line, segment::LineSegment, start::Vec2, camera::PinholeCamera)
   pen_position = start
-  (; positions, glyph_curves, glyph_ranges, glyph_data_indices) = glyph_quads(line, segment, pen_position)
+  (; positions, glyph_curves, glyph_ranges) = glyph_quads(line, segment, pen_position)
   (; r, g, b) = segment.style.color
   color = (r, g, b)
   data = @invocation_data prog begin
@@ -54,17 +55,18 @@ function text_vert(position, frag_position, frag_quad_index, index, data_address
   data = @load data_address::TextData
   xy = @load data.positions[index]::Vec2
   frag_position[] = xy
-  frag_quad_index[0U] = index ÷ 4U
+  frag_quad_index.x = index ÷ 4U
   position.xyz = project(Vec3(xy..., 1F), data.camera)
   position.w = 1F
 end
 
 function text_frag(out_color, position, quad_index, data_address)
-  quad_index = quad_index[0U]
+  quad_index = quad_index.x
   (; glyph_ranges, curves, color) = @load data_address::TextData
   range = @load glyph_ranges[quad_index]::UnitRange{UInt32}
   out_color.rgb = color
-  out_color.a = 1F # intensity(position, curves, range)
+  out_color.a = 1F
+  # out_color.a = intensity(position, curves, range)
 end
 
 function text_program(device)
@@ -107,7 +109,8 @@ end
   segment = only(line.segments)
   start = Vec2(0.1, 0.1)
   quads = glyph_quads(line, segment, start)
-  camera = PinholeCamera(focal_length = 0.35F, transform = Transform(translation = (0.3, -0.3, 0), scaling = (1, -1, 1)))
+  @test length(quads.glyph_ranges) == length(segment.indices)
+  camera = PinholeCamera(focal_length = 0.35F, transform = Transform(translation = (0.3, -0.3, 0), scaling = (1, 1, 1)))
   any(<(0), project(Vec3(start..., 1), camera))
   draw = draw_text(device, line, segment, start, camera)
   data = render_graphics(device, draw)
