@@ -38,11 +38,11 @@ function classify_bezier_curve(points)
   (0x2e74 >> rshift) & 0x0003
 end
 
-function intensity(position, curves::DeviceAddress, range)
+function intensity(position, curves::DeviceAddress, range, pixel_per_em)
   res = 0F
   for i in range
     curve_points = @load curves[i]::Arr{3,Vec2}
-    res += intensity(curve_points .- Ref(position), 36F)
+    res += intensity(curve_points .- Ref(position), pixel_per_em)
   end
   sqrt(abs(res))
 end
@@ -63,7 +63,7 @@ end
 function glyph_frag(out_color, position, data_address)
   (; range, curves, color) = @load data_address::GlyphData
   out_color.rgb = color
-  out_color.a = intensity(position, curves, range)
+  out_color.a = intensity(position, curves, range, 36F)
 end
 
 function glyph_program(device)
@@ -116,8 +116,8 @@ nothing;
 
 #=
 
-function intensity(point, glyph, font_size)
-    res = sum(curves_normalized(glyph)) do p
+function intensity(point, glyph, units_per_em, font_size)
+    res = sum(curves(glyph) ./ units_per_em) do p
         intensity(p .- Ref(point), float(font_size))
     end
     sqrt(abs(res))
@@ -167,11 +167,11 @@ function plot_outline(glyph)
     p
 end
 
-function render_glyph(font, glyph, font_size)
+function render_glyph(font, glyph, units_per_em, font_size)
     step = 0.01
-    n = Int(inv(step))
-    xs = 0:step:1
-    ys = 0:step:1
+    xs = -0.5:step:1
+    ys = -0.5:step:1
+    n = length(xs)
 
     grid = map(xs) do x
         map(ys) do y
@@ -183,7 +183,7 @@ function render_glyph(font, glyph, font_size)
 
     is = map(grid) do p
         try
-            intensity(p, glyph, font_size)
+            intensity(p, glyph, units_per_em, font_size)
         catch e
             if e isa DomainError
                 NaN
@@ -199,9 +199,9 @@ function render_glyph(font, glyph, font_size)
     yticks!(p, 1:n ÷ 10:n, string.(ys[1:n ÷ 10:n]))
 end
 
-render_glyph(font, char::Char, font_size) = render_glyph(font, font[char], font_size)
+render_glyph(font, char::Char, font_size) = render_glyph(font, font[char], font.units_per_em, font_size)
 
-using Plots
+using Plots: heatmap, xticks!, yticks!, plot, plot!, scatter!
 
 font = OpenTypeFont(font_file("juliamono-regular.ttf"));
 
