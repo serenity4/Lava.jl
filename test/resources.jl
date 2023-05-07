@@ -9,12 +9,12 @@
     @test resource_type(b) == RESOURCE_TYPE_BUFFER
     @test isa(b.data, LogicalBuffer)
 
-    im = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+    im = image_resource(RGBA{Float32}, [16, 16])
     @test islogical(im)
     @test resource_type(im) == RESOURCE_TYPE_IMAGE
     @test isa(im.data, LogicalImage)
 
-    att = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+    att = attachment_resource(RGBA{Float32}, [16, 16])
     @test islogical(att)
     @test resource_type(att) == RESOURCE_TYPE_ATTACHMENT
     @test isa(att.data, LogicalAttachment)

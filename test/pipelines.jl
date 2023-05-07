@@ -5,7 +5,7 @@
     vertex_shader = @vertex device test_shader(::Vec{4,Float32}::Output{Position})
     fragment_shader = @fragment device test_shader(::Vec{4,Float32}::Output)
     program = Program(vertex_shader, fragment_shader)
-    color = attachment_resource(device, nothing; format = Lava.format(BGRA{N0f8}), dims = [1920, 1080])
+    color = attachment_resource(device, nothing; format = BGRA{N0f8}, dims = [1920, 1080])
 
     # Clear previous state.
     empty!(device.pending_pipelines_graphics)

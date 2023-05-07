@@ -10,15 +10,15 @@ using Graphs: nv, ne
 
   indirect = buffer_resource(device, rand(100); usage_flags = Vk.BUFFER_USAGE_INDIRECT_BUFFER_BIT)
   lights = buffer_resource(1024)
-  emissive = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-  albedo = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-  normal = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-  pbr = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-  color = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
+  emissive = attachment_resource(RGBA{Float32})
+  albedo = attachment_resource(RGBA{Float32})
+  normal = attachment_resource(RGBA{Float32})
+  pbr = attachment_resource(RGBA{Float32})
+  color = attachment_resource(RGBA{Float32})
   average_luminance = image_resource(Vk.FORMAT_R32_SFLOAT, [16, 16])
   depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
-  postprocessed = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-  bloom_downsample = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+  postprocessed = attachment_resource(RGBA{Float32})
+  bloom_downsample = image_resource(RGBA{Float32}, [16, 16])
 
   @test_throws "negative value" RenderArea(-1, 0)
   @test_throws "null value" RenderArea(0, 1080)
@@ -123,8 +123,8 @@ using Graphs: nv, ne
   @testset "Rendering" begin
     rg = RenderGraph(device)
 
-    color = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-    normal = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+    color = attachment_resource(RGBA{Float32})
+    normal = image_resource(RGBA{Float32}, [16, 16])
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
     graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
@@ -192,8 +192,8 @@ using Graphs: nv, ne
   end
 
   @testset "Render graph from persistent data" begin
-    color = attachment_resource(Vk.FORMAT_R32G32B32A32_SFLOAT)
-    normal = image_resource(Vk.FORMAT_R32G32B32A32_SFLOAT, [16, 16])
+    color = attachment_resource(RGBA{Float32})
+    normal = image_resource(RGBA{Float32}, [16, 16])
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
     graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
     draw = DrawIndexed(1:4)

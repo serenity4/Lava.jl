@@ -13,7 +13,7 @@ struct LogicalImage <: LogicalResource
 end
 
 function LogicalImage(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1, samples = nothing)
-  isa(format, DataType) && (format = Lava.format(format))
+  isa(format, DataType) && (format = Vk.Format(format))
   LogicalImage(format, dims, mip_levels, layers, samples)
 end
 
@@ -35,7 +35,7 @@ function LogicalAttachment(
   aspect = nothing,
   samples = nothing,
 )
-  isa(format, DataType) && (format = Lava.format(format))
+  isa(format, DataType) && (format = Vk.Format(format))
   aspect = @something(aspect, aspect_flags(format))
   LogicalAttachment(format, dims, mip_range, layer_range, aspect, samples)
 end

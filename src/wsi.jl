@@ -5,6 +5,8 @@ end
 
 vk_handle_type(::Type{<:Surface}) = Vk.SurfaceKHR
 
+Surface(instance::Instance, target) = Surface(Vk.SurfaceKHR(instance, target), target)
+
 struct Swapchain{T} <: LavaAbstraction
   handle::Vk.SwapchainKHR
   info::Vk.SwapchainCreateInfoKHR

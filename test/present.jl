@@ -1,13 +1,8 @@
-function xcb_surface(instance, win::XCBWindow)
-  handle = unwrap(Vk.create_xcb_surface_khr(instance, Vk.XcbSurfaceCreateInfoKHR(win.conn.h, win.id)))
-  Surface(handle, win)
-end
-
 @testset "Presenting to XCB" begin
   wm = XWindowManager()
   win = XCBWindow(wm; x=0, y=1000, border_width=50, window_title="Test window", icon_title="Test", attributes=[XCB.XCB_CW_BACK_PIXEL], values=[zero(UInt32)])
-  cycle = test_validation_msg(() -> FrameCycle(device, xcb_surface(instance, win)), x -> @test isempty(x))
-  color = attachment_resource(Vk.FORMAT_R16G16B16A16_SFLOAT, [1920, 1080])
+  cycle = test_validation_msg(() -> FrameCycle(device, Surface(instance, win)), x -> @test isempty(x))
+  color = attachment_resource(RGBA{Float16}, [1920, 1080])
   image = read_normal_map(device)
   prog = texture_program(device)
   vdata = [

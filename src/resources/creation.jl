@@ -150,7 +150,7 @@ function Base.collect(@nospecialize(T), image::Image, device::Device)
 end
 
 function Base.collect(image::Image, device::Device)
-  T = format_type(image.format)
+  T = eltype(image)
   !isnothing(T) || error("The image element type could not be deduced from the image format $(image.format). Please provide a type as first argument that matches the format of the image.")
   collect(T, image, device)
 end
@@ -248,7 +248,7 @@ function infer_dims_and_format(data, dims, format)
     isnothing(format) && error("An image format must be specified when no data is provided.")
   else
     isnothing(dims) && (dims = collect(size(data)))
-    isnothing(format) && (format = Lava.format(typeof(data)))
+    isnothing(format) && (format = Vk.Format(eltype(data)))
     isnothing(format) && error("No format could be determined from the data. Please provide an image format.")
   end
   dims, format

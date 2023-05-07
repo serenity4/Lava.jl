@@ -1,5 +1,5 @@
 @testset "Data persistence across cycles" begin
-  color = attachment_resource(device, nothing; format = Vk.FORMAT_R16G16B16A16_SFLOAT, usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, dims = [1920, 1080])
+  color = attachment_resource(device, nothing; format = RGBA{Float16}, usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, dims = [1920, 1080])
   vdata = [
     PosColor(Vec2(-0.7, -0.7), Arr{Float32}(1.0, 0.0, 0.0)),
     PosColor(Vec2(0.3, -0.7), Arr{Float32}(0.0, 1.0, 0.0)),

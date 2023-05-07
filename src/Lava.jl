@@ -2,7 +2,7 @@ module Lava
 
 using Core: MethodInstance
 using BitMasks
-using Vulkan: Vk, VkCore
+using Vulkan: Vk, VkCore, format_type
 
 using CompileTraces
 using SnoopPrecompile
@@ -38,7 +38,6 @@ Abstraction defined in the scope of this package.
 abstract type LavaAbstraction end
 
 include("utils.jl")
-include("formats.jl")
 include("handles.jl")
 include("queue_dispatch.jl")
 include("synchronization.jl")

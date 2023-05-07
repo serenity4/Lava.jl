@@ -43,7 +43,7 @@ function image_type(ndims)
   end
 end
 
-function Image(device, dims, format, usage_flags;
+function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
   queue_family_indices = queue_family_indices(device),
   sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
   is_linear = false,
@@ -53,6 +53,7 @@ function Image(device, dims, format, usage_flags;
   samples = 1)
 
   ispow2(samples) || error("The number of samples for must be a power of two.")
+  isa(format, DataType) && (format = Vk.Format(format))
 
   n = length(dims)
   initial_layout = preinitialized ? Vk.IMAGE_LAYOUT_PREINITIALIZED : Vk.IMAGE_LAYOUT_UNDEFINED
@@ -191,3 +192,12 @@ subresource_layers(aspect::Vk.ImageAspectFlag, mip_range::Integer, layer_range::
   Vk.ImageSubresourceLayers(aspect, mip_range, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
 subresource_layers(view::ImageView) = subresource_layers(view.aspect, first(view.mip_range) - 1, view.layer_range)
 subresource_layers(image::Image) = subresource_layers(aspect_flags(image.format), image.mip_levels - 1, layer_range_all(image))
+
+function aspect_flags(format::Vk.Format)
+  @match format begin
+    &Vk.FORMAT_D16_UNORM || &Vk.FORMAT_D32_SFLOAT || &Vk.FORMAT_X8_D24_UNORM_PACK32 => Vk.IMAGE_ASPECT_DEPTH_BIT
+    &Vk.FORMAT_D16_UNORM_S8_UINT || &Vk.FORMAT_D24_UNORM_S8_UINT || &Vk.FORMAT_D32_SFLOAT_S8_UINT => Vk.IMAGE_ASPECT_DEPTH_BIT | Vk.IMAGE_ASPECT_STENCIL_BIT
+    &Vk.FORMAT_S8_UINT => Vk.IMAGE_ASPECT_STENCIL_BIT
+    _ => Vk.IMAGE_ASPECT_COLOR_BIT
+  end
+end

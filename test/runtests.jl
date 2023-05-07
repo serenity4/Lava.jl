@@ -113,7 +113,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
     end
 
     @testset "Images" begin
-      img = Image(device, [512, 512], Vk.FORMAT_R32G32B32A32_SFLOAT, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+      img = Image(device, [512, 512], RGBA{Float32}, Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
       @test !isallocated(img)
       @test !isallocated(similar(img))
       allocate!(img, MEMORY_DOMAIN_DEVICE)
@@ -123,7 +123,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       v = ImageView(img)
       @test isa(v, ImageView)
 
-      img = Image(device; format = Vk.FORMAT_R32G32B32A32_SFLOAT, dims = [512, 512])
+      img = Image(device; format = RGBA{Float32}, dims = [512, 512])
       @test img isa Lava.Image
       @test eltype(img) == RGBA{Float32}
       img = Image(device; data = rand(RGBA{Float32}, 512, 512))
