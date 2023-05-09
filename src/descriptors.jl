@@ -145,6 +145,11 @@ function free_descriptor_batch!(gdescs::GlobalDescriptors, batch::Int64)
   delete!(gdescs.pending, batch)
 end
 
+"""
+Refers to a 0-based Vulkan descriptor index, which may be used to index into arrays of descriptors.
+
+Relies on the Vulkan feature `descriptor_indexing`, which allows such indices to be used flexibly.
+"""
 primitive type DescriptorIndex 32 end
 
 DescriptorIndex(index::UInt32) = reinterpret(DescriptorIndex, index)

@@ -77,6 +77,7 @@ CounterDict{T}() where {T} = CounterDict(Dict{T,Int}(), 0)
 
 reserve!(cd::CounterDict, key) = get!(() -> (cd.counter += 1), cd.d, key)
 
+"Context in which to create identifiers for data blocks and buffers, and indices for descriptors."
 struct InvocationDataContext
   blocks::CounterDict{DataBlock}
   descriptors::CounterDict{Descriptor}
@@ -84,6 +85,19 @@ struct InvocationDataContext
 end
 
 InvocationDataContext() = InvocationDataContext(CounterDict{DataBlock}(), CounterDict{Descriptor}(), CounterDict{ResourceID}())
+
+function DataBlock(data, ctx::InvocationDataContext, layout::LayoutStrategy)
+  blk = DataBlock(data, layout)
+  reserve!(ctx.blocks, blk)
+  blk
+end
+function DeviceAddress(buffer::Resource, ctx::InvocationDataContext)
+  islogical(buffer) && isbuffer(buffer) || error("Expected a logical buffer as resource in argument, got ", buffer)
+  buffer_index = reserve!(ctx.buffers, buffer.id)
+  generated_logical_buffer_address(buffer_index)
+end
+DeviceAddress(block::DataBlock, ctx::InvocationDataContext) = generated_block_address(ctx.blocks.d[block])
+DescriptorIndex(desc::Descriptor, ctx::InvocationDataContext) = DescriptorIndex(reserve!(ctx.descriptors, desc))
 
 """
 Data attached to program invocations as a push constant.
@@ -156,6 +170,70 @@ function postorder!(finish_times, g, next, visited, time)
   time
 end
 
+"""
+    @invocation_data [layout|program|programs] begin
+      b1 = @block a
+      b2 = @block B(@address(b1), @descriptor(texture))
+      @block C(1, 2, @address(b2))
+    end
+
+Create a [`ProgramInvocationData`](@ref) out of `@block` annotations,
+which represent [`DataBlock`](@ref)s. The program (or programs) in which
+this data will be used is necessary to derive a correct serialization scheme
+which respects the layout requirements of these programs.
+
+Within the expression provided to `@invocation_data`, a special variable `__context__` is made available,
+which holds an [`InvocationDataContext`](@ref) which can be used to create descriptor
+indices ([`DescriptorIndex`](@ref)), buffer addresses ([`DeviceAddress`](@ref)) and data blocks
+([`DataBlock`](@ref) using their respective constructors.
+
+All descriptors passed on to `@descriptor` will be preserved as part of the program invocation data.
+Multiple references to the same descriptor will reuse the same index.
+
+Referencing this context is only recommended for programmatic use. Otherwise, such data structures may be
+obtained using with three special macros allowed inside the provided expression:
+- `@block` to create a new block.
+- `@address` to reference an existing block as a [`DeviceAddress`](@ref).
+- `@descriptor` to reference a descriptor (texture, image, sampler...) via a computed [`DescriptorIndex`](@ref).
+
+The last value of the block must be a [`DataBlock`](@ref), e.g. obtained with `@block`, and will be set as
+the root block for the program invocation data.
+"""
+macro invocation_data(layout_or_progs, ex)
+  layout_ex = quote
+    x = $(esc(layout_or_progs))
+    isa(x, Program) ? x.layout : isa(x, LayoutStrategy) ? x : merge_program_layouts(x)
+  end
+  generate_invocation_data(layout_ex, ex)
+end
+
+macro invocation_data(ex)
+  generate_invocation_data(:(NativeLayout()), ex)
+end
+
+function generate_invocation_data(layout_ex, ex)
+  Meta.isexpr(ex, :block) || (ex = Expr(:block, ex))
+  @gensym layout
+  transformed = postwalk(ex) do subex
+    if Meta.isexpr(subex, :macrocall)
+      ex = @trymatch string(subex.args[1]) begin
+        "@block" => :($DataBlock($(subex.args[3]), __context__, $layout))
+        "@address" => :($DeviceAddress($(subex.args[3]), __context__))
+        "@descriptor" => :($DescriptorIndex($(subex.args[3]), __context__))
+      end
+      !isnothing(ex) && return ex
+    end
+    subex
+  end
+  quote
+    $(esc(:__context__)) = InvocationDataContext()
+    $(esc(layout)) = $layout_ex
+    ans = $(esc(transformed))
+    isa(ans, DataBlock) || error("A data block must be provided as the last instruction to @invocation_data. Such a block can be obtained with @block.")
+    ProgramInvocationData(ans, $(esc(:__context__)), $(esc(layout)))
+  end
+end
+
 function patch_descriptors!(block::DataBlock, gdescs::GlobalDescriptors, descriptors, node_id::NodeID)
   patched = Dictionary{UInt32,UInt32}()
   ptr = pointer(block.bytes)
@@ -212,82 +290,4 @@ function device_address_block!(allocator::LinearAllocator, gdescs::GlobalDescrip
     insert!(addresses, block, address)
   end
   DeviceAddressBlock(addresses[data.blocks[data.root]])
-end
-
-"""
-    @invocation_data [layout|program|programs] begin
-      b1 = @block a
-      b2 = @block B(@address(b1), @descriptor(texture))
-      @block C(1, 2, @address(b2))
-    end
-
-Create a [`ProgramInvocationData`](@ref) out of `@block` annotations,
-which represent [`DataBlock`](@ref)s. The program (or programs) in which
-this data will be used is necessary to derive a correct serialization scheme
-which respects the layout requirements of these programs.
-
-Within the body of `@invocation_data`, three additional macros are allowed:
-- `@block` to create a new block.
-- `@address` to reference an existing block as a [`DeviceAddress`](@ref).
-- `@descriptor` to reference a descriptor (texture, image, sampler...) via a computed index.
-
-All descriptors passed on to `@descriptor` will be preserved as part of the program invocation data.
-Multiple references to the same descriptor will reuse the same index.
-
-The last value of the block must be a [`DataBlock`](@ref), e.g. obtained with `@block`, and will be set as
-the root block for the program invocation data.
-"""
-macro invocation_data(layout_or_progs, ex)
-  layout_ex = quote
-    x = $(esc(layout_or_progs))
-    isa(x, Program) ? x.layout : isa(x, LayoutStrategy) ? x : merge_program_layouts(x)
-  end
-  generate_invocation_data(layout_ex, ex)
-end
-
-macro invocation_data(ex)
-  generate_invocation_data(:(NativeLayout()), ex)
-end
-
-function generate_invocation_data(layout_ex, ex)
-  Meta.isexpr(ex, :block) || (ex = Expr(:block, ex))
-  @gensym ctx blk desc object block_index buffer_index layout
-  transformed = postwalk(ex) do subex
-    if Meta.isexpr(subex, :macrocall)
-      ex = @trymatch string(subex.args[1]) begin
-        "@block" => quote
-          $blk = $DataBlock($(subex.args[3]), $layout)
-          $reserve!($ctx.blocks, $blk)
-          $blk
-        end
-        "@address" => quote
-          $object = $(subex.args[3])
-          if isa($object, $Resource)
-            $islogical($object) && $isbuffer($object) || error("Expected a logical buffer as resource in argument to `@address`, got ", $object)
-            $buffer_index = $reserve!($ctx.buffers, $object.id)
-            $generated_logical_buffer_address($buffer_index)
-          elseif isa($object, $DataBlock)
-            $block_index = $ctx.blocks.d[$object]
-            $generated_block_address($block_index)
-          else
-            error("Expected a data block or logical buffer as argument to `@address`, got a `", typeof($object), '`')
-          end
-        end
-        "@descriptor" => quote
-          $desc = $(subex.args[3])
-          isa($desc, $Descriptor) || error("Expected a `Descriptor` argument to `@descriptor`, got `", typeof($desc), '`')
-          $DescriptorIndex($reserve!($ctx.descriptors, $desc))
-        end
-      end
-      !isnothing(ex) && return ex
-    end
-    subex
-  end
-  quote
-    $(esc(ctx)) = InvocationDataContext()
-    $(esc(layout)) = $layout_ex
-    ans = $(esc(transformed))
-    isa(ans, DataBlock) || error("A data block must be provided as the last instruction to @invocation_data. Such a block can be obtained with @block.")
-    ProgramInvocationData(ans, $(esc(ctx)), $(esc(layout)))
-  end
 end

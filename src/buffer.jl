@@ -1,3 +1,7 @@
+"""
+64-bit unsigned device address, meant to be used as buffer addresses via the
+Vulkan feature `buffer_device_address`.
+"""
 primitive type DeviceAddress 64 end
 
 DeviceAddress(address::UInt64) = reinterpret(DeviceAddress, address)

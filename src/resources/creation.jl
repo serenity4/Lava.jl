@@ -131,7 +131,7 @@ function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{I
   get_image(view_or_image).layout[] = new_layout
 end
 
-function Base.collect(@nospecialize(T), image::Image, device::Device)
+function Base.collect(::Type{T}, image::Image, device::Device) where {T}
   @assert image.is_wsi || isallocated(image)
   if image.is_linear && Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in image.memory[].property_flags
     # Get the data from the host-visible memory directly.
@@ -148,12 +148,12 @@ function Base.collect(@nospecialize(T), image::Image, device::Device)
     collect(T, dst, device)
   end
 end
+Base.collect(image::Image, device::Device) = collect(format_type(image.format), image, device)
 
-function Base.collect(image::Image, device::Device)
-  T = eltype(image)
-  !isnothing(T) || error("The image element type could not be deduced from the image format $(image.format). Please provide a type as first argument that matches the format of the image.")
-  collect(T, image, device)
-end
+Base.collect(::Type{T}, attachment::Attachment, device::Device) where {T} = collect(T, attachment.view.image, device)
+Base.collect(::Type{T}, resource::Resource, device::Device) where {T} = collect(T, resource.data, device)
+Base.collect(attachment::Attachment, device::Device) = collect(attachment.view.image, device)
+Base.collect(resource::Resource, device::Device) = collect(resource.data, device)
 
 function Base.copyto!(view_or_image::Union{Image,ImageView}, data::AbstractArray, device::Device; kwargs...)
   b = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
