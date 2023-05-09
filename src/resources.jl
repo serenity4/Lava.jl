@@ -50,7 +50,10 @@ Resource(data, flags = zero(ResourceFlags)) = Resource(resource_type(data), data
 resource_type(id::ResourceID) = ResourceType(UInt8(UInt128(id) >> 120))
 resource_type(resource::Resource) = resource_type(resource.id)
 
-assert_type(resource::Resource, rtype::ResourceType) = @assert resource_type(resource) == rtype "Resource type is $(resource_type(resource)) (expected $rtype)"
+function assert_type(resource::Resource, rtype::ResourceType)
+  @assert resource_type(resource) == rtype "Resource type is $(resource_type(resource)) (expected $rtype)"
+  resource
+end
 
 isbuffer(x) = resource_type(x) == RESOURCE_TYPE_BUFFER
 isimage(x) = resource_type(x) == RESOURCE_TYPE_IMAGE

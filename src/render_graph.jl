@@ -158,8 +158,6 @@ function add_nodes!(rg::RenderGraph, nodes)
   end
 end
 
-@forward RenderGraph.logical_resources (buffer, image, attachment)
-
 function add_resource!(rg::RenderGraph, resource::Resource)
   islogical(resource) && push!(rg.temporary, resource.id)
 

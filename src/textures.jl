@@ -46,4 +46,4 @@ struct Texture
   sampling::Union{Nothing,Sampling}
 end
 
-Texture(image) = Texture(image, DEFAULT_SAMPLING)
+Texture(image::Resource) = Texture(assert_type(image, RESOURCE_TYPE_IMAGE), DEFAULT_SAMPLING)

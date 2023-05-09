@@ -49,7 +49,10 @@ Vk.DescriptorType(descriptor::Descriptor) = Vk.DescriptorType(descriptor.id)
 descriptor_type(id::DescriptorID) = DescriptorType(UInt8(UInt128(id) >> 120))
 descriptor_type(descriptor::Descriptor) = descriptor_type(descriptor.id)
 
-assert_type(descriptor::Descriptor, dtype::DescriptorType) = @assert descriptor_type(descriptor) == dtype "Descriptor type is $(descriptor_type(descriptor)) (expected $dtype)"
+function assert_type(descriptor::Descriptor, dtype::DescriptorType)
+  @assert descriptor_type(descriptor) == dtype "Descriptor type is $(descriptor_type(descriptor)) (expected $dtype)"
+  descriptor
+end
 
 storage_image_descriptor(image::Resource, node = nothing) = Descriptor(DESCRIPTOR_TYPE_STORAGE_IMAGE, image, node)
 sampler_descriptor(sampler::Sampling, node = nothing) = Descriptor(DESCRIPTOR_TYPE_SAMPLER, sampler, node)
