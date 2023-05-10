@@ -5,21 +5,24 @@ Base.@kwdef struct RenderNode
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
   render_area::Optional{RenderArea} = nothing
   commands::Optional{Vector{Command}} = Command[]
-  function RenderNode(id, stages, render_area, commands)
+  name::Optional{Symbol} = nothing
+  function RenderNode(id, stages, render_area, commands, name)
     !iszero(stages) || throw(ArgumentError("At least one pipeline stage must be provided."))
     !isnothing(render_area) && !contains_fragment_stage(stages) && throw(ArgumentError("The fragment shader stage must be set when a `RenderArea` is provided."))
     isnothing(render_area) && contains_fragment_stage(stages) && throw(ArgumentError("The render area must be set when the fragment shader stage is included."))
-    new(id, stages, render_area, commands)
+    new(id, stages, render_area, commands, name)
   end
 end
 
-function RenderNode(command::Command)
+function RenderNode(command::Command, name = nothing)
   stages = stage_flags(command)
   render_area = nothing
   is_graphics(command) && (render_area = deduce_render_area(command.graphics))
-  RenderNode(; stages, render_area, commands = [command])
+  RenderNode(; stages, render_area, commands = [command], name)
 end
 Base.convert(::Type{RenderNode}, command::Command) = RenderNode(command)
+
+print_name(io::IO, node::RenderNode) = printstyled(IOContext(io, :color => true), isnothing(node.name) ? node.id : node.name; color = 210)
 
 Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
 
@@ -384,18 +387,20 @@ function resolve_attachment_pairs(rg::RenderGraph)
         if combined_uses.usage.samples > 1
           attachment = resource.data::LogicalAttachment
           is_multisampled(attachment) || break
-          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect))
+          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect), resolve_attachment_name(resource))
         end
       end
     else
       attachment = resource.data::Attachment
       is_multisampled(attachment) || continue
-      resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims; attachment.view.mip_range, attachment.view.layer_range))
+      resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims; attachment.view.mip_range, attachment.view.layer_range), resolve_attachment_name(resource))
     end
     !isnothing(resolve_attachment) && insert!(resolve_pairs, resource, resolve_attachment)
   end
   resolve_pairs
 end
+
+resolve_attachment_name(r::Resource) = isnamed(r) ? Symbol(:resolve_, r.name) : nothing
 
 function add_resolve_attachments!(rg::RenderGraph, resolve_pairs::Dictionary{Resource, Resource})
   for (resource, resolve_resource) in pairs(resolve_pairs)

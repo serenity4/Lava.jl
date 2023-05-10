@@ -25,7 +25,7 @@ SynchronizationState() = SynchronizationState(Dictionary())
 must_synchronize(sync_reqs::SyncRequirements) = !iszero(sync_reqs.stages)
 must_synchronize(sync_reqs::SyncRequirements, from_layout, to_layout) = must_synchronize(sync_reqs) || from_layout ≠ to_layout
 
-function synchronize_buffer_access!(state::SynchronizationState, resource::Resource, usage::BufferUsage)
+function synchronize_access!(state::SynchronizationState, resource::Resource, usage::BufferUsage)
   rstate = get!(ResourceState, state.resources, resource.id)
   sync_reqs = restrict_synchronization_scope(rstate.last_accesses, SyncRequirements(usage))
   must_synchronize(sync_reqs) || return
@@ -55,7 +55,7 @@ function restrict_synchronization_scope(last_accesses, sync_reqs)
   @set sync_reqs.stages = remaining_sync_stages
 end
 
-function synchronize_image_access!(state::SynchronizationState, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
+function synchronize_access!(state::SynchronizationState, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
   image = @match usage begin
     ::ImageUsage => resource.data::Image
     ::AttachmentUsage => (resource.data::Attachment).view.image
@@ -90,18 +90,11 @@ function dependency_info!(state::SynchronizationState, node_uses, resources, nod
   uses = node_uses[node.id]
   for use in uses
     resource = resources[use.id]
-    @switch resource_type(resource) begin
-      @case &RESOURCE_TYPE_BUFFER
-      barrier = synchronize_buffer_access!(state, resource, use.usage::BufferUsage)
-      !isnothing(barrier) && push!(info.buffer_memory_barriers, barrier)
-
-      @case &RESOURCE_TYPE_IMAGE
-      barrier = synchronize_image_access!(state, resource, use.usage::ImageUsage)
-      !isnothing(barrier) && push!(info.image_memory_barriers, barrier)
-
-      @case &RESOURCE_TYPE_ATTACHMENT
-      barrier = synchronize_image_access!(state, resource, use.usage::AttachmentUsage)
-      !isnothing(barrier) && push!(info.image_memory_barriers, barrier)
+    (; usage) = use
+    barrier = synchronize_access!(state, resource, use.usage)
+    if !isnothing(barrier)
+      isbuffer(resource) ? push!(info.buffer_memory_barriers, barrier) : push!(info.image_memory_barriers, barrier)
+      @debug "Dependency: $(sprint(print_name, node)) ⇒ $(sprint(print_name, resource)) ($(usage.access == WRITE ? "write" : usage.access == READ ? "read" : usage.access))"
     end
   end
   info

@@ -31,7 +31,20 @@ end
 struct Resource
   id::ResourceID
   data::Any
+  name::Optional{Symbol}
   flags::ResourceFlags
+end
+
+isnamed(r::Resource) = !isnothing(r.name)
+
+color(r::Resource) = isattachment(r) ? 124 : isbuffer(r) ? :yellow : :cyan
+
+function Base.show(io::IO, ::MIME"text/plain", r::Resource)
+  print(io, Resource, '(')
+  printstyled(io, isnamed(r) ? repr(r.name) : r.id; color = :green)
+  print(io, ", ")
+  printstyled(io, islogical(r) ? "logical " : "", isimage(r) ? "image" : isbuffer(r) ? "buffer" : "attachment"; color = color(r))
+  print(io, ')')
 end
 
 @inline function Base.getproperty(resource::Resource, name::Symbol)
@@ -44,8 +57,10 @@ end
   getfield(resource, name)
 end
 
-Resource(type::ResourceType, data, flags = ResourceFlags(0)) = Resource(ResourceID(type), data, flags)
-Resource(data, flags = zero(ResourceFlags)) = Resource(resource_type(data), data, flags | ResourceFlags(data))
+Resource(type::ResourceType, data, name = nothing, flags = ResourceFlags(0)) = Resource(ResourceID(type), data, name, flags)
+Resource(data, name = nothing, flags = zero(ResourceFlags)) = Resource(resource_type(data), data, name, flags | ResourceFlags(data))
+
+print_name(io::IO, resource::Resource) = printstyled(IOContext(io, :color => true), isnothing(resource.name) ? resource.id : resource.name; color = color(resource))
 
 resource_type(id::ResourceID) = ResourceType(UInt8(UInt128(id) >> 120))
 resource_type(resource::Resource) = resource_type(resource.id)
@@ -95,4 +110,4 @@ function image_format(r::Resource)
   throw(ArgumentError("Formats can only be extracted from image or attachment resources."))
 end
 
-Base.similar(r::Resource, args...; kwargs...) = Resource(similar(r.data, args...; kwargs...))
+Base.similar(r::Resource, args...; name = nothing, kwargs...) = Resource(similar(r.data, args...; kwargs...), name)

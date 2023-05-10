@@ -2,6 +2,7 @@ function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipelin
   bind_state = BindState()
   sync_state = SynchronizationState()
   for record in records
+    @debug "Flushing node $(sprint(print_name, record.node))"
     synchronize_before!(sync_state, cb, baked, record.node)
     bind_state = flush(cb, record, baked, bind_state, pipeline_hashes)
     synchronize_after!(sync_state, cb, baked, record.node)
