@@ -94,3 +94,5 @@ function image_format(r::Resource)
   isattachment(r) && return islogical(r) ? r.logical_attachment.format : r.attachment.view.image.format
   throw(ArgumentError("Formats can only be extracted from image or attachment resources."))
 end
+
+Base.similar(r::Resource, args...; kwargs...) = Resource(similar(r.data, args...; kwargs...))
