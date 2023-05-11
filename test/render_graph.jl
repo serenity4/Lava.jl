@@ -214,5 +214,16 @@ using Graphs: nv, ne
     @test isa(baked, Lava.BakedRenderGraph)
     @test length(baked.nodes) == 1
     @test command.graphics.data_address ≠ DeviceAddressBlock(0)
+
+    # Make sure debug logging works correctly.
+    mktemp() do path, io
+      withenv("JULIA_DEBUG" => "Lava") do
+        redirect_stdio(stdout=io, stderr=io) do
+          render(device, graphics)
+        end
+        seekstart(io)
+        @test !isempty(read(io, String))
+      end
+    end
   end
 end;
