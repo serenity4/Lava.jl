@@ -96,8 +96,6 @@ function __init__()
     )
 end
 
-# include("vulkan.jl")
-
 export
   Vk,
   Instance, QueueDispatch, set_presentation_queue, Device, init,
@@ -129,7 +127,7 @@ export
   LogicalAttachment, Attachment, READ, WRITE, RenderTargets,
 
   # attachment dimensions
-  SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE,
+  SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE, dimensions,
 
   # program
   Program, ProgramInvocationState, ProgramInvocationData, DataBlock, @invocation_data,
