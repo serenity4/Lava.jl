@@ -192,8 +192,8 @@ function request_pipeline(device::Device, info::Vk.ComputePipelineCreateInfo)
   hash(info)
 end
 
-@forward Device.fence_pool (fence,)
-@forward Device.queues (set_presentation_queue,)
+@forward_methods Device field = :fence_pool fence
+@forward_methods Device field = :queues set_presentation_queue
 
 function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")

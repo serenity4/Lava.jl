@@ -49,7 +49,7 @@ struct SnoopCommandBuffer <: CommandBuffer
   records::Vector{Instruction}
 end
 
-@forward SnoopCommandBuffer.records (Base.getindex, Base.isempty, Base.length, Base.iterate)
+@forward_methods SnoopCommandBuffer field = :records Base.getindex(_, key) Base.isempty Base.length Base.iterate(_, args...)
 
 SnoopCommandBuffer() = SnoopCommandBuffer([])
 

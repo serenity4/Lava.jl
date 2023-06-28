@@ -143,7 +143,7 @@ end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward ImageView.image (Vk.Offset3D, Vk.Extent3D, image_layout, samples, dimensions)
+@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D image_layout samples dimensions
 
 aspect_flags(view::ImageView) = view.aspect
 

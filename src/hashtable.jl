@@ -2,7 +2,7 @@ struct HashTable{T}
   table::LRU{UInt64,T}
 end
 
-@forward HashTable.table (Base.get, Base.getindex, Base.setindex!, Base.isempty, Base.empty!, Base.length)
+@forward_interface HashTable field = :table interface = dict omit = get!
 
 HashTable{T}(; maxsize = 500) where {T} = HashTable{T}(LRU{UInt64, T}(; maxsize))
 
