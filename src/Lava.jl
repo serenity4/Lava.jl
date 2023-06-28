@@ -4,6 +4,7 @@ using Core: MethodInstance
 using BitMasks
 using Vulkan: Vk, VkCore, format_type
 
+using Forward
 using CompileTraces
 using SnoopPrecompile
 using Reexport
