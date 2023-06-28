@@ -20,6 +20,21 @@ function RenderNode(command::Command, name = nothing)
   is_graphics(command) && (render_area = deduce_render_area(command.graphics))
   RenderNode(; stages, render_area, commands = [command], name)
 end
+function RenderNode(commands, name = nothing)
+  stages = foldl((flags, command) -> flags | stage_flags(command), commands; init = Vk.PIPELINE_STAGE_2_NONE)
+  render_area = nothing
+  for command in commands
+    if is_graphics(command)
+      if isnothing(render_area)
+        render_area = deduce_render_area(command.graphics)
+      else
+        render_area_2 = deduce_render_area(command.graphics)
+        render_area == render_area_2 || error("Render areas are not identical across commands: $render_area ≠ $render_area_2")
+      end
+    end
+  end
+  RenderNode(; stages, render_area, commands, name)
+end
 Base.convert(::Type{RenderNode}, command::Command) = RenderNode(command)
 
 print_name(io::IO, node::RenderNode) = printstyled(IOContext(io, :color => true), isnothing(node.name) ? node.id : node.name; color = 210)
