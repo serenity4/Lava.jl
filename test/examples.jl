@@ -1,14 +1,15 @@
 function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp = false, clamp = false)
   clamp && (data = clamp01nan.(data))
   filename = render_file(filename; tmp)
-  ispath(filename) && rm(filename)
+  existing = isfile(filename) ? load(filename)' : nothing
+  if !isnothing(h)
+    @test hash(data) == h || !isnothing(existing) && existing ≈ data
+    return hash(data)
+  end
+  rm(filename; force = true)
   save(filename, data')
   @test stat(filename).size > 0
-  if !isnothing(h)
-    @test hash(data) == h
-  else
-    hash(data)
-  end
+  hash(data)
 end
 
 render_graphics(device, node::RenderNode) = render_graphics(device, node.commands[end])
