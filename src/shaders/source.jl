@@ -19,7 +19,7 @@ function Base.show(io::IO, source::ShaderSource)
   print(io, "ShaderSource(", source.info.interface.execution_model, ", ", length(source.code), " bytes)")
 end
 
-@auto_hash_equals struct ShaderSpec
+@struct_hash_equal struct ShaderSpec
   mi::MethodInstance
   interface::ShaderInterface
 end

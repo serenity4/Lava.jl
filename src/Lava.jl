@@ -13,7 +13,7 @@ using Accessors
 using MLStyle
 using Graphs
 using SPIRV
-using AutoHashEquals
+using StructEquality
 using LRUCache: LRU
 @reexport using ColorTypes: RGB, BGR, RGBA, ARGB, BGRA, ABGR
 using FixedPointNumbers

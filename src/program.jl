@@ -10,7 +10,7 @@ Computation unit that uses shaders as part of a graphics or compute pipeline.
 
 It exposes a program interface through its shader interfaces and its shader resources.
 """
-@auto_hash_equals struct Program
+@struct_hash_equal struct Program
   type::ProgramType
   data::Any
   layout::VulkanLayout

@@ -1,6 +1,6 @@
 abstract type DrawCommand end
 
-@auto_hash_equals struct RenderTargets
+@struct_hash_equal struct RenderTargets
   color::Vector{Resource}
   depth::Optional{Resource}
   stencil::Optional{Resource}

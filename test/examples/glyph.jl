@@ -1,19 +1,18 @@
 # Uses the technique from GPU-Centered Font Rendering Directly from Glyph Outlines, E. Lengyel, 2017.
 # Note: this technique is patented in the US until 2038: https://patents.google.com/patent/US10373352B1/en.
 
-function intensity(curve_points, pixel_per_em)
-  ((x₁, y₁), (x₂, y₂), (x₃, y₃)) = curve_points
+function intensity(bezier, pixel_per_em)
+  ((x₁, y₁), (x₂, y₂), (x₃, y₃)) = bezier.points
   T = typeof(x₁)
   res = zero(T)
 
   # Cast a ray in the X direction.
   code = classify_bezier_curve((y₁, y₂, y₃))
-  bezier = BezierCurve(3)
   if !iszero(code)
     (t₁, t₂) = compute_roots(y₁ - 2y₂ + y₃, y₁ - y₂, y₁)
     if !isnan(t₁)
-      code & 0x0001 == 0x0001 && (res += winding_contribution(pixel_per_em, first(bezier(t₁, curve_points))))
-      code > 0x0001 && (res -= winding_contribution(pixel_per_em, first(bezier(t₂, curve_points))))
+      code & 0x0001 == 0x0001 && (res += winding_contribution(pixel_per_em, first(bezier(t₁))))
+      code > 0x0001 && (res -= winding_contribution(pixel_per_em, first(bezier(t₂))))
     end
   end
 
@@ -22,8 +21,8 @@ function intensity(curve_points, pixel_per_em)
   if !iszero(code)
     (t₁, t₂) = compute_roots(x₁ - 2x₂ + x₃, x₁ - x₂, x₁)
     if !isnan(t₁)
-      code & 0x0001 == 0x0001 && (res -= winding_contribution(pixel_per_em, last(bezier(t₁, curve_points))))
-      code > 0x0001 && (res += winding_contribution(pixel_per_em, last(bezier(t₂, curve_points))))
+      code & 0x0001 == 0x0001 && (res -= winding_contribution(pixel_per_em, last(bezier(t₁))))
+      code > 0x0001 && (res += winding_contribution(pixel_per_em, last(bezier(t₂))))
     end
   end
 
@@ -41,8 +40,8 @@ end
 function intensity(position, curves::DeviceAddress, range, pixel_per_em)
   res = 0F
   for i in range
-    curve_points = @load curves[i]::Arr{3,Vec2}
-    res += intensity(curve_points .- Ref(position), pixel_per_em)
+    curve = BezierCurve((@load curves[i]::Arr{3,Vec2}) .- Ref(position))
+    res += intensity(curve, pixel_per_em)
   end
   sqrt(abs(res))
 end

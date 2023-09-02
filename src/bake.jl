@@ -94,7 +94,7 @@ end
 """
 Program to be compiled into a pipeline with a specific state.
 """
-@auto_hash_equals struct ProgramInstance
+@struct_hash_equal struct ProgramInstance
   program::Program
   state::Optional{DrawState}
   targets::Optional{RenderTargets}
