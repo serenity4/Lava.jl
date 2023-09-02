@@ -26,7 +26,7 @@ glslang_jll = "6fd5517d-459c-5c5a-9b1a-c968b4e37a81"
 
 [compat]
 Accessors = "0.1"
-AutoHashEquals = "0.2, 1"
+AutoHashEquals = "0.2, 1, 2"
 BitMasks = "0.1"
 ColorTypes = "0.11"
 CompileTraces = "1"
