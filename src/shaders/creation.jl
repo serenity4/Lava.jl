@@ -65,8 +65,11 @@ function shader_decorations(ex::Expr)
         get!(Decorations, variable_decorations, i).decorate!(SPIRV.DecorationLocation, UInt32(location))
       end
       push!(argtypes, T)
+      @case :(::Type{$_})
+      # Pass `Type` arguments through (they will be not be provided as actual arguments but are fine for compile-time computations).
+      push!(argtypes, arg.args[1])
       @case _
-      error("Expected argument type to be in the form `::<Type>::<Class>` at location $i (got $(repr(arg)))")
+      error("Expected argument type to be in the form `::<Type>::<Class>` for argument number $i (got $(repr(arg)))")
     end
   end
 
