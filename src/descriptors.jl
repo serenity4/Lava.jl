@@ -83,6 +83,11 @@ function delete_descriptor!(arr::DescriptorArray, id::DescriptorID)
   push!(arr.holes, index)
 end
 
+struct DescriptorSet <: LavaAbstraction
+  handle::Vk.DescriptorSet
+  layout::Vk.DescriptorSetLayout
+end
+
 mutable struct GlobalDescriptors
   const pool::Vk.DescriptorPool
   const gset::DescriptorSet

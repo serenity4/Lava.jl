@@ -57,7 +57,6 @@ include("dimensions.jl")
 include("attachments.jl")
 
 include("spirv_features.jl")
-include("shaders/dependencies.jl")
 include("shaders/formats.jl")
 include("shaders/source.jl")
 include("shaders/vulkan.jl")
