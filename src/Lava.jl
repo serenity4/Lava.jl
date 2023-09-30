@@ -57,11 +57,7 @@ include("dimensions.jl")
 include("attachments.jl")
 
 include("spirv_features.jl")
-include("shaders/formats.jl")
-include("shaders/source.jl")
-include("shaders/vulkan.jl")
-include("shaders/creation.jl")
-include("shaders/macros.jl")
+include("shader.jl")
 
 include("program.jl")
 include("resources.jl")
@@ -134,7 +130,7 @@ export
 
   # shaders
   ShaderSource, @shader,
-  @fragment, @vertex, @compute,
+  # @fragment, @vertex, @compute, etc just like SPIR-V but higher-level - see shader.jl.
   ShaderCache,
   Shader,
 

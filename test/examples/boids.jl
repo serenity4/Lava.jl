@@ -117,7 +117,7 @@ function boids_forces_program(device)
     ::DeviceAddressBlock::PushConstant,
     ::Vec{3,UInt32}::Input{LocalInvocationId},
     ::Vec{3,UInt32}::Input{WorkgroupId},
-  ) COMPUTE_EXECUTION_OPTIONS
+  ) options = COMPUTE_EXECUTION_OPTIONS
   Program(compute)
 end
 
@@ -126,7 +126,7 @@ function boids_update_program(device)
     ::DeviceAddressBlock::PushConstant,
     ::Vec{3,UInt32}::Input{LocalInvocationId},
     ::Vec{3,UInt32}::Input{WorkgroupId},
-  ) COMPUTE_EXECUTION_OPTIONS
+  ) options = COMPUTE_EXECUTION_OPTIONS
   Program(compute)
 end
 
