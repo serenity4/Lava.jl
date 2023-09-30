@@ -22,20 +22,6 @@ include("utils.jl")
 instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR_xcb_surface"])
 
 @testset "Lava.jl" begin
-  @testset "Initialization" begin
-    @testset "SPIR-V capability/extension detection" begin
-      (; physical_device) = device.handle
-      feats = Lava.spirv_features(physical_device, device.api_version, device.extensions, device.features)
-      @test !isempty(feats.extensions)
-      @test !isempty(feats.capabilities)
-      @test SPIRV.CapabilityVulkanMemoryModel in feats.capabilities
-      @test SPIRV.CapabilityShader in feats.capabilities
-      feats = Lava.spirv_features(physical_device, device.api_version, [], Vk.initialize(Vk.PhysicalDeviceFeatures2))
-      @test SPIRV.CapabilityVulkanMemoryModel ∉ feats.capabilities
-      @test SPIRV.CapabilityShader in feats.capabilities
-    end
-  end
-
   @testset "Buffers & Memory" begin
     b = Buffer(device, 100)
     @test_throws UndefRefError b.memory[]

@@ -16,7 +16,6 @@ precompile(Tuple{typeof(Base.any), Base.Generator{Array{Vulkan.PropertyCondition
 precompile(Tuple{typeof(Base.indexed_iterate), Tuple{Lava.Instance, Lava.Device}, Int64})
 precompile(Tuple{typeof(Base.indexed_iterate), Tuple{Lava.Instance, Lava.Device}, Int64, Int64})
 precompile(Tuple{typeof(Base.getproperty), Lava.Device, Symbol})
-precompile(Tuple{typeof(Lava.spirv_features), Vulkan.PhysicalDevice, Base.VersionNumber, Array{Any, 1}, Vulkan.PhysicalDeviceFeatures2})
 precompile(Tuple{Type{Base.Generator{I, F} where F where I}, Lava.var"#98#104"{Base.VersionNumber, Dictionaries.Dictionary{Symbol, Vulkan.PhysicalDeviceFeatures2}}, Array{Vulkan.FeatureCondition, 1}})
 precompile(Tuple{typeof(Base.any), Base.Generator{Array{Vulkan.FeatureCondition, 1}, Lava.var"#98#104"{Base.VersionNumber, Dictionaries.Dictionary{Symbol, Vulkan.PhysicalDeviceFeatures2}}}})
 precompile(Tuple{Type{Lava.Buffer}, Lava.Device, Int64})

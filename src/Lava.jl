@@ -56,7 +56,6 @@ include("allocators.jl")
 include("dimensions.jl")
 include("attachments.jl")
 
-include("spirv_features.jl")
 include("shader.jl")
 
 include("program.jl")

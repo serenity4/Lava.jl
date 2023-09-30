@@ -53,7 +53,7 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     ShaderCache(handle, alignment),
     [],
     CommandPools(handle),
-    spirv_features(physical_device, api_version, extensions, features),
+    SupportedFeatures(physical_device, api_version, extensions, features),
     FencePool(handle),
     GlobalDescriptors(handle),
     alignment,
