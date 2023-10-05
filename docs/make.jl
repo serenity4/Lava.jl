@@ -13,7 +13,7 @@ function replace_edit(content)
     # the warning go away with a hard link to the repo.
     replace(
         content,
-        r"EditURL = \".*<unknown>/(.*)\"" => s"EditURL = \"https://github.com/serenity4/Lava.jl/tree/master/\1\"",
+        r"EditURL = \".*<unknown>/(.*)\"" => s"EditURL = \"https://github.com/serenity4/Lava.jl/tree/main/\1\"",
     )
 end
 
