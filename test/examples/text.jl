@@ -30,7 +30,7 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
     (; header) = glyph
     min = scale .* Point(header.xmin, header.ymin)
     max = scale .* Point(header.xmax, header.ymax)
-    set = PointSet(box(min .+ origin, max .+ origin), Point2)
+    set = PointSet(Box(min .+ origin, max .+ origin))
     append!(positions, Vec2.(set.points))
     index = get!(processed_glyphs, glyph_id) do
       start = lastindex(glyph_curves)
