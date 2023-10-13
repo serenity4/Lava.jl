@@ -231,8 +231,8 @@ function attachment_resource(format::Union{Vk.Format, DataType}, dims = nothing;
   Resource(LogicalAttachment(format, dims; kwargs...), name)
 end
 
-function attachment_resource(device::Device, data; name = nothing, access::MemoryAccess = READ | WRITE, aspect::Vk.ImageAspectFlag = Vk.IMAGE_ASPECT_COLOR_BIT, kwargs...)
-  Resource(Attachment(device, data; access, aspect, kwargs...), name)
+function attachment_resource(device::Device, data; name = nothing, access::MemoryAccess = READ | WRITE, kwargs...)
+  Resource(Attachment(device, data; access, kwargs...), name)
 end
 
 attachment_resource(view::ImageView, access::MemoryAccess; name = nothing) = Resource(Attachment(view, access), name)
