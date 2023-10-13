@@ -20,7 +20,7 @@ get_physical_resource(resources, resource::Resource) = islogical(resource) ? res
 struct ResourceDependency
   type::ResourceUsageType
   access::MemoryAccess
-  clear_value::Optional{NTuple{4,Float32}}
+  clear_value::Optional{ClearValue}
   samples::Optional{Int64}
 end
 ResourceDependency(type, access; clear_value = nothing, samples = nothing) = ResourceDependency(type, access, clear_value, samples)

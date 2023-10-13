@@ -58,7 +58,7 @@ using Graphs: nv, ne
 
     (; usage) = only(rg.uses[gbuffer.id][emissive.id])
     @test usage.type == RESOURCE_USAGE_COLOR_ATTACHMENT
-    @test usage.clear_value == (0.0f0, 0.0f0, 1.0f0, 1.0f0)
+    @test usage.clear_value == ClearValue((0.0f0, 0.0f0, 1.0f0, 1.0f0))
 
     # Combined resource usage.
     uses = combine_resource_uses(combine_resource_uses_per_node(rg.uses))
@@ -138,8 +138,8 @@ using Graphs: nv, ne
     baked = bake!(rg)
     dependency_info = dependency_info!(SynchronizationState(), deepcopy(baked.node_uses), deepcopy(baked.resources), graphics)
     rinfo = rendering_info(baked, graphics)
-    color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color.id].data.view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue((0f0, 0f0, 0f0, 1f0))))
-    depth_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[depth.id].data.view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(Vk.ClearColorValue(Lava.DEFAULT_CLEAR_VALUE)))
+    color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color.id].data.view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, clear_value_color((0f0, 0f0, 0f0, 1f0)))
+    depth_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[depth.id].data.view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, DEFAULT_CLEAR_VALUE)
     @test rinfo == Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL)
 
     @testset "Barriers for layout transitions" begin

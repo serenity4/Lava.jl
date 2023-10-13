@@ -46,7 +46,7 @@ Base.@kwdef struct AttachmentUsage
   usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
   aspect::Vk.ImageAspectFlag = Vk.ImageAspectFlag(0) # can be deduced
   samples::Int64 = 1
-  clear_value::Optional{NTuple{4,Float32}} = nothing
+  clear_value::Optional{ClearValue} = nothing
   resolve_mode::Vk.ResolveModeFlag = Vk.RESOLVE_MODE_AVERAGE_BIT
 end
 
@@ -82,8 +82,6 @@ function combine(x::ResourceUsage, y::ResourceUsage)
   ResourceUsage(x.id, x.type | y.type, combine(x.usage, y.usage))
 end
 
-const DEFAULT_CLEAR_VALUE = (0.0f0, 0.0f0, 0.0f0, 0.0f0)
-
 function rendering_info(attachment::Attachment, usage::AttachmentUsage)
   clear = !isnothing(usage.clear_value)
   Vk.RenderingAttachmentInfo(
@@ -91,7 +89,7 @@ function rendering_info(attachment::Attachment, usage::AttachmentUsage)
     Vk.IMAGE_LAYOUT_UNDEFINED,
     load_op(usage.access, clear),
     store_op(usage.access),
-    Vk.ClearValue(Vk.ClearColorValue(something(usage.clear_value, DEFAULT_CLEAR_VALUE)));
+    clear_value(usage.clear_value);
     image_view = attachment.view.handle,
   )
 end
