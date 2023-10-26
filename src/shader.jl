@@ -1,18 +1,18 @@
-macro shader(model::QuoteNode, device, args...)
-  (ex, options, interpreter, cached) = parse_shader_args(args)
+macro shader(model::QuoteNode, device, kwargs...)
+  (ex, options, interpreter, cached) = parse_shader_kwargs(kwargs)
   propagate_source(__source__, esc(shader(device, ex, SPIRV.execution_models[model.value::Symbol], options, interpreter, cached)))
 end
 
-function parse_shader_args(args)
+function parse_shader_kwargs(kwargs)
   ex = options = interpreter = cached = nothing
-  for arg in args
-    @match arg begin
+  for kwarg in kwargs
+    @match kwarg begin
       Expr(:(=), :options, value) || :options && Do(value = :options) => (options = value)
       Expr(:(=), :interpreter, value) || :interpreter && Do(value = :interpreter) => (interpreter = value)
       Expr(:(=), :cached, value) || :cached && Do(value = :cached) => (cached = value)
       Expr(:(=), parameter, value) => throw(ArgumentError("Received unknown parameter `$parameter` with value $value"))
-      ::Expr => (ex = arg)
-      _ => throw(ArgumentError("Expected parameter or expression as argument, got $arg"))
+      ::Expr => (ex = kwarg)
+      _ => throw(ArgumentError("Expected parameter or expression as argument, got $kwarg"))
     end
   end
   !isnothing(ex) || throw(ArgumentError("Expected expression as positional argument"))
@@ -20,8 +20,8 @@ function parse_shader_args(args)
 end
 
 for (name, model) in pairs(SPIRV.execution_models)
-  @eval macro $name(device, args...)
-    (ex, options, interpreter, cached) = parse_shader_args(args)
+  @eval macro $name(device, kwargs...)
+    (ex, options, interpreter, cached) = parse_shader_kwargs(kwargs)
     propagate_source(__source__, esc(shader(device, ex, $model, options, interpreter, cached)))
   end
   @eval export $(Symbol("@$name"))
