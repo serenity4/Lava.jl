@@ -94,11 +94,11 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
   )
 end
 
-function Base.similar(image::Image; memory_domain = nothing, usage_flags = image.usage_flags, is_linear = image.is_linear, samples = image.samples)
+function Base.similar(image::Image; memory_domain = nothing, usage_flags = image.usage_flags, is_linear = image.is_linear, samples = image.samples, dims = image.dims, format = image.format)
   similar = Image(
     device(image),
-    image.dims,
-    image.format,
+    dims,
+    format,
     usage_flags;
     image.queue_family_indices,
     image.sharing_mode,
