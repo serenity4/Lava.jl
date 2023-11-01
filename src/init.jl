@@ -36,6 +36,7 @@ function init(;
     Vk.QUEUE_TRANSFER_BIT => 1,
   ]),
   with_validation = true,
+  include_gpu_assisted_validation = false, # default to false because shader instrumentation is prone to crashes
   debug = true,
   message_types = Vk.DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | Vk.DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | Vk.DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT,
 )
@@ -60,7 +61,7 @@ function init(;
   end
 
   next = C_NULL
-  with_validation && (next = Vk.ValidationFeaturesEXT([Vk.VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT], []; next))
+  with_validation && include_gpu_assisted_validation && (next = Vk.ValidationFeaturesEXT([Vk.VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT], []; next))
 
   dbg_info = if debug
     Vk.DebugUtilsMessengerCreateInfoEXT(
