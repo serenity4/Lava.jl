@@ -19,7 +19,7 @@ Create and allocate a new buffer and optionally fill it with data.
 """
 function Buffer(device::Device; data = nothing, memory_domain::MemoryDomain = MEMORY_DOMAIN_DEVICE, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, size = nothing, submission = nothing, queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE, layout = NativeLayout())
   isnothing(size) && isnothing(data) && error("At least one of data or size must be provided.")
-  isnothing(size) && (size = sizeof(data))
+  isnothing(size) && (size = datasize(layout, data))
 
   memory_domain == MEMORY_DOMAIN_DEVICE && !isnothing(data) && (usage_flags |= Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
   buffer = Buffer(device, size; usage_flags, queue_family_indices, sharing_mode, layout)
@@ -31,15 +31,13 @@ end
 
 function Base.copyto!(buffer::Buffer, data; device::Optional{Device} = nothing, submission = SubmissionInfo())
   mem = buffer.memory[]
-  if Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in mem.property_flags
+  if !in(Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT, mem.property_flags)
     device::Device
     tmp = similar(buffer; memory_domain = MEMORY_DOMAIN_HOST, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, buffer.layout)
     copyto!(tmp, data)
     transfer(device, tmp, buffer; submission)
-  elseif Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in mem.property_flags
-    copyto!(mem, data, buffer.layout)
   else
-    error("Buffer not visible neither to device nor to host (memory properties: $(mem.property_flags)).")
+    copyto!(mem, data, buffer.layout)
   end
   buffer
 end
