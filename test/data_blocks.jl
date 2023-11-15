@@ -85,7 +85,7 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   gdescs = GlobalDescriptors(device)
   @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 1U
   patch_descriptors!(b2, gdescs, descriptors, NodeID())
-  @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 0U
+  @test Base.unsafe_load(Ptr{UInt32}(pointer(@view b2.bytes[only(b2.descriptor_ids)]))) == 1U
 
   data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3, layout)
   addresses = Dictionary([b1, b2], DeviceAddress[5, 6])

@@ -33,7 +33,7 @@ end
 
 function blur_vert(uv, position, index, data_address::DeviceAddressBlock)
   data = @load data_address::BlurData
-  coords = @load data.texture.coords[index]::TextureCoordinates
+  coords = @load data.texture.coords[index + 1U]::TextureCoordinates
   (; pos) = coords
   position[] = Vec(pos.x, pos.y, 0F, 1F)
   uv[] = coords.uv

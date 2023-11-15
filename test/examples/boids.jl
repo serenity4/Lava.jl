@@ -32,13 +32,13 @@ const DISPATCH_SIZE = (8U, 1U, 1U)
 const COMPUTE_EXECUTION_OPTIONS = ComputeExecutionOptions(local_size = WORKGROUP_SIZE)
 
 function next!(boids::BoidSimulation{V}, Δt::Float32) where {V}
-  forces = [compute_forces(boids.agents, boids.parameters, i, Δt) for i in 1:length(boids.agents)]
+  forces = [compute_forces(boids.agents, boids.parameters, i, Δt) for i in eachindex(boids.agents)]
   boids.agents .= step_euler.(boids.agents, forces, Δt)
 end
 
 periodic_distance(x, y) = Distances.evaluate(PeriodicEuclidean(Vec2(2, 2)), x, y)
 
-function compute_forces(agents, parameters::BoidParameters, i::Signed, Δt::Float32)
+function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Float32)
   forces = zero(Vec2)
   flock_size = 0U
   average_velocity = zero(Vec2)
@@ -97,15 +97,15 @@ struct BoidsInfo
 end
 
 function compute_forces!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
-  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE))
+  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE)) + 1U
   (; agents, parameters, Δt, forces) = @load data_address::BoidsInfo
   agents = @load agents::Arr{512,BoidAgent}
-  @store forces[i]::Vec2 = compute_forces(agents, parameters, i + 1, Δt)
+  @store forces[i]::Vec2 = compute_forces(agents, parameters, i, Δt)
   nothing
 end
 
 function step_euler!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
-  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE))
+  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE)) + 1U
   (; agents, Δt, forces) = @load data_address::BoidsInfo
   agent = @load agents[i]::BoidAgent
   @store agents[i]::BoidAgent = step_euler(agent, (@load forces[i]::Vec2), Δt)
@@ -180,16 +180,16 @@ end
 
 function boid_vert(uv::Vec2, position::Vec4, vertex_index::UInt32, instance_index::UInt32, data::DeviceAddressBlock)
   boid_data = @load data::BoidDrawData
-  agent = @load boid_data.agents[instance_index]::BoidAgent
+  agent = @load boid_data.agents[instance_index + 1U]::BoidAgent
   # `-y` points up, so we need to invert `y` to position the direction relative to 12 o'clock.
   direction = Vec2(agent.velocity.x, -agent.velocity.y)
   angle = angle_2d(direction, Vec2(0F, -1F))
-  corner = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index]
+  corner = quad_2d(agent.position, Vec2(boid_data.size, boid_data.size))[vertex_index + 1U]
 
   # Rotate `corner` relative to the center of the quad, i.e. `agent.position`.
   v = agent.position + rotate_2d(corner - agent.position, angle)
 
-  uv[] = quad_2d(Vec2(0.5F, 0.5F), Vec2(1F, -1F))[vertex_index]
+  uv[] = quad_2d(Vec2(0.5F, 0.5F), Vec2(1F, -1F))[vertex_index + 1U]
   position[] = Vec4(v.x, v.y, 0F, 1F)
 end
 

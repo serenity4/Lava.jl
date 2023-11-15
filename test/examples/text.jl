@@ -12,10 +12,10 @@ end
 function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position = (0, 0))
   positions = Vec2[]
   glyph_curves = Arr{3,Vec2}[]
-  glyph_ranges = UnitRange{UInt32}[] # ranges are 0-based
+  glyph_ranges = UnitRange{UInt32}[]
   processed_glyphs = Dict{GlyphID,Int}() # to glyph index
   n = length(segment.indices)
-  glyph_indices = UInt32[] # 0-based
+  glyph_indices = UInt32[]
   glyph_origins = Vec2[]
   (; font, options) = segment
   scale = options.font_size / font.units_per_em
@@ -33,13 +33,13 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
     set = PointSet(Box(min .+ origin, max .+ origin))
     append!(positions, Vec2.(set.points))
     index = get!(processed_glyphs, glyph_id) do
-      start = lastindex(glyph_curves)
+      start = lastindex(glyph_curves) + 1
       append!(glyph_curves, Arr{3,Vec2}.(broadcast.(Vec2, curves(glyph) ./ font.units_per_em)))
-      stop = lastindex(glyph_curves) - 1
+      stop = lastindex(glyph_curves)
       push!(glyph_ranges, start:stop)
       length(processed_glyphs) + 1
     end
-    push!(glyph_indices, index - 1)
+    push!(glyph_indices, index)
     push!(glyph_origins, Vec2(origin))
   end
   (; positions, glyph_curves, glyph_indices, glyph_ranges, glyph_origins)
@@ -61,9 +61,10 @@ function text_invocation_data(prog, line::Line, segment::LineSegment, start::Vec
 end
 
 function text_vert(position, glyph_coordinates, frag_quad_index, index, data_address)
+  index += 1U
   data = @load data_address::TextData
   xy = @load data.positions[index]::Vec2
-  quad_index = index ÷ 4U
+  quad_index = mod1(index, 4U)
   frag_quad_index.x = quad_index
   origin = @load data.glyph_origins[quad_index]::Vec2
   glyph_coordinates[] = xy - origin
@@ -89,10 +90,10 @@ end
 
 function draw_text(device, line::Line, segment::LineSegment, start, camera::PinholeCamera; options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 12), prog = text_program(device))
   data = text_invocation_data(prog, line, segment, start, camera)
-  strip = TriangleList(TriangleStrip(1:4))
+  encoding = reencode(MeshEncoding(1:4), MESH_TOPOLOGY_TRIANGLE_LIST)
   indices = Int[]
   for i in eachindex(line.glyphs)
-    for triangle in strip.indices
+    for triangle in encoding.indices
       append!(indices, triangle .+ 4(i - 1))
     end
   end

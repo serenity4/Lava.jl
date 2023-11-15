@@ -6,7 +6,7 @@ end
 
 function displace_height_vert(position, index, textures, data_address)
   data = @load data_address::DisplacementData
-  (; pos, uv) = @load data.vertex_coordinates[index]::TextureCoordinates
+  (; pos, uv) = @load data.vertex_coordinates[index + 1U]::TextureCoordinates
   height_map = textures[data.texture_index]
   height = height_map(uv, 0F).r
   global_position = Vec4(pos.x, pos.y, height, 1)

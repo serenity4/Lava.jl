@@ -1,21 +1,24 @@
-function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp = false, clamp = false)
-  clamp && (data = clamp01nan.(data))
+function save_render(filename, data; tmp = false)
   filename = render_file(filename; tmp)
-  existing = isfile(filename) ? load(filename)' : nothing
-  if !isnothing(h)
-    @test hash(data) == h || !isnothing(existing) && existing ≈ data
-    return hash(data)
-  end
-  rm(filename; force = true)
+  mkpath(dirname(filename))
+  ispath(filename) && rm(filename)
   save(filename, data')
-  @test stat(filename).size > 0
-  hash(data)
+  filename
+end
+
+function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp = false)
+  file = save_render(filename, data; tmp)
+  @test stat(file).size > 0
+  h′ = hash(data)
+  isnothing(h) && return (h′, file)
+  @test h′ == h
+  file
 end
 
 render_graphics(device, node::RenderNode) = render_graphics(device, node.commands[end])
 render_graphics(device, command::Command) = render_graphics(device, only(command.graphics.targets.color), [command])
 function render_graphics(device, color, nodes)
-  render(device, nodes)
+  render(device, nodes) || error("The computation did not terminate.")
   read_data(device, color)
 end
 read_data(device, color) = clamp01nan!(collect(color, device))

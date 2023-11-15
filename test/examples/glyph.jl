@@ -55,7 +55,7 @@ end
 
 function glyph_vert(position, frag_position, index, data_address)
   data = @load data_address::GlyphData
-  position.xy = @load data.positions[index]::Vec2
+  position.xy = @load data.positions[index + 1U]::Vec2
   frag_position[] = position.xy
 end
 
@@ -77,7 +77,7 @@ function draw_glyph(device, vdata, glyph, glyph_color, color; prog = glyph_progr
   data = @invocation_data prog begin
     b1 = @block vdata
     b2 = @block curves
-    @block GlyphData(@address(b1), @address(b2), 0:(length(curves) - 1), Vec3(glyph_color.r, glyph_color.g, glyph_color.b))
+    @block GlyphData(@address(b1), @address(b2), eachindex(curves), Vec3(glyph_color.r, glyph_color.g, glyph_color.b))
   end
   graphics_command(
     DrawIndexed(eachindex(vdata)),

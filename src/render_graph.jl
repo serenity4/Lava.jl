@@ -338,7 +338,7 @@ function extract_special_usage(ex)
   clear_value = nothing
   samples = nothing
   if Meta.isexpr(ex, :call) && ex.args[1] == :(=>)
-    clear_value = ClearValue(ex.args[3])
+    clear_value = :($ClearValue($(ex.args[3])))
     ex = ex.args[2]
   end
   if Meta.isexpr(ex, :call) && ex.args[1] == :(*)

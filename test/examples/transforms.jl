@@ -114,4 +114,4 @@ end
 
     @test unwrap(validate(@compile project(::Vec3, ::PinholeCamera)))
   end
-end
+end;

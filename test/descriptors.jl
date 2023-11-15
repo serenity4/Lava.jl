@@ -12,17 +12,17 @@
     arr = DescriptorArray()
     id = DescriptorID(DESCRIPTOR_TYPE_TEXTURE)
     index = new_descriptor!(arr, id)
-    @test index == 0
+    @test index == 1
     index = new_descriptor!(arr, id)
-    @test index == 0
+    @test index == 1
     id2 = DescriptorID(DESCRIPTOR_TYPE_TEXTURE)
     index = new_descriptor!(arr, id2)
-    @test index == 1
+    @test index == 2
     delete_descriptor!(arr, id)
-    @test 0 in arr.holes
+    @test 1 in arr.holes
     id3 = DescriptorID(DESCRIPTOR_TYPE_TEXTURE)
     index = new_descriptor!(arr, id3)
-    @test index == 0
+    @test index == 1
     @test length(arr.holes) == 0
     @test_throws Dictionaries.IndexError delete_descriptor!(arr, id)
     delete_descriptor!(arr, id2)
@@ -34,11 +34,11 @@
     gdescs = GlobalDescriptors(device)
 
     idx = request_index!(gdescs, texture_descriptor(texture))
-    @test idx == 0
+    @test idx == 1
     @test length(gdescs.descriptors) == 1
 
     idx = request_index!(gdescs, d4)
-    @test idx == 1
+    @test idx == 2
     @test length(gdescs.descriptors) == 2
     insert!(gdescs.pending, 1, [d4.id])
 

@@ -173,7 +173,7 @@ export
   RESOURCE_USAGE_SAMPLER,
   RenderGraph, render!, render,
   RenderArea, RenderNode, add_node!, add_nodes!,
-  ResourceDependency, add_resource_dependency!, add_resource_dependencies!, @add_resource_dependencies, @resource_dependencies, clear_attachments, ClearValue,
+  ResourceDependency, add_resource_dependency!, add_resource_dependencies!, @add_resource_dependencies, @resource_dependencies, clear_attachments, ClearValue, DEFAULT_CLEAR_VALUE,
 
   # WSI
   Surface, Swapchain,

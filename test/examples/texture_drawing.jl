@@ -10,7 +10,7 @@ end
 
 function texture_vert(uv, position, index, data_address::DeviceAddressBlock)
   data = @load data_address::TextureData
-  coords = @load data.coords[index]::TextureCoordinates
+  coords = @load data.coords[index + 1U]::TextureCoordinates
   (; pos) = coords
   position[] = Vec(pos.x, pos.y, 0F, 1F)
   uv[] = coords.uv

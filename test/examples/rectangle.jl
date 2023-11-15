@@ -4,10 +4,10 @@ struct PosColor
 end
 
 function rectangle_vert(frag_color, position, index, data_address::DeviceAddressBlock)
-  data = @load data_address[index]::PosColor
+  data = @load data_address[index + 1U]::PosColor
   (; pos, color) = data
   position[] = Vec(pos.x, pos.y, 0F, 1F)
-  frag_color[] = Vec(color[0U], color[1U], color[2U], 1F)
+  frag_color[] = Vec(color[1], color[2], color[3], 1F)
 end
 
 function rectangle_frag(out_color, frag_color)

@@ -34,7 +34,7 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 0, index, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, 0, index - 1, dtype, [info], [], []))
 
       @case &DESCRIPTOR_TYPE_STORAGE_IMAGE
       resource = descriptor.data::Resource
@@ -45,7 +45,7 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 1, index, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, 1, index - 1, dtype, [info], [], []))
 
       @case &DESCRIPTOR_TYPE_SAMPLER
       sampling = descriptor.data::Sampling
@@ -54,7 +54,7 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 2, index, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, 2, index - 1, dtype, [info], [], []))
 
       @case &DESCRIPTOR_TYPE_TEXTURE
       texture = descriptor.data::Texture
@@ -67,7 +67,7 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 3, index, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, 3, index - 1, dtype, [info], [], []))
     end
 
     push!(batch_ids, descriptor.id)
