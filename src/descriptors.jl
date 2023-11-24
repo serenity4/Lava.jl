@@ -171,4 +171,4 @@ Base.getindex(arr::Union{Arr,AbstractVector}, idx::DescriptorIndex) = getindex(a
 
 Base.show(io::IO, desc::DescriptorIndex) = print(io, DescriptorIndex, '(', reinterpret(UInt32, desc), ')')
 
-SPIRV.primitive_type_to_spirv(::Type{DescriptorIndex}) = SPIRV.IntegerType(32, 0)
+SPIRV.primitive_type_to_spirv(::Type{DescriptorIndex}) = UInt32

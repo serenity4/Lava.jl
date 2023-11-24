@@ -16,7 +16,7 @@ Base.:(+)(x::Integer, y::DeviceAddress) = x + UInt64(y)
 Base.:(+)(x::DeviceAddress, y::Integer) = UInt64(x) + y
 DeviceAddress(ptr::Ptr) = DeviceAddress(UInt64(ptr))
 
-SPIRV.primitive_type_to_spirv(::Type{DeviceAddress}) = SPIRV.IntegerType(64, 0)
+SPIRV.primitive_type_to_spirv(::Type{DeviceAddress}) = UInt64
 SPIRV.Pointer{T}(address::DeviceAddress) where {T} = Pointer{T}(convert(UInt64, address))
 
 struct Buffer <: LavaAbstraction
