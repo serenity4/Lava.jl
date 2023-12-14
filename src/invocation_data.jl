@@ -44,7 +44,7 @@ end
 
 function annotate!(block, layout, x::T, offset = 0) where {T}
   isprimitivetype(T) && return add_annotations!(block, x, offset)
-  if isstructtype(T)
+  if isstructtype(T) && !(T <: Array)
     for i in 1:fieldcount(T)
       field_offset = if isa(layout, VulkanLayout) || isa(layout, ShaderLayout)
         dataoffset(layout, spir_type(T, layout.tmap; fill_tmap = false), i)

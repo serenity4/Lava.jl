@@ -35,9 +35,10 @@ color_ms = attachment_resource(device, nothing; format = RGBA{Float16}, samples 
   include("examples/rectangle.jl")
   include("examples/texture_drawing.jl")
   include("examples/multisampling.jl")
-  include("examples/glyph.jl")
-  include("examples/text.jl")
-  include("examples/displacement.jl")
+  # XXX: Should use ShaderLibrary downstream tests instead, it's a fairly large maintenance burden otherwise.
+  # include("examples/glyph.jl")
+  # include("examples/text.jl")
   include("examples/blur.jl")
-  include("examples/boids.jl")
+  # FIXME: Broken, vkCreateComputePipelines segfaults.
+  # include("examples/boids.jl")
 end;

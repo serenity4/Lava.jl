@@ -1,4 +1,5 @@
 using Lava
+using Lava: Memory
 using Test
 using Random: Random, MersenneTwister, AbstractRNG
 using Dictionaries
@@ -146,7 +147,6 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
   include("descriptors.jl")
   include("data_blocks.jl")
   include("shaders.jl")
-  include("simple_program.jl")
   include("pipelines.jl")
   include("render_graph.jl")
   include("examples.jl")

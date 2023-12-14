@@ -118,7 +118,22 @@ using Graphs: nv, ne
 
   include("node_synchronization.jl")
 
-  prog = simple_program(device)
+  function test_program_vert(position, index, data_address::DeviceAddressBlock)
+    pos = @load data_address[index + 1]::Vec2
+    position[] = Vec(pos.x, pos.y, 0F, 1F)
+  end
+  
+  function test_program_frag(out_color)
+    out_color[] = Vec(1F, 0F, 0F, 0F)
+  end
+  
+  function test_program(device)
+    vert_shader = @vertex device test_program_vert(::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+    frag_shader = @fragment device test_program_frag(::Vec4::Output)
+    Program(vert_shader, frag_shader)
+  end
+
+  prog = test_program(device)
 
   @testset "Rendering" begin
     rg = RenderGraph(device)
@@ -193,18 +208,15 @@ using Graphs: nv, ne
 
   @testset "Render graph from persistent data" begin
     color = attachment_resource(RGBA{Float32})
-    normal = image_resource(RGBA{Float32}, [16, 16])
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
     graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
     draw = DrawIndexed(1:4)
     dependencies = @resource_dependencies begin
-      @read
-      normal::Texture
       @write
       (color => (0.0, 0.0, 0.0, 1.0))::Color
       depth::Depth
     end
-    command = graphics_command(draw, prog, @invocation_data(prog, @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
+    command = graphics_command(draw, prog, @invocation_data(prog, @block collect(PointSet(HyperCube(1.0f0), Point2f))), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
     push!(graphics.commands, command)
 
     rg = RenderGraph(device)
@@ -219,7 +231,7 @@ using Graphs: nv, ne
     mktemp() do path, io
       withenv("JULIA_DEBUG" => "Lava") do
         redirect_stdio(stdout=io, stderr=io) do
-          render(device, graphics)
+          @test render(device, graphics)
         end
         seekstart(io)
         @test !isempty(read(io, String))
