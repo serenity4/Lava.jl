@@ -160,11 +160,11 @@ compute_pipeline(device::Device, handle::Vk.Pipeline, info::Vk.ComputePipelineCr
   Pipeline(handle, PipelineType(Vk.PIPELINE_BIND_POINT_COMPUTE), pipeline_layout(device, info.layout))
 
 function create_pipelines!(device::Device)
-  ret = batch_create!(infos -> create_graphics_pipelines!(device, infos), device.pipeline_ht_graphics, device.pending_pipelines_graphics)
-  ret = batch_create!(infos -> create_compute_pipelines!(device, infos), device.pipeline_ht_compute, device.pending_pipelines_compute)
+  batch_create!(infos -> create_graphics_pipelines!(device, infos), device.pipeline_ht_graphics, device.pending_pipelines_graphics)
+  batch_create!(infos -> create_compute_pipelines!(device, infos), device.pipeline_ht_compute, device.pending_pipelines_compute)
   empty!(device.pending_pipelines_graphics)
   empty!(device.pending_pipelines_compute)
-  ret
+  nothing
 end
 
 function pipeline_layout(device::Device)
