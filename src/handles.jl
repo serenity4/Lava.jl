@@ -65,6 +65,12 @@ parent_handle_type(::Type{Vk.ImageView}) = Vk.Device
 has_parent(::Type{Vk.Sampler}) = true
 parent_handle_type(::Type{Vk.Sampler}) = Vk.Device
 
+has_parent(::Type{Vk.DescriptorPool}) = true
+parent_handle_type(::Type{Vk.DescriptorPool}) = Vk.Device
+
+has_parent(::Type{Vk.DescriptorSet}) = true
+parent_handle_type(::Type{Vk.DescriptorSet}) = Vk.DescriptorPool
+
 @generated function empty_handle(::Type{T}) where {T<:Vk.Handle}
   if has_parent(T)
     Expr(:new, T, C_NULL, empty_handle(parent_handle_type(T)), Vk.RefCounter(0), 0)
