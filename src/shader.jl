@@ -1,6 +1,6 @@
 macro shader(model::QuoteNode, device, kwargs...)
   (ex, options, interpreter, cached, assemble) = parse_shader_kwargs(kwargs)
-  propagate_source(__source__, esc(shader(device, ex, SPIRV.execution_models[model.value::Symbol], options, interpreter, cached, assemble)))
+  propagate_source(__source__, esc(shader(device, ex, __module__, SPIRV.execution_models[model.value::Symbol], options, interpreter, cached, assemble)))
 end
 
 function parse_shader_kwargs(kwargs)
@@ -23,7 +23,7 @@ end
 for (name, model) in pairs(SPIRV.execution_models)
   @eval macro $name(device, kwargs...)
     (ex, options, interpreter, cached, assemble) = parse_shader_kwargs(kwargs)
-    propagate_source(__source__, esc(shader(device, ex, $model, options, interpreter, cached, assemble)))
+    propagate_source(__source__, esc(shader(device, ex, __module__, $model, options, interpreter, cached, assemble)))
   end
   @eval export $(Symbol("@$name"))
 end
@@ -61,7 +61,7 @@ ShaderCache(device, alignment) = ShaderCache(device, ShaderCompilationCache(), C
 Shader(cache::ShaderCache, source::ShaderSource) = get!(cache, source)
 Base.get!(cache::ShaderCache, source::ShaderSource) = get!(() -> Shader(cache.device, source), cache.shaders, source)
 
-function shader(device, ex::Expr, execution_model, options, interpreter, cached, assemble)
+function shader(device, ex::Expr, __module__, execution_model, options, interpreter, cached, assemble)
   _device, _source, _interpreter, _cached, _compilation_cache, _assemble = gensym.((:device, :source, :interpreter, :cached, :compilation_cache, :assemble))
   quote
     $_device = $device
@@ -70,7 +70,7 @@ function shader(device, ex::Expr, execution_model, options, interpreter, cached,
     $_assemble = something($assemble, true)
     $_cached = something($cached, true) & $_assemble
     $_compilation_cache = $_cached ? $_device.shader_cache.compilation_cache : nothing
-    $_source = $(SPIRV.shader(ex, execution_model, options, :($_device.spirv_features), :($_device.shader_cache.alignment), :($_compilation_cache); assemble = :($_assemble), interpreter = :($_interpreter)))
+    $_source = $(SPIRV.shader(ex, __module__, execution_model, options, :($_device.spirv_features), :($_device.shader_cache.alignment), :($_compilation_cache); assemble = :($_assemble), interpreter = :($_interpreter)))
     !$_assemble && return $_source
     $_cached ? $Shader($_device, $_source) : $Shader($_device.shader_cache.device, $_source)
   end

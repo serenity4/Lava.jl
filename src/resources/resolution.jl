@@ -30,22 +30,22 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       islogical(resource) && (resource = resources[resource.id])
       usage = uses[descriptor.node_id::NodeID][resource.id].usage::ImageUsage
       layout = image_layout(usage.type, usage.access)
-      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), default_view(resource.data::Image), layout)
+      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), ImageView(resource.image), layout)
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 0, index - 1, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, BINDING_SAMPLED_IMAGE, index - 1, dtype, [info], [], []))
 
       @case &DESCRIPTOR_TYPE_STORAGE_IMAGE
       resource = descriptor.data::Resource
       islogical(resource) && (resource = resources[resource.id])
       usage = uses[descriptor.node_id::NodeID][resource.id].usage::ImageUsage
       layout = image_layout(usage.type, usage.access)
-      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), default_view(resource.data::Image), layout)
+      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), ImageView(resource.image), layout)
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 1, index - 1, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, BINDING_STORAGE_IMAGE, index - 1, dtype, [info], [], []))
 
       @case &DESCRIPTOR_TYPE_SAMPLER
       sampling = descriptor.data::Sampling
@@ -54,7 +54,7 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 2, index - 1, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, BINDING_SAMPLER, index - 1, dtype, [info], [], []))
 
       @case &DESCRIPTOR_TYPE_TEXTURE
       texture = descriptor.data::Texture
@@ -63,11 +63,11 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       islogical(image) && (texture = @set texture.image = resources[image.id])
       usage = uses[descriptor.node_id::NodeID][image.id].usage::ImageUsage
       layout = image_layout(usage.type, usage.access)
-      info = Vk.DescriptorImageInfo(sampler, ImageView(image.data::Image), layout)
+      info = Vk.DescriptorImageInfo(sampler, ImageView(image.image), layout)
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
-      push!(writes, Vk.WriteDescriptorSet(gset.handle, 3, index - 1, dtype, [info], [], []))
+      push!(writes, Vk.WriteDescriptorSet(gset.handle, BINDING_COMBINED_IMAGE_SAMPLER, index - 1, dtype, [info], [], []))
     end
 
     push!(batch_ids, descriptor.id)

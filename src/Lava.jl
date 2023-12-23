@@ -140,6 +140,8 @@ export
   Descriptor, DescriptorID,
   storage_image_descriptor, sampler_descriptor, sampled_image_descriptor, texture_descriptor,
   GlobalDescriptors, GlobalDescriptorsConfig,
+  GLOBAL_DESCRIPTOR_SET_INDEX,
+  BINDING_SAMPLED_IMAGE, BINDING_STORAGE_IMAGE, BINDING_SAMPLER_IMAGE, BINDING_COMBINED_IMAGE_SAMPLER,
 
   # render state
   RenderState,

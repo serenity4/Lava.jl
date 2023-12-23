@@ -116,6 +116,13 @@ Base.@kwdef struct GlobalDescriptorsConfig
   textures::Int64 = 2048
 end
 
+const GLOBAL_DESCRIPTOR_SET_INDEX = 0
+
+const BINDING_SAMPLED_IMAGE = 0
+const BINDING_STORAGE_IMAGE = 1
+const BINDING_SAMPLER = 2
+const BINDING_COMBINED_IMAGE_SAMPLER = 3
+
 function GlobalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescriptorsConfig())
   # MEMORY LEAK: This pool is never reset, and so its memory is never reclaimed.
   # Inserting a naive finalizer produces a segfault, needs another solution.
@@ -132,10 +139,10 @@ function GlobalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescr
 
   layout = Vk.DescriptorSetLayout(device,
     [
-      Vk.DescriptorSetLayoutBinding(0, Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.SHADER_STAGE_ALL; descriptor_count = config.sampled_images),
-      Vk.DescriptorSetLayoutBinding(1, Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, Vk.SHADER_STAGE_ALL; descriptor_count = config.storage_images),
-      Vk.DescriptorSetLayoutBinding(2, Vk.DESCRIPTOR_TYPE_SAMPLER, Vk.SHADER_STAGE_ALL; descriptor_count = config.samplers),
-      Vk.DescriptorSetLayoutBinding(3, Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, Vk.SHADER_STAGE_ALL; descriptor_count = config.textures),
+      Vk.DescriptorSetLayoutBinding(BINDING_SAMPLED_IMAGE, Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, Vk.SHADER_STAGE_ALL; descriptor_count = config.sampled_images),
+      Vk.DescriptorSetLayoutBinding(BINDING_STORAGE_IMAGE, Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, Vk.SHADER_STAGE_ALL; descriptor_count = config.storage_images),
+      Vk.DescriptorSetLayoutBinding(BINDING_SAMPLER, Vk.DESCRIPTOR_TYPE_SAMPLER, Vk.SHADER_STAGE_ALL; descriptor_count = config.samplers),
+      Vk.DescriptorSetLayoutBinding(BINDING_COMBINED_IMAGE_SAMPLER, Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, Vk.SHADER_STAGE_ALL; descriptor_count = config.textures),
     ], next = Vk.DescriptorSetLayoutBindingFlagsCreateInfo(repeat([Vk.DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT], 4)))
 
   set = DescriptorSet(first(unwrap(Vk.allocate_descriptor_sets(device, Vk.DescriptorSetAllocateInfo(pool, [layout])))), layout)

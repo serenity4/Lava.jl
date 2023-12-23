@@ -261,7 +261,7 @@ function resource_dependencies(reads::AbstractVector, writes::AbstractVector)
       WRITE ∉ read_deps[2] || error("Resource $expr specified multiple times in write access.")
       type |= read_deps[1]
       access |= read_deps[2]
-      samples = something(samples, read_deps[4])
+      samples = something(samples, read_deps[4], Some(nothing))
     end
     set!(dependencies, expr, (type, access, clear_value, samples))
   end
