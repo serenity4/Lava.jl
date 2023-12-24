@@ -134,9 +134,11 @@ function Base.collect(::Type{T}, image::Image, device::Device) where {T}
   if image.is_linear && Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in image.memory[].property_flags
     # Get the data from the host-visible memory directly.
     isbitstype(T) || error("Image type is not an `isbits` type.")
-    bytes = collect(image.memory[], prod(image.dims) * sizeof(T), device)
-    data = deserialize(Matrix{T}, bytes, NoPadding(), image.dims)
-    reshape(data, Tuple(image.dims))
+    # XXX: Query for image subresource layout first instead of assuming a specific memory layout.
+    # Can be done via vkGetImageSubresourceLayout2KHR or vkGetImageSubresourceLayout.
+    layout = NoPadding()
+    bytes = collect(image.memory[], stride(layout, Matrix{T}) * prod(image.dims), device)
+    deserialize(Matrix{T}, bytes, layout, image.dims)
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
@@ -316,8 +318,4 @@ function Base.copyto!(memory::Memory, data::Vector{UInt8})
   map(ptr -> ptrcopy!(ptr, data), memory)
   nothing
 end
-
-function Base.copyto!(memory::Memory, data, layout::LayoutStrategy)
-  map(ptr -> ptrcopy!(ptr, serialize(data, layout)), memory)
-  nothing
-end
+Base.copyto!(memory::Memory, data, layout::LayoutStrategy) = copyto!(memory, serialize(data, layout))

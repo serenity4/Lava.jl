@@ -129,15 +129,15 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       b3 = Buffer(device; data = collect(1:1000), usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)
 
-      data = rand(RGBA{Float16}, 100, 100)
+      data = rand(RGBA{Float16}, 200, 100)
       usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
       img1 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage_flags)
       @test collect(img1, device) == data
-      img2 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, usage_flags)
+      img2 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage_flags)
       @test collect(img2, device) == data
-      img3 = Image(device; data, optimal_tiling = false, usage_flags)
+      img3 = Image(device; data, memory_domain = MEMORY_DOMAIN_DEVICE, optimal_tiling = false, usage_flags)
       @test collect(img3, device) == data
-      img4 = Image(device; data, usage_flags)
+      img4 = Image(device; data, memory_domain = MEMORY_DOMAIN_DEVICE, optimal_tiling = true, usage_flags)
       @test collect(img4, device) == data
     end
   end
