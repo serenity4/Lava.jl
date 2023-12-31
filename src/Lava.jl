@@ -3,6 +3,7 @@ module Lava
 using Core: MethodInstance
 using BitMasks
 using Vulkan: Vk, VkCore, format_type
+using StyledStrings
 
 using ForwardMethods
 using CompileTraces

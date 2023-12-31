@@ -139,6 +139,16 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       @test collect(img3, device) == data
       img4 = Image(device; data, memory_domain = MEMORY_DOMAIN_DEVICE, optimal_tiling = true, usage_flags)
       @test collect(img4, device) == data
+
+      data = [rand(RGBA{Float16}, 256, 256) for _ in 1:6]
+      flags = Vk.IMAGE_CREATE_CUBE_COMPATIBLE_BIT
+      # Include the sampled bit to avoid validation layers complaining for image views.
+      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
+      cubemap = Image(device; data, array_layers = 6, usage_flags, flags)
+      for i in 1:6
+        face = ImageView(cubemap; layer_range = i:i)
+        @test collect(face, device) == data[i]
+      end
     end
   end
 
