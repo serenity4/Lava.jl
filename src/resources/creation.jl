@@ -384,4 +384,7 @@ function Base.copyto!(memory::Memory, data::Vector{UInt8})
   map(ptr -> ptrcopy!(ptr, data), memory)
   nothing
 end
-Base.copyto!(memory::Memory, data, layout::LayoutStrategy) = copyto!(memory, serialize(data, layout))
+function Base.copyto!(memory::Memory, data, layout::LayoutStrategy)
+  bytes = serialize(data, layout)
+  copyto!(memory, bytes)
+end

@@ -206,10 +206,11 @@ function buffer_resource(device::Device, data; name = nothing, memory_domain::Me
   Resource(buffer, name)
 end
 
-image_resource(format::Union{Vk.Format, DataType}, dims; name = nothing, mip_levels = 1, layers = 1) = Resource(LogicalImage(format, dims; mip_levels, layers), name)
+image_resource(format::Union{Vk.Format, DataType}, dims; name = nothing, mip_levels = 1, array_layers = 1) = Resource(LogicalImage(format, dims; mip_levels, array_layers), name)
 
 function image_resource(device::Device, data;
   name = nothing,
+  flags = nothing,
   format = nothing,
   memory_domain = MEMORY_DOMAIN_DEVICE,
   optimal_tiling = true,
@@ -223,7 +224,7 @@ function image_resource(device::Device, data;
   layout::Optional{Vk.ImageLayout} = nothing,
   submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)))
 
-  image = Image(device; data, format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, layout, submission)
+  image = Image(device; data, flags, format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, layout, submission)
   Resource(image, name)
 end
 

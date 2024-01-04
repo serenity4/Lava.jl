@@ -24,6 +24,11 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
     haskey(uses, descriptor.node_id::NodeID) || continue
     type = descriptor_type(descriptor)
     dtype = Vk.DescriptorType(type)
+
+    # XXX: For image descriptors that require a view, we currently build a default one
+    # with `ImageView(image)`, but for more control we might want to allow users to pass
+    # in a view.
+
     @switch type begin
       @case &DESCRIPTOR_TYPE_SAMPLED_IMAGE
       resource = descriptor.data::Resource

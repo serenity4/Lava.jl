@@ -12,9 +12,9 @@ struct LogicalImage <: LogicalResource
   samples::Optional{Int64}
 end
 
-function LogicalImage(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, layers = 1, samples = nothing)
+function LogicalImage(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, array_layers = 1, samples = nothing)
   isa(format, DataType) && (format = Vk.Format(format))
-  LogicalImage(format, dims, mip_levels, layers, samples)
+  LogicalImage(format, dims, mip_levels, array_layers, samples)
 end
 
 struct LogicalAttachment <: LogicalResource
