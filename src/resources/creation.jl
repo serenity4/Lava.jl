@@ -346,6 +346,8 @@ function Attachment(
   submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
 )
 
+  dims, format = infer_dims_and_format(data, dims, format, array_layers)
+  !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
   img = Image(device; format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, flags = image_flags)
   aspect = img.format == Vk.FORMAT_UNDEFINED ? Vk.IMAGE_ASPECT_COLOR_BIT : aspect_flags(img.format)
   mip_range = @something(mip_range, mip_range_all(img))
