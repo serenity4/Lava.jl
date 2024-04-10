@@ -63,10 +63,10 @@ end
 
 @testset "Texture drawing" begin
   vdata = [
-    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
-    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
-    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
-    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
+    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 0.0)),
+    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 1.0)),
+    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 0.0)),
+    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 1.0)),
   ]
   draw = draw_texture(device, vdata, color)
   data = render_graphics(device, draw)

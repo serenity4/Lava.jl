@@ -82,7 +82,7 @@ function pipeline_info_graphics(
   (; width, height) = render_area.rect.extent
   viewport_state =
     Vk.PipelineViewportStateCreateInfo(
-      viewports = [Vk.Viewport(x, height - y, float(width), -float(height), 0, 1)],
+      viewports = [Vk.Viewport(x, y, float(width), float(height), 0, 1)],
       scissors = [render_area.rect],
     )
 

@@ -94,10 +94,10 @@ end
 
 @testset "Blur" begin
   vdata = [
-    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
-    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
-    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
-    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
+    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 0.0)),
+    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 1.0)),
+    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 0.0)),
+    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 1.0)),
   ]
 
   blur = GaussianBlur(0.01)
