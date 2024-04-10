@@ -52,7 +52,6 @@ Base.inv((; translation, rotation, scaling)::Transform) = Transform(-translation
 
 """
 The image plane is taken to be z = 0.
-The optical center is placed a z = focal_length.
 
 Projection through the camera yields a z-component which describes how far
 or near the camera the point was. The resulting value is between 0 and 1,
@@ -60,17 +59,15 @@ where 0 corresponds to a point on the near clipping plane, and 1 to one on
 the far clipping plane.
 """
 Base.@kwdef struct PinholeCamera
-  focal_length::Float32 = 0.35
   near_clipping_plane::Float32 = 0
   far_clipping_plane::Float32 = 10
   transform::Transform = Transform()
 end
 
-function project(p::Vec3, camera::PinholeCamera)
+function orthogonal_projection(p::Vec3, camera::PinholeCamera)
   p = apply_transform(p, inv(camera.transform))
-  f = camera.focal_length
   z = remap(p.z, camera.near_clipping_plane, camera.far_clipping_plane, 0F, 1F)
-  Vec3(p.x/f, p.y/f, z)
+  Vec3(p.x, p.y, z)
 end
 
 @testset "Transforms" begin
@@ -102,16 +99,16 @@ end
   end
 
   @testset "Camera" begin
-    f = 0.35
-    camera = PinholeCamera(f, 0, 10, Transform())
+    camera = PinholeCamera(0, 10, Transform())
     p = Vec3(0.4, 0.5, 1.7)
-    p′ = project(p, camera)
+    p′ = orthogonal_projection(p, camera)
+    @test p′.xy == Vec2(0.4, 0.5)
     @test camera.near_clipping_plane < p′.z < camera.far_clipping_plane
     p.z = camera.near_clipping_plane
-    @test project(p, camera).z == 0
+    @test orthogonal_projection(p, camera).z == 0
     p.z = camera.far_clipping_plane
-    @test project(p, camera).z == 1
+    @test orthogonal_projection(p, camera).z == 1
 
-    @test unwrap(validate(@compile project(::Vec3, ::PinholeCamera)))
+    @test unwrap(validate(@compile orthogonal_projection(::Vec3, ::PinholeCamera)))
   end
 end;

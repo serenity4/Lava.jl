@@ -68,7 +68,7 @@ function text_vert(position, glyph_coordinates, frag_quad_index, index, data_add
   frag_quad_index.x = quad_index
   origin = @load data.glyph_origins[quad_index]::Vec2
   glyph_coordinates[] = xy - origin
-  position.xyz = project(Vec3(xy..., 1F), data.camera)
+  position.xyz = orthogonal_projection(Vec3(xy..., 1F), data.camera)
   position.w = 1F
 end
 
@@ -116,7 +116,7 @@ end
 @testset "Text rendering" begin
   font = OpenTypeFont(font_file("juliamono-regular.ttf"));
   options = FontOptions(ShapingOptions(tag"latn", tag"fra "), 1/37)
-  camera = PinholeCamera(focal_length = 0.35F, transform = Transform(translation = (0.3, 0, 0), scaling = (1, 1, 1)))
+  camera = PinholeCamera(transform = Transform(translation = (0.3, 0, 0), scaling = (1, 1, 1), rotation = Rotation(RotationPlane((1, 0, 0), (0, 1, 0)), 180°)))
   start = Vec2(0.1, 0.1)
 
   text = Text("The brown fox jumps over the lazy dog.", TextOptions())
@@ -125,7 +125,7 @@ end
   quads = glyph_quads(line, segment, start)
   @test length(quads.glyph_indices) == count(!isspace, text.chars)
   @test length(quads.glyph_ranges) == count(x -> !isnothing(font[x]), unique(line.glyphs))
-  any(<(0), project(Vec3(start..., 1), camera))
+  any(<(0), orthogonal_projection(Vec3(start..., 1), camera))
   draw = draw_text(device, line, segment, start, camera)
   data = render_graphics(device, draw)
   save_test_render("text.png", data, 0xe158233b14b89ab6)
