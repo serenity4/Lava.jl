@@ -77,7 +77,8 @@ function new_descriptor!(arr::DescriptorArray, id::DescriptorID)
 end
 
 function delete_descriptor!(arr::DescriptorArray, id::DescriptorID)
-  index = arr.indices[id]
+  index = get(arr.indices, id, nothing)
+  isnothing(index) && return
   delete!(arr.indices, id)
   delete!(arr.descriptors, index)
   push!(arr.holes, index)

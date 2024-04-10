@@ -20,11 +20,12 @@
     @test index == 2
     delete_descriptor!(arr, id)
     @test 1 in arr.holes
+    delete_descriptor!(arr, id)
+    @test 1 in arr.holes
     id3 = DescriptorID(DESCRIPTOR_TYPE_TEXTURE)
     index = new_descriptor!(arr, id3)
     @test index == 1
     @test length(arr.holes) == 0
-    @test_throws Dictionaries.IndexError delete_descriptor!(arr, id)
     delete_descriptor!(arr, id2)
     delete_descriptor!(arr, id3)
     @test isempty(arr.descriptors)
