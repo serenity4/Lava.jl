@@ -3,7 +3,7 @@ struct GaussianBlur
 end
 
 function gaussian_1d(t, σ)
-  exp(-t^2 / 2σ^2) / sqrt(2 * (π)F * σ^2)
+  exp(-t^2 / 2σ^2) / sqrt(2 * πF * σ^2)
 end
 gaussian_2d((x, y), σ) = gaussian_1d(x, σ) * gaussian_1d(y, σ)
 

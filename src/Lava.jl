@@ -126,7 +126,7 @@ export
   SizeUnit, SIZE_ABSOLUTE, SIZE_SWAPCHAIN_RELATIVE, SIZE_VIEWPORT_RELATIVE, dimensions,
 
   # program
-  Program, ProgramInvocationState, ProgramInvocationData, DataBlock, @invocation_data,
+  Program, ProgramInvocationState, ProgramInvocationData, DataBlock, InvocationDataContext, @invocation_data,
 
   # shaders
   ShaderSource, @shader,

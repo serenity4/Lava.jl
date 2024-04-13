@@ -78,26 +78,31 @@ CounterDict{T}() where {T} = CounterDict(Dict{T,Int}(), 0)
 reserve!(cd::CounterDict, key) = get!(() -> (cd.counter += 1), cd.d, key)
 
 "Context in which to create identifiers for data blocks and buffers, and indices for descriptors."
-struct InvocationDataContext
+struct InvocationDataContext{L<:LayoutStrategy}
+  layout::L
   blocks::CounterDict{DataBlock}
   descriptors::CounterDict{Descriptor}
   buffers::CounterDict{ResourceID}
 end
 
-InvocationDataContext() = InvocationDataContext(CounterDict{DataBlock}(), CounterDict{Descriptor}(), CounterDict{ResourceID}())
+InvocationDataContext(layout::LayoutStrategy) = InvocationDataContext(layout, CounterDict{DataBlock}(), CounterDict{Descriptor}(), CounterDict{ResourceID}())
 
-function DataBlock(data, ctx::InvocationDataContext, layout::LayoutStrategy)
-  blk = DataBlock(data, layout)
+function DataBlock(data, ctx::InvocationDataContext)
+  blk = DataBlock(data, ctx.layout)
   reserve!(ctx.blocks, blk)
   blk
 end
+
 function DeviceAddress(buffer::Resource, ctx::InvocationDataContext)
   islogical(buffer) && isbuffer(buffer) || error("Expected a logical buffer as resource in argument, got ", buffer)
   buffer_index = reserve!(ctx.buffers, buffer.id)
   generated_logical_buffer_address(buffer_index)
 end
 DeviceAddress(block::DataBlock, ctx::InvocationDataContext) = generated_block_address(ctx.blocks.d[block])
+
 DescriptorIndex(desc::Descriptor, ctx::InvocationDataContext) = DescriptorIndex(reserve!(ctx.descriptors, desc))
+DescriptorIndex(sampler::Sampling, ctx::InvocationDataContext, node = nothing) = DescriptorIndex(sampler_descriptor(sampler, node), ctx)
+DescriptorIndex(tex::Texture, ctx::InvocationDataContext, node = nothing) = DescriptorIndex(texture_descriptor(tex, node), ctx)
 
 """
 Data attached to program invocations as a push constant.
@@ -185,7 +190,11 @@ which respects the layout requirements of these programs.
 Within the expression provided to `@invocation_data`, a special variable `__context__` is made available,
 which holds an [`InvocationDataContext`](@ref) which can be used to create descriptor
 indices ([`DescriptorIndex`](@ref)), buffer addresses ([`DeviceAddress`](@ref)) and data blocks
-([`DataBlock`](@ref) using their respective constructors.
+([`DataBlock`](@ref)) using their respective constructors:
+- `DescriptorIndex(descriptor, __context__)` will return a temporary `DescriptorIndex` that will be substituted right before rendering by the (not yet allocated) index of `descriptor`;
+- `DeviceAddress(buffer, __context__)` will return an address that will be substituted by that of a physical buffer right before rendering, when this logical buffer will have been materialized;
+- `DeviceAddress(data_block, __context__)` will return an address that will be substituted by that of a physical buffer referencing that data block;
+- `DataBlock(data, __context__, layout)` will create a new data block out of `data`, usable outside the lexical scope of the macro, which will be appropriately integrated into the parent data block.
 
 All descriptors passed on to `@descriptor` will be preserved as part of the program invocation data.
 Multiple references to the same descriptor will reuse the same index.
@@ -199,6 +208,8 @@ obtained using with three special macros allowed inside the provided expression:
 The last value of the block must be a [`DataBlock`](@ref), e.g. obtained with `@block`, and will be set as
 the root block for the program invocation data.
 """
+macro invocation_data end
+
 macro invocation_data(layout_or_progs, ex)
   layout_ex = quote
     x = $(esc(layout_or_progs))
@@ -217,7 +228,7 @@ function generate_invocation_data(layout_ex, ex)
   transformed = postwalk(ex) do subex
     if Meta.isexpr(subex, :macrocall)
       ex = @trymatch string(subex.args[1]) begin
-        "@block" => :($DataBlock($(subex.args[3]), __context__, $layout))
+        "@block" => :($DataBlock($(subex.args[3]), __context__))
         "@address" => :($DeviceAddress($(subex.args[3]), __context__))
         "@descriptor" => :($DescriptorIndex($(subex.args[3]), __context__))
       end
@@ -226,8 +237,8 @@ function generate_invocation_data(layout_ex, ex)
     subex
   end
   quote
-    $(esc(:__context__)) = InvocationDataContext()
     $(esc(layout)) = $layout_ex
+    $(esc(:__context__)) = InvocationDataContext($(esc(layout)))
     ans = $(esc(transformed))
     isa(ans, DataBlock) || error("A data block must be provided as the last instruction to @invocation_data. Such a block can be obtained with @block.")
     ProgramInvocationData(ans, $(esc(:__context__)), $(esc(layout)))

@@ -82,7 +82,7 @@ end
   @testset "Rotation" begin
     rot = Rotation()
     @test iszero(rot)
-    rot = Rotation(Plane((1, 0, 0), (0, 1, 0)), (π)F/4)
+    rot = Rotation(Plane((1, 0, 0), (0, 1, 0)), πF/4)
     p = Vec3(0.2, 0.2, 1.0)
     p′ = apply_rotation(p, rot)
     @test p′.z == p.z
