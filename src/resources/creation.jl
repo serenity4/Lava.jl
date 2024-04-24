@@ -205,37 +205,42 @@ function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{I
   get_image(view_or_image).layout[] = new_layout
 end
 
-function Base.collect(::Type{T}, image::Image, device::Device) where {T}
+function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, layer = 1) where {T}
   isbitstype(T) || error("The image element type is not an `isbits` type")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
   if image.is_linear && Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in image.memory[].property_flags
     # Get the data from the host-visible memory directly.
-    # XXX: Query for image subresource layout first instead of assuming a specific memory layout.
-    # Can be done via vkGetImageSubresourceLayout2KHR or vkGetImageSubresourceLayout.
+    # Since we don't rely on driver transfers to rearrange the data nicely, we have to query and follow the driver-dependent layout.
+    (; offset, size, row_pitch) = subresource_layout(device, image; mip_level, layer)
+    memory = @view(image.memory[][offset:(size + offset)])
+    bytes = collect(memory, size, device)
     layout = NoPadding()
-    bytes = collect(image.memory[], stride(layout, Matrix{T}) * prod(image.dims), device)
-    deserialize(Matrix{T}, bytes, layout, image.dims)
+    column_size = stride(layout, Matrix{T}) * image.dims[1]
+    column_padding = Int64(row_pitch) - column_size
+    @assert column_padding ≥ 0
+    deserialize(Matrix{T}, bytes, layout, image.dims, column_padding)
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-    dst = Image(device, image.dims, image.format, usage_flags; is_linear = true)
+    dst = Image(device, image.dims, image.format, usage_flags; is_linear = true, image.mip_levels, array_layers = image.layers)
     allocate!(dst, MEMORY_DOMAIN_HOST)
     transfer(device, image, dst; submission = sync_submission(device))
     collect(T, dst, device)
   end
 end
-Base.collect(image::Image, device::Device) = collect(format_type(image.format), image, device)
+Base.collect(image::Image, device::Device; mip_level = 1, layer = 1) = collect(format_type(image.format), image, device; mip_level, layer)
 
 function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
-  isbitstype(T) || error("The image element type is not an `isbits` type.")
   length(view.mip_range) == 1 || error("Only one mip level may be collected")
   length(view.layer_range) == 1 || error("Only one image layer may be collected")
   (; image) = view
+  # Collect from the underlying image directly if the view is trivial.
+  # Otherwise, we'll let the GPU apply component mappings and handle layer transfers through a view-to-buffer transfer.
+  view.component_mapping == COMPONENT_MAPPING_IDENTITY && image.layers == 1:1 && return collect(T, image, device; mip_level = view.mip_range[1], layer = view.layer_range[1])
+  isbitstype(T) || error("The image element type is not an `isbits` type.")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
   if image.is_linear
     # Transfer the relevant image region into a buffer.
-    # XXX: Query for image subresource layout first instead of assuming a specific memory layout.
-    # Can be done via vkGetImageSubresourceLayout2KHR or vkGetImageSubresourceLayout.
     layout = NoPadding()
     buffer_size = stride(layout, Matrix{T}) * prod(image.dims)
     buffer = Buffer(device; size = buffer_size, memory_domain = MEMORY_DOMAIN_HOST_CACHED, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
@@ -342,7 +347,7 @@ function Attachment(
   mip_range = nothing,
   layer_range = nothing,
   image_flags = nothing,
-  component_mapping = Vk.ComponentMapping(Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY),
+  component_mapping = COMPONENT_MAPPING_IDENTITY,
   submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
 )
 

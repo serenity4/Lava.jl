@@ -176,15 +176,12 @@ function image_view_type(dims, layer_range)
   end
 end
 
+const COMPONENT_MAPPING_IDENTITY = Vk.ComponentMapping(Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY, Vk.COMPONENT_SWIZZLE_IDENTITY)
+
 function ImageView(
   image::Image;
   format = image.format,
-  component_mapping = Vk.ComponentMapping(
-    Vk.COMPONENT_SWIZZLE_IDENTITY,
-    Vk.COMPONENT_SWIZZLE_IDENTITY,
-    Vk.COMPONENT_SWIZZLE_IDENTITY,
-    Vk.COMPONENT_SWIZZLE_IDENTITY,
-  ),
+  component_mapping = COMPONENT_MAPPING_IDENTITY,
   aspect = aspect_flags(format),
   mip_range = mip_range_all(image),
   layer_range = layer_range_all(image),
@@ -213,6 +210,17 @@ subresource_layers(aspect::Vk.ImageAspectFlag, mip_range::Integer, layer_range::
   Vk.ImageSubresourceLayers(aspect, mip_range, layer_range.start - 1, 1 + layer_range.stop - layer_range.start)
 subresource_layers(view::ImageView; mip_level = first(view.mip_range), layers = view.layer_range) = subresource_layers(aspect_flags(view), mip_level - 1, layers)
 subresource_layers(image::Image; mip_level = 1, layers = layer_range_all(image)) = subresource_layers(aspect_flags(image), mip_level - 1, layers)
+
+subresource(aspect::Vk.ImageAspectFlag, mip_level, layer) = Vk.ImageSubresource(aspect, mip_level - 1, layer - 1)
+subresource(image::Image) = subresource(aspect_flags(image), first(mip_range_all(image)), first(layer_range_all(image)))
+subresource(view::ImageView) = subresource(aspect_flags(image), first(view.mip_range), first(view.layer_range))
+
+function subresource_layout(device, image::Image; aspect = aspect_flags(image), mip_level = first(mip_range_all(image)), layer = first(layer_range_all(image)))
+  Vk.get_image_subresource_layout(device, image, subresource(aspect, mip_level, layer))
+end
+function subresource_layout(device, view::ImageView; aspect = view.aspect, mip_level = view.mip_range[1], layer = view.layer_range[1])
+  subresource_layout(device, view.image; aspect, mip_level, layer)
+end
 
 aspect_flags(image::Image) = aspect_flags(image.format)
 function aspect_flags(format::Vk.Format)
