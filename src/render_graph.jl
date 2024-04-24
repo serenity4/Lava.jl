@@ -537,6 +537,9 @@ function descriptors_for_cycle(rg::RenderGraph)
       impl = command.impl::Union{GraphicsCommand, ComputeCommand}
       if !isnothing(impl.data)
         for descriptor in impl.data.descriptors
+          # We retrieve the descriptor from the device,
+          # because that is the one that has been patched
+          # with the correct node ID, unlike `impl.data.descriptors`.
           push!(descriptors, rg.device.descriptors.descriptors[descriptor.id])
         end
       end
