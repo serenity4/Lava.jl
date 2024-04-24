@@ -6,10 +6,10 @@
   image = read_normal_map(device)
   prog = texture_program(device)
   vdata = [
-    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 0.0)),
-    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 1.0)),
-    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 0.0)),
-    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 1.0)),
+    TextureCoordinates(Vec2(-0.5, -0.5), Vec2(0.0, 0.0)),
+    TextureCoordinates(Vec2(-0.5, 0.5), Vec2(0.0, 1.0)),
+    TextureCoordinates(Vec2(0.5, -0.5), Vec2(1.0, 0.0)),
+    TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 1.0)),
   ]
 
   function draw(swapchain_image, t)
