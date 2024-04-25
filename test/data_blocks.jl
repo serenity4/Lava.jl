@@ -16,6 +16,7 @@ layout = VulkanLayout([
   Tuple{DeviceAddress, DescriptorIndex},
   Tuple{Tuple{DeviceAddress, DeviceAddress}, Int64},
   Tuple{Int64, UInt32},
+  Tuple{Int64, DeviceAddress},
 ])
 
 function data_blocks()
@@ -26,12 +27,6 @@ function data_blocks()
 end
 
 function data_blocks_2()
-  b1 = DataBlock([(1, 2), (2, 3)], layout)
-  b2 = DataBlock([(generated_block_address(1), DescriptorIndex(1))], layout)
-  [b1, b2]
-end
-
-function data_blocks_3()
   b1 = DataBlock([
     (Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
     (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
@@ -43,7 +38,7 @@ function data_blocks_3()
   [b1, b2, b3]
 end
 
-function data_blocks_4()
+function data_blocks_3()
   b1 = DataBlock([
     (Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
     (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
@@ -59,11 +54,13 @@ end
   b1, b2, b3 = data_blocks()
   @test isempty(b1.descriptor_ids)
   @test isempty(b1.device_addresses)
-  @test b2.descriptor_ids == [1 + 4 + 4]
+  @test b2.descriptor_ids == [9]
   @test isempty(b2.device_addresses)
   b3 = DataBlock((generated_block_address(1), generated_block_address(2), 3), layout)
   @test isempty(b3.descriptor_ids)
-  @test b3.device_addresses == [1, 8 + 1]
+  @test b3.device_addresses == [1, 9]
+  b4 = DataBlock([DescriptorIndex(1), DescriptorIndex(2)], layout)
+  @test b4.descriptor_ids == [1, 5]
 end
 
 # `tex` is put in global scope to test for the hygiene of `@invocation_data`.
@@ -94,13 +91,13 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   @test_throws "Bad pointer dependency order" patch_pointers!(last(data_blocks()), data, empty!(addresses), nothing)
   @test device_addresses(b3) == [5, 6]
 
-  b1, b2, b3 = data_blocks_3()
+  b1, b2, b3 = data_blocks_2()
   data = ProgramInvocationData([b1, b2, b3], descriptors, [], 3, layout)
   addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
   patch_pointers!(b3, data, addresses, nothing)
   @test device_addresses(b3) == [5, 6]
 
-  b1, b2, b3 = data_blocks_4()
+  b1, b2, b3 = data_blocks_3()
   data = ProgramInvocationData([b1, b2, b3], descriptors, [buffer.id], 3, layout)
   addresses = Dictionary([b1, b2], DeviceAddress[5, 6])
   patch_pointers!(b2, data, addresses, buffers)
@@ -182,4 +179,26 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   end
   address = device_address_block!(allocator, gdescs, buffers, NodeID(), data6)
   @test isa(address, DeviceAddressBlock)
+
+  # Support for descriptor indices/device addresses nested in arrays.
+  data7 = @invocation_data fake_program begin
+    b1 = @block [@descriptor(desc), @descriptor(desc)]
+    b2 = @block (2, @address b1)
+    b3 = @block (3, @address b2)
+    @block [@address(b2), @address(b3)]
+  end
+  @test data7.descriptors == [desc]
+  @test length(data7.blocks) == 4
+  b1, b2, b3, b4 = data7.blocks
+  @test b4.descriptor_ids == b3.descriptor_ids == b2.descriptor_ids == []
+  @test b4.device_addresses == [1, 9]
+  @test b3.device_addresses == b2.device_addresses == [9]
+  @test b1.device_addresses == []
+  @test b1.descriptor_ids == [1, 5]
+  empty!(gdescs)
+  address = device_address_block!(allocator, gdescs, buffers, NodeID(), data7)
+  @test isa(address, DeviceAddressBlock)
+  descs = collect(gdescs.descriptors)
+  @test length(descs) == 1
+  @test descs[1] == @set(desc.node_id = descs[1].node_id)
 end;

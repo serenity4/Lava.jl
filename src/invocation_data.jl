@@ -36,6 +36,8 @@ generated_logical_buffer_address(index) = DeviceAddress(index | (UInt64(0x03) <<
 Base.copy(block::DataBlock) = @set block.bytes = copy(block.bytes)
 
 function DataBlock(x, layout::LayoutStrategy)
+  (isa(x, DataBlock) || isa(x, Vector{DataBlock})) &&
+    error("A `DataBlock` cannot contain another `DataBlock` directly; use `@address(data_block)` to get a `DeviceAddress` pointing to that data block instead.")
   data = serialize(x, layout)
   block = DataBlock(typeof(x), data)
   annotate!(block, layout, x)
@@ -44,9 +46,12 @@ end
 
 function annotate!(block, layout, x::T, offset = 0) where {T}
   isprimitivetype(T) && return add_annotations!(block, x, offset)
-  if isstructtype(T)
-    # Don't recurse into `Array` fields.
-    T <: Array && return
+  if T <: Array
+    s = stride(layout, T)
+    for (i, el) in enumerate(x)
+      annotate!(block, layout, el, offset + (i - 1)s)
+    end
+  elseif isstructtype(T)
     for i in 1:fieldcount(T)
       field_offset = if isa(layout, VulkanLayout) || isa(layout, ShaderLayout)
         dataoffset(layout, spir_type(T, layout.tmap; fill_tmap = false), i)
