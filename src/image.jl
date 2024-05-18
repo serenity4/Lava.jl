@@ -27,7 +27,7 @@ image_layout(image::Image) = image.layout[]
 isallocated(image::Image) = isdefined(image.memory, 1)
 Base.eltype(image::Image) = format_type(image.format)
 
-is_multisampled(image::Image) = image.samples > 1
+is_multisampled(x) = samples(x) > 1
 
 mip_range_all(image::Image) = 1:image.mip_levels
 layer_range_all(image::Image) = 1:image.layers

@@ -401,8 +401,7 @@ function resolve_attachment_pairs(rg::RenderGraph)
         combined_uses = reduce(merge, resource_uses)
         if combined_uses.usage.samples > 1
           attachment = resource.data::LogicalAttachment
-          is_multisampled(attachment) || break
-          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect), resolve_attachment_name(resource))
+          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect, 1), resolve_attachment_name(resource))
         end
       end
     else
