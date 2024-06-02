@@ -1,4 +1,4 @@
-using Lava: Subresource, SubresourceMap, replace_for_range!, InvalidMipRange, InvalidLayerRange, query_subresource
+using Lava: Subresource, SubresourceMap, replace_for_range!, InvalidMipRange, InvalidLayerRange, match_subresource, query_subresource
 using Dictionaries, Test
 
 all_keys_disjoint(dict) = all(x -> all(y -> x == y || isdisjoint(x, y), keys(dict)), keys(dict))
@@ -106,9 +106,9 @@ end
   validate_map(smap)
   @test_throws InvalidLayerRange smap[Subresource(1:7, 1:4)]
   @test_throws InvalidMipRange smap[Subresource(2:3, 1:5)]
-  @test query_subresource(smap, sub5) == :f
-  @test query_subresource(smap, Subresource(2:3, 1:4)) == [1:2 => :d, 3:4 => :e]
-  @test query_subresource(smap, Subresource(3:3, 1:4)) == [1:2 => :d, 3:4 => :e]
-  @test query_subresource(smap, Subresource(1:3, 1:4)) == [1:1 => :b, 2:3 => [1:2 => :d, 3:4 => :e]]
-  @test query_subresource(smap, Subresource(1:6, 1:4)) == [1:1 => :b, 2:3 => [1:2 => :d, 3:4 => :e], 4:4 => :c, 5:6 => :f]
+  @test query_subresource(smap, sub5) == [(5:6, 1:4) => :f]
+  @test query_subresource(smap, Subresource(2:3, 1:4)) == [(2:3, 1:2) => :d, (2:3, 3:4) => :e]
+  @test query_subresource(smap, Subresource(3:3, 1:4)) == [(3:3, 1:2) => :d, (3:3, 3:4) => :e]
+  @test query_subresource(smap, Subresource(1:3, 1:4)) == [(1:1, 1:4) => :b, (2:3, 1:2) => :d, (2:3, 3:4) => :e]
+  @test query_subresource(smap, Subresource(1:6, 1:4)) == [(1:1, 1:4) => :b, (2:3, 1:2) => :d, (2:3, 3:4) => :e, (4:4, 1:4) => :c, (5:6, 1:4) => :f]
 end;

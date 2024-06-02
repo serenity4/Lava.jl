@@ -39,10 +39,7 @@ whereas uses of various disjoint subresources will take more time and storage to
 You can set and retrieve information using `setindex!` and `getindex`; however, the use of `getindex` requires an identical subresource
 as one used by `setindex!`, and that subresource must not have been affected by a later `setindex!` on an overlapping subresource.
 
-To retrieve information on any subresource, regardless of what was previously set, use `query_subresource(map)`; for point subresources
-(layer and mip level ranges simultaneously of unit length), a value of type `T` is returned; for all others, either a single value of type `T`
-is returned, or result of type `Dictionary{MipRange, T}` or of type `Dictionary{LayerRange, Dictionary{MipRange, T}}`
-if different values map to different parts of the same subresource.
+To retrieve information on any subresource, regardless of what was previously set, see [`query_subresource`](@ref) and [`match_subresource`](@ref).
 """
 mutable struct SubresourceMap{T}
   "The number of layers the image possesses."
@@ -101,72 +98,91 @@ function Base.getindex(map::SubresourceMap{T}, subresource::Subresource) where {
   end::T
 end
 
-function query_subresource(map::SubresourceMap{T}, subresource::Subresource) where {T}
+"""
+    match_subresource(f, map, subresource)
+
+Iterate through all subresource entries in `map` that are contained in `subresource`,
+and call `f(matched_layers, matched_mip_levels, value)` on each entry.
+"""
+function match_subresource(f::F, map::SubresourceMap{T}, subresource::Subresource) where {F,T}
   if !isnothing(map.value)
-    map.value::T
+    f(layers(map), mip_levels(map), map.value::T)
   elseif isused(map.value_per_aspect)
-    query_subresource(map.value_per_aspect[subresource.aspect], subresource)
+    match_subresource(f, map.value_per_aspect[subresource.aspect], subresource)
   elseif isused(map.value_per_layer)
     @boundscheck issubset(layers(subresource), layers(map)) || throw(InvalidLayerRange(layers(map), layers(subresource)))
     @boundscheck issubset(mip_levels(subresource), mip_levels(map)) || throw(InvalidMipRange(mip_levels(map), mip_levels(subresource)))
-    query_subresource_layers(map, subresource)#::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}, Vector{Pair{LayerRange, Vector{<:Pair{MipRange, <:T}}}}}
+    match_subresource_layers(f, map, subresource)#::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}, Vector{Pair{LayerRange, Vector{<:Pair{MipRange, <:T}}}}}
   elseif isused(map.value_per_mip_level)
     @boundscheck issubset(mip_levels(subresource), mip_levels(map)) || throw(InvalidMipRange(mip_levels(map), mip_levels(subresource)))
-    query_subresource_mip_levels(map, subresource)::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}}
+    match_subresource_mip_levels(f, map, subresource)::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}}
   else
     error("$map is in an invalid state; please file an issue")
   end
+  nothing
 end
 
-function query_subresource_layers(map::SubresourceMap{T}, subresource::Subresource) where {T}
-  T′ = Union{T, Vector{Pair{MipRange, T}}}
-  ret = get(map.value_per_layer, subresource.layers, nothing)
-  !isnothing(ret) && return query_subresource_mip_levels(map, ret, subresource)
-  for i in subresource.layers
+function match_subresource_layers(f::F, map::SubresourceMap, subresource::Subresource) where {F}
+  d = get(map.value_per_layer, layers(subresource), nothing)
+  !isnothing(d) && return match_subresource_mip_levels(f, d, subresource, layers(subresource))
+  prev_range = 1:1
+  prev_d = nothing
+  for i in layers(subresource)
     for (range, d) in pairs(map.value_per_layer)
       in(i, range) || continue
-      value = query_subresource_mip_levels(map, d, subresource)
-      isnothing(ret) ? (ret = i:i => value) : begin
-        if isa(ret, Pair{LayerRange, <:T′})
-          (prev_range, prev_value) = ret
-          prev_value == value ? (ret = prev_range[begin]:i => value) : (ret = Pair{LayerRange, T′}[ret, i:i => value])
-        elseif isa(ret, Vector{Pair{LayerRange, T′}})
-          (prev_range, prev_value) = ret[end]
-          prev_value == value ? (ret[end] = prev_range[begin]:i => value) : push!(ret, i:i => value)
-        end
+      same_d = prev_d == d
+      if !isnothing(prev_d) && same_d
+        prev_range = prev_range[begin]:i
+      else
+        !isnothing(prev_d) && !same_d && match_subresource_mip_levels(f, prev_d, subresource, prev_range)
+        prev_range = i:i
+        prev_d = d
       end
       break
     end
   end
-  isnothing(ret) && error_map_invalid_state(map)
-  isa(ret, Pair) && return ret.second::T′
-  ret#::Vector{Pair{LayerRange, T′}}
+  !isnothing(prev_d) && match_subresource_mip_levels(f, prev_d, subresource, prev_range)
+  nothing
 end
 
-query_subresource_mip_levels(map::SubresourceMap, subresource::Subresource) = query_subresource_mip_levels(map, map.value_per_mip_level, subresource)
+match_subresource_mip_levels(f::F, map::SubresourceMap, subresource::Subresource) where {F} = match_subresource_mip_levels(f, map.value_per_mip_level, subresource, layers(map))
 
-function query_subresource_mip_levels(map::SubresourceMap{T}, d, subresource::Subresource) where {T}
-  ret = get(d, subresource.mip_levels, nothing)
-  !isnothing(ret) && return ret
-  for i in subresource.mip_levels
+function match_subresource_mip_levels(f::F, d, subresource::Subresource, layers::LayerRange) where {F}
+  value = get(d, mip_levels(subresource), nothing)
+  !isnothing(value) && return f(layers, mip_levels(subresource), value)
+  prev_range = 1:1
+  prev_value = nothing
+  for i in mip_levels(subresource)
     for (range, value) in pairs(d)
       in(i, range) || continue
-      isnothing(ret) ? (ret = i:i => value) : begin
-        if isa(ret, Pair{MipRange, T})
-          (prev_range, prev_value) = ret
-          prev_value === value ? (ret = prev_range[begin]:i => value) : (ret = Pair{MipRange, T}[ret, i:i => value])
-        else # isa(ret, Vector{Pair{MipRange, T})})
-          (prev_range, prev_value) = ret[end]
-          prev_value === value ? (ret[end] = prev_range[begin]:i => value) : push!(ret, i:i => value)
-        end
+      if !isnothing(prev_value) && prev_value === value
+        prev_range = prev_range[begin]:i
+      else
+        !isnothing(prev_value) && prev_value !== value && f(layers, prev_range, prev_value)
+        prev_range = i:i
+        prev_value = value
       end
       break
     end
   end
-  isnothing(ret) && error_map_invalid_state(map)
-  isa(ret, Pair{MipRange, T}) && return ret.second
-  ret#::Vector{Pair{MipRange, T}}}
+  !isnothing(prev_value) && f(layers, prev_range, prev_value)
+  nothing
 end
+
+"""
+    query_subresource(map, subresource)
+
+Collect all subresource entries in `map` that are contained in `subresource`, returning
+a vector of `(matched_layers, matched_mip_levels) => value` pairs.
+"""
+function query_subresource(map::SubresourceMap{T}, subresource::Subresource) where {T}
+  ret = Pair{Tuple{LayerRange, MipRange}, T}[]
+  match_subresource(map, subresource) do matched_layers, matched_mip_levels, value
+    push!(ret, (matched_layers, matched_mip_levels) => value)
+  end
+  ret
+end
+
 
 function Base.setindex!(map::SubresourceMap{T}, value::T, subresource::Subresource) where {T}
   if !isnothing(map.last_aspect) && !isnothing(subresource.aspect) && map.last_aspect !== subresource.aspect
