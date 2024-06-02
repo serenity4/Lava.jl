@@ -23,6 +23,8 @@ include("utils.jl")
 instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR_xcb_surface"])
 
 @testset "Lava.jl" begin
+  include("subresources.jl")
+
   @testset "Buffers & Memory" begin
     b = Buffer(device, 100)
     @test_throws UndefRefError b.memory[]

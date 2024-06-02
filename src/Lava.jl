@@ -52,6 +52,7 @@ include("command_buffer.jl")
 include("init.jl")
 include("memory.jl")
 include("buffer.jl")
+include("subresource.jl")
 include("image.jl")
 include("allocators.jl")
 include("dimensions.jl")
@@ -135,7 +136,8 @@ export
   Shader,
 
   # resources
-  Resource, buffer_resource, image_resource, attachment_resource,
+  Resource, buffer_resource, image_resource, attachment_resource, assert_type,
+  RESOURCE_TYPE_BUFFER, RESOURCE_TYPE_IMAGE, RESOURCE_TYPE_ATTACHMENT,
 
   # descriptors
   Descriptor, DescriptorID,
