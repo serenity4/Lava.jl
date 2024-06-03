@@ -55,7 +55,8 @@ mutable struct SubresourceMap{T}
   value_per_mip_level::Optional{ValuePerMipLevel{T}}
 end
 
-SubresourceMap{T}(layers, mip_levels, default::Optional{T} = nothing) where {T} = SubresourceMap{T}(layers, mip_levels, default, nothing, nothing, nothing, nothing)
+SubresourceMap{T}(layers, mip_levels, default) where {T} = SubresourceMap{T}(layers, mip_levels, convert(T, default), nothing, nothing, nothing, nothing)
+SubresourceMap(layers, mip_levels, default) = SubresourceMap{typeof(default)}(layers, mip_levels, default)
 
 layers(map::SubresourceMap) = 1:map.layers
 mip_levels(map::SubresourceMap) = 1:map.mip_levels
@@ -80,18 +81,29 @@ isused(d) = !isnothing(d) && !isempty(d)
 
 error_map_invalid_state(map::SubresourceMap) = error("$map is in an invalid state; please file an issue")
 
+@inline function check_layers(map::SubresourceMap, subresource::Subresource)
+  @boundscheck issubset(layers(subresource), layers(map)) || throw(InvalidLayerRange(layers(map), layers(subresource)))
+end
+
+@inline function check_mip_levels(map::SubresourceMap, subresource::Subresource)
+  @boundscheck issubset(mip_levels(subresource), mip_levels(map)) || throw(InvalidMipRange(mip_levels(map), mip_levels(subresource)))
+end
+
+@inline function check_subresource(map::SubresourceMap, subresource::Subresource)
+  check_layers(map, subresource)
+  check_mip_levels(map, subresource)
+end
+
 function Base.getindex(map::SubresourceMap{T}, subresource::Subresource) where {T}
+  check_subresource(map, subresource)
   if !isnothing(map.value)
     map.value
   elseif isused(map.value_per_aspect)
     map.value_per_aspect[subresource.aspect][subresource]
   elseif isused(map.value_per_layer)
-    @boundscheck issubset(layers(subresource), layers(map)) || throw(InvalidLayerRange(layers(map), layers(subresource)))
     d = map.value_per_layer[layers(subresource)]
-    @boundscheck issubset(mip_levels(subresource), mip_levels(map)) || throw(InvalidMipRange(mip_levels(map), mip_levels(subresource)))
     d[mip_levels(subresource)]
   elseif isused(map.value_per_mip_level)
-    @boundscheck issubset(mip_levels(subresource), mip_levels(map)) || throw(InvalidMipRange(mip_levels(map), mip_levels(subresource)))
     map.value_per_mip_level[mip_levels(subresource)]
   else
     error_map_invalid_state(map)
@@ -105,16 +117,14 @@ Iterate through all subresource entries in `map` that are contained in `subresou
 and call `f(matched_layers, matched_mip_levels, value)` on each entry.
 """
 function match_subresource(f::F, map::SubresourceMap{T}, subresource::Subresource) where {F,T}
+  check_subresource(map, subresource)
   if !isnothing(map.value)
     f(layers(map), mip_levels(map), map.value::T)
   elseif isused(map.value_per_aspect)
     match_subresource(f, map.value_per_aspect[subresource.aspect], subresource)
   elseif isused(map.value_per_layer)
-    @boundscheck issubset(layers(subresource), layers(map)) || throw(InvalidLayerRange(layers(map), layers(subresource)))
-    @boundscheck issubset(mip_levels(subresource), mip_levels(map)) || throw(InvalidMipRange(mip_levels(map), mip_levels(subresource)))
     match_subresource_layers(f, map, subresource)#::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}, Vector{Pair{LayerRange, Vector{<:Pair{MipRange, <:T}}}}}
   elseif isused(map.value_per_mip_level)
-    @boundscheck issubset(mip_levels(subresource), mip_levels(map)) || throw(InvalidMipRange(mip_levels(map), mip_levels(subresource)))
     match_subresource_mip_levels(f, map, subresource)::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}}
   else
     error("$map is in an invalid state; please file an issue")
@@ -185,6 +195,7 @@ end
 
 
 function Base.setindex!(map::SubresourceMap{T}, value::T, subresource::Subresource) where {T}
+  check_subresource(map, subresource)
   if !isnothing(map.last_aspect) && !isnothing(subresource.aspect) && map.last_aspect !== subresource.aspect
     aspect_map = find_aspect_map!(map, subresource.aspect)
     aspect_map[subresource] = value
