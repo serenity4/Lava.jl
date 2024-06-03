@@ -129,10 +129,10 @@ end
 
   # Limit matched ranges to only what is contained within the requested subresource.
   map = SubresourceMap(6, 4, :a)
-  match_subresource(map, Subresource(5:5, 2:3)) do matched_layers, matched_mip_levels, value
+  match_subresource(map, Subresource(5:5, 2:3)) do matched_layer_range, matched_mip_range, value
     @test value == :a
-    @test matched_layers == 5:5
-    @test matched_mip_levels == 2:3
+    @test matched_layer_range == 5:5
+    @test matched_mip_range == 2:3
   end
 
   smap = SubresourceMap(6, 4, :a)
@@ -166,11 +166,11 @@ end
       value = Symbol(:value_, i)
       smap[subresource] = value
       @test smap[subresource] == value
-      match_subresource(smap, subresource) do matched_layers, matched_mip_levels, matched_value
+      match_subresource(smap, subresource) do matched_layer_range, matched_mip_range, matched_value
         @test matched_value == value
       end
       matched = query_subresource(smap, subresource)
-      @test matched == [(subresource.layers, subresource.mip_levels) => value]
+      @test matched == [(subresource.layer_range, subresource.mip_range) => value]
       other = subresources[mod1(7i, length(subresources))]
       matched = query_subresource(smap, other)
       @test !isempty(matched)

@@ -59,9 +59,9 @@ Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = deserialize(
 # # Images
 
 function ensure_layout(command_buffer::CommandBuffer, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
-  match_subresource(view_or_image) do matched_layers, matched_mip_levels, matched_layout
+  match_subresource(view_or_image) do matched_layer_range, matched_mip_range, matched_layout
     matched_layout == layout && return
-    subresource = Subresource(aspect_flags(view_or_image), matched_layers, matched_mip_levels)
+    subresource = Subresource(aspect_flags(view_or_image), matched_layer_range, matched_mip_range)
     transition_layout(command_buffer, view_or_image, subresource, matched_layout, layout)
   end
 end
@@ -155,7 +155,7 @@ function transfer(
   submit!(submission, command_buffer)
 end
 
-buffer_regions_for_transfer(buffer, view_or_image) = nlayers(view_or_image) == 1 ? [whole_buffer_to_whole_image(buffer, view_or_image)] : buffer_regions_to_image_layers(buffer, view_or_image)
+buffer_regions_for_transfer(buffer, view_or_image) = layer_range(view_or_image) == 1:1 ? [whole_buffer_to_whole_image(buffer, view_or_image)] : buffer_regions_to_image_layers(buffer, view_or_image)
 
 function whole_buffer_to_whole_image(buffer::Buffer, view_or_image::Union{Image,ImageView})
   image = get_image(view_or_image)
@@ -164,7 +164,6 @@ end
 
 function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Image,ImageView})
   image = get_image(view_or_image)
-  n = nlayers(image)
   regions = Vk.BufferImageCopy[]
   buffer_offset = buffer.offset
   image_offset = Vk.Offset3D(image)
@@ -180,10 +179,10 @@ function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Ima
     _ => error("Buffer layouts other than `NoPadding` or `NativeLayout` are not supported for copying to multiple image layers, got layout of type $(typeof(layout))")
   end
   @assert layer_offset ≥ layer_size "The computed layer offset should be bigger than the computed layer size, otherwise contents will alias each other from one layer to the next"
-  for i in 1:n
+  for i in layer_range(image)
     buffer_offset + layer_size ≤ buffer.size || error("Buffer overflow detected while copying buffer data to multiple image layers")
     subresource = Subresource(view_or_image)
-    region = Vk.BufferImageCopy(buffer_offset, width, height, (@set subresource.layers = i:i), image_offset, extent)
+    region = Vk.BufferImageCopy(buffer_offset, width, height, (@set subresource.layer_range = i:i), image_offset, extent)
     push!(regions, region)
     buffer_offset += layer_offset
   end
@@ -224,7 +223,7 @@ function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, la
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-    dst = Image(device, image.dims, T, usage_flags; is_linear = true, mip_levels = 1, array_layers = 1, flags = Vk.ImageCreateFlag())
+    dst = Image(device, image.dims, T, usage_flags; is_linear = true, layers = 1, mip_levels = 1, flags = Vk.ImageCreateFlag())
     allocate!(dst, MEMORY_DOMAIN_HOST)
     ensure_layout(device, image, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
     if image.mip_levels == 1 && image.layers == 1
@@ -240,12 +239,12 @@ end
 Base.collect(image::Image, device::Device; mip_level = 1, layer = 1) = collect(format_type(image.format), image, device; mip_level, layer)
 
 function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
-  length(view.mip_range) == 1 || error("Only one mip level may be collected")
-  length(view.layer_range) == 1 || error("Only one image layer may be collected")
+  length(mip_range(view)) == 1 || error("Only one mip level may be collected")
+  length(layer_range(view)) == 1 || error("Only one image layer may be collected")
   (; image) = view
   # Collect from the underlying image directly if the view is trivial.
   # Otherwise, we'll let the GPU apply component mappings and handle layer transfers through a view-to-buffer transfer.
-  view.component_mapping == COMPONENT_MAPPING_IDENTITY && image.layers == 1:1 && return collect(T, image, device; mip_level = view.mip_range[1], layer = view.layer_range[1])
+  view.component_mapping == COMPONENT_MAPPING_IDENTITY && layer_range(image) == 1:1 && return collect(T, image, device; mip_level = 1, layer = 1)
   isbitstype(T) || error("The image element type is not an `isbits` type.")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
   if image.is_linear
@@ -259,7 +258,7 @@ function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = image.usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-    dst = similar(image; array_layers = 1, is_linear = true, usage_flags, flags = Vk.ImageCreateFlag())
+    dst = similar(image; layers = 1, is_linear = true, usage_flags, flags = Vk.ImageCreateFlag())
     transfer(device, view, dst; submission = sync_submission(device))
     collect(T, similar(view, dst; layer_range = 1:1), device)
   end
@@ -294,40 +293,40 @@ function Image(
   samples = 1,
   queue_family_indices = queue_family_indices(device),
   sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
+  layers = 1,
   mip_levels = 1,
-  array_layers = 1,
   flags = nothing,
   layout::Optional{Vk.ImageLayout} = nothing,
   submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
 )
 
-  check_data(data, array_layers)
-  dims, format = infer_dims_and_format(data, dims, format, array_layers)
-  flags = @something(flags, default_image_flags(array_layers, dims))
+  check_data(data, layers)
+  dims, format = infer_dims_and_format(data, dims, format, layers)
+  flags = @something(flags, default_image_flags(layers, dims))
   !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
   # If optimal tiling is enabled, we'll need to transfer the image regardless.
-  img = Image(device, dims, format, usage_flags; is_linear = !optimal_tiling, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, flags)
+  img = Image(device, dims, format, usage_flags; is_linear = !optimal_tiling, samples, queue_family_indices, sharing_mode, layers, mip_levels, flags)
   allocate!(img, memory_domain)
   !isnothing(data) && copyto!(img, data, device; submission)
   !isnothing(layout) && ensure_layout(device, img, layout)
   img
 end
 
-function check_data(data, array_layers)
+function check_data(data, layers)
   isnothing(data) && return true
-  array_layers > 1 || return true
-  length(data) == array_layers || error("Mismatch detected between number of array layers ($array_layers) and the length of the provided `data` ($(length(data)))")
+  layers > 1 || return true
+  length(data) == layers || error("Mismatch detected between number of array layers ($layers) and the length of the provided `data` ($(length(data)))")
   Ts = eltype.(data)
   allequal(Ts) || error("All image array layers must have the same element type, got multiple types $(unique(Ts))")
   true
 end
 
-function infer_dims_and_format(data, dims, format, array_layers)
+function infer_dims_and_format(data, dims, format, layers)
   if isnothing(data)
     isnothing(dims) && error("Image dimensions must be specified when no data is provided.")
     isnothing(format) && error("An image format must be specified when no data is provided.")
   else
-    layer = array_layers == 1 ? data : data[1]
+    layer = layers == 1 ? data : data[1]
     isnothing(dims) && (dims = collect(size(layer)))
     isnothing(format) && (format = Vk.Format(eltype(layer)))
     isnothing(format) && error("No format could be determined from the data. Please provide an image format.")
@@ -348,25 +347,25 @@ function Attachment(
   samples = 1,
   queue_family_indices = queue_family_indices(device),
   sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
+  layers = 1,
   mip_levels = 1,
-  array_layers = 1,
   layout::Optional{Vk.ImageLayout} = nothing,
   access::MemoryAccess = READ | WRITE,
   aspect = nothing,
-  mip_range = nothing,
   layer_range = nothing,
+  mip_range = nothing,
   image_flags = nothing,
   component_mapping = COMPONENT_MAPPING_IDENTITY,
   submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
 )
 
-  dims, format = infer_dims_and_format(data, dims, format, array_layers)
+  dims, format = infer_dims_and_format(data, dims, format, layers)
   !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
-  img = Image(device; format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, flags = image_flags)
+  img = Image(device; format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, layers, mip_levels, flags = image_flags)
   aspect = img.format == Vk.FORMAT_UNDEFINED ? Vk.IMAGE_ASPECT_COLOR_BIT : aspect_flags(img.format)
-  mip_range = @something(mip_range, mip_range_all(img))
-  layer_range = @something(layer_range, layer_range_all(img))
-  view = ImageView(img; aspect, mip_range, layer_range, component_mapping)
+  layer_range = @something(layer_range, Lava.layer_range(img))
+  mip_range = @something(mip_range, Lava.mip_range(img))
+  view = ImageView(img; aspect, layer_range, mip_range, component_mapping)
   !isnothing(data) && copyto!(view, data, device; submission)
   !isnothing(layout) && ensure_layout(device, view, layout)
   Attachment(view, access)

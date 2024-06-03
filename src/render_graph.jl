@@ -401,13 +401,13 @@ function resolve_attachment_pairs(rg::RenderGraph)
         combined_uses = reduce(merge, resource_uses)
         if combined_uses.usage.samples > 1
           attachment = resource.data::LogicalAttachment
-          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.mip_range, attachment.layer_range, attachment.aspect, 1), resolve_attachment_name(resource))
+          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.subresource.mip_range, attachment.subresource.layer_range, attachment.subresource.aspect, 1), resolve_attachment_name(resource))
         end
       end
     else
       attachment = resource.data::Attachment
       is_multisampled(attachment) || continue
-      resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims; attachment.view.mip_range, attachment.view.layer_range), resolve_attachment_name(resource))
+      resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims; attachment.view.subresource.mip_range, attachment.view.subresource.layer_range), resolve_attachment_name(resource))
     end
     !isnothing(resolve_attachment) && insert!(resolve_pairs, resource, resolve_attachment)
   end
@@ -447,7 +447,7 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
       @case &RESOURCE_TYPE_IMAGE
       usage = use.usage::ImageUsage
       (; logical_image) = resource
-      insert!(res, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.mip_levels, array_layers = logical_image.layers, usage.samples)))
+      insert!(res, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.layers, logical_image.mip_levels, usage.samples)))
 
       @case &RESOURCE_TYPE_ATTACHMENT
       usage = use.usage::AttachmentUsage
@@ -467,7 +467,7 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
           "Could not determine the dimensions of the attachment $(resource.id). You must either provide them or use the attachment with a node that has a render area.",
         )
       end
-      insert!(res, resource.id, promote_to_physical(resource, Attachment(rg.device; logical_attachment.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, logical_attachment.mip_range, logical_attachment.layer_range)))
+      insert!(res, resource.id, promote_to_physical(resource, Attachment(rg.device; logical_attachment.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, logical_attachment.subresource.layer_range, logical_attachment.subresource.mip_range)))
     end
   end
   res
@@ -493,8 +493,8 @@ function check_physical_resources(rg::RenderGraph, uses)
       attachment = resource.data::Attachment
       usage.usage_flags in attachment.view.image.usage_flags ||
         error("An existing attachment with usage $(attachment.view.image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
-      usage.aspect in attachment.view.aspect ||
-        error("An existing attachment with aspect $(attachment.view.aspect) was provided, but is used with an aspect of $(usage.aspect).")
+      usage.aspect in attachment.view.subresource.aspect ||
+        error("An existing attachment with aspect $(attachment.view.subresource.aspect) was provided, but is used with an aspect of $(usage.aspect).")
     end
   end
 end

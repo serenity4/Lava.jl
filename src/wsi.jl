@@ -59,5 +59,5 @@ end
 Opaque image that comes from the Window System Integration (WSI) as returned by `Vk.get_swapchain_images_khr`.
 """
 function image_wsi(handle, info::Vk.SwapchainCreateInfoKHR; layout = Vk.IMAGE_LAYOUT_UNDEFINED)
-  Image(handle, [info.image_extent.width, info.image_extent.height], Vk.ImageCreateFlag(), info.image_format, 1, 1, info.image_array_layers, info.image_usage, info.queue_family_indices, info.image_sharing_mode, false, SubresourceMap(info.image_array_layers, 1, layout), RefValue{Memory}(), true)
+  Image(handle, [info.image_extent.width, info.image_extent.height], Vk.ImageCreateFlag(), info.image_format, 1, info.image_array_layers, 1, info.image_usage, info.queue_family_indices, info.image_sharing_mode, false, SubresourceMap(info.image_array_layers, 1, layout), RefValue{Memory}(), true)
 end

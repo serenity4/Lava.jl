@@ -4,8 +4,8 @@ struct Image <: LavaAbstraction
   flags::Vk.ImageCreateFlag
   format::Vk.Format
   samples::Int64
-  mip_levels::Int64
   layers::Int64
+  mip_levels::Int64
   usage_flags::Vk.ImageUsageFlag
   queue_family_indices::Vector{Int8}
   sharing_mode::Vk.SharingMode
@@ -32,12 +32,9 @@ is_multisampled(x) = samples(x) > 1
 
 update_layout(image::Image, layout::Vk.ImageLayout) = update_layout(image, Subresource(image), layout)
 update_layout(image::Image, subresource::Subresource, layout::Vk.ImageLayout) = image.layout[subresource] = layout
-layers(image::Image) = layer_range_all(image)
-mip_levels(image::Image) = mip_range_all(image)
-mip_range_all(image::Image) = 1:image.mip_levels
-layer_range_all(image::Image) = 1:image.layers
-nlayers(image::Image) = image.layers
-Subresource(image::Image) = Subresource(aspect_flags(image), layers(image), mip_levels(image))
+layer_range(image::Image) = 1:image.layers
+mip_range(image::Image) = 1:image.mip_levels
+Subresource(image::Image) = Subresource(aspect_flags(image), layer_range(image), mip_range(image))
 
 Vk.Extent3D(image::Image) = Vk.Extent3D(image.dims..., ntuple(Returns(1), 3 - length(image.dims))...)
 Vk.Offset3D(::Image) = Vk.Offset3D(0, 0, 0)
@@ -51,8 +48,8 @@ function image_type(ndims)
   end
 end
 
-function default_image_flags(array_layers, dims)
-  array_layers == 6 && length(dims) == 2 && return Vk.IMAGE_CREATE_CUBE_COMPATIBLE_BIT
+function default_image_flags(layers, dims)
+  layers == 6 && length(dims) == 2 && return Vk.IMAGE_CREATE_CUBE_COMPATIBLE_BIT
   Vk.ImageCreateFlag()
 end
 
@@ -61,10 +58,10 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
   sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
   is_linear = false,
   preinitialized = false,
+  layers = 1,
   mip_levels = 1,
-  array_layers = 1,
   samples = 1,
-  flags = default_image_flags(array_layers, dims))
+  flags = default_image_flags(layers, dims))
 
   ispow2(samples) || error("The number of samples for must be a power of two.")
   isa(format, DataType) && (format = Vk.Format(format))
@@ -78,7 +75,7 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
     format,
     Vk.Extent3D(extent_dims...),
     mip_levels,
-    array_layers,
+    layers,
     Vk.SampleCountFlag(samples),
     is_linear ? Vk.IMAGE_TILING_LINEAR : Vk.IMAGE_TILING_OPTIMAL,
     usage_flags,
@@ -103,19 +100,19 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
     flags,
     format,
     samples,
+    layers,
     mip_levels,
-    array_layers,
     usage_flags,
     queue_family_indices,
     sharing_mode,
     is_linear,
-    SubresourceMap(array_layers, mip_levels, initial_layout),
+    SubresourceMap(layers, mip_levels, initial_layout),
     Ref{Memory}(),
     false,
   )
 end
 
-function Base.similar(image::Image; memory_domain = nothing, flags = image.flags, usage_flags = image.usage_flags, is_linear = image.is_linear, samples = image.samples, dims = image.dims, format = image.format, array_layers = image.layers, mip_levels = image.mip_levels)
+function Base.similar(image::Image; memory_domain = nothing, flags = image.flags, usage_flags = image.usage_flags, is_linear = image.is_linear, samples = image.samples, dims = image.dims, format = image.format, layers = image.layers, mip_levels = image.mip_levels)
   similar = Image(
     device(image),
     dims,
@@ -125,8 +122,8 @@ function Base.similar(image::Image; memory_domain = nothing, flags = image.flags
     image.queue_family_indices,
     image.sharing_mode,
     is_linear,
+    layers,
     mip_levels,
-    array_layers,
     samples,
   )
   if isallocated(image)
@@ -160,22 +157,17 @@ struct ImageView <: LavaAbstraction
   type::Vk.ImageViewType
   format::Vk.Format
   component_mapping::Vk.ComponentMapping
-  aspect::Vk.ImageAspectFlag
-  mip_range::UnitRange{Int64}
-  layer_range::UnitRange{Int64}
+  subresource::Subresource
 end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D image_layout samples dimensions nlayers
+@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D image_layout samples dimensions
+@forward_methods ImageView field = :subresource aspect_flags layer_range mip_range
 
-Subresource(view::ImageView) = Subresource(aspect_flags(view), layers(view), mip_levels(view))
-mip_levels(view::ImageView) = view.mip_range
-layers(view::ImageView) = view.layer_range
-update_layout(view::ImageView, layout::Vk.ImageLayout) = update_layout(view.image, Subresource(view), layout)
+Subresource(view::ImageView) = view.subresource
+update_layout(view::ImageView, layout::Vk.ImageLayout) = update_layout(view.image, view.subresource, layout)
 update_layout(view::ImageView, subresource::Subresource, layout::Vk.ImageLayout) = update_layout(view.image, subresource, layout)
-
-aspect_flags(view::ImageView) = view.aspect
 
 function image_view_type(dims, layer_range)
   n = length(dims)
@@ -195,22 +187,23 @@ function ImageView(
   format = image.format,
   component_mapping = COMPONENT_MAPPING_IDENTITY,
   aspect = aspect_flags(format),
-  mip_range = mip_range_all(image),
-  layer_range = layer_range_all(image),
+  layer_range = layer_range(image),
+  mip_range = mip_range(image),
   type = image_view_type(dimensions(image), layer_range),
 )
 
-  issubset(mip_range, mip_range_all(image)) || error("Mip range $mip_range is not contained within the mip levels defined for the image.")
-  issubset(layer_range, layer_range_all(image)) || error("Layer range $layer_range is not contained within the array layers defined for the image.")
+  issubset(layer_range, Lava.layer_range(image)) || error("Layer range $layer_range is not contained within the array layers defined for the image.")
+  issubset(mip_range, Lava.mip_range(image)) || error("Mip range $mip_range is not contained within the mip levels defined for the image.")
+  subresource = Subresource(aspect, layer_range, mip_range)
   info = Vk.ImageViewCreateInfo(
     image.handle,
     type,
     format,
     component_mapping,
-    Vk.ImageSubresourceRange(Subresource(aspect, layer_range, mip_range)),
+    Vk.ImageSubresourceRange(subresource),
   )
   handle = unwrap(create(ImageView, device(image), info))
-  ImageView(handle, image, type, format, component_mapping, aspect, mip_range, layer_range)
+  ImageView(handle, image, type, format, component_mapping, subresource)
 end
 
 subresource_layout(device, image::Image, subresource::Subresource) = Vk.get_image_subresource_layout(device, image, Vk.ImageSubresource(subresource))
@@ -226,7 +219,7 @@ function aspect_flags(format::Vk.Format)
   end
 end
 
-function Base.similar(view::ImageView, new_image::Image; type = view.type, format = view.format, component_mapping = view.component_mapping, aspect = view.aspect, mip_range = view.mip_range, layer_range = view.layer_range)
+function Base.similar(view::ImageView, new_image::Image; type = view.type, format = view.format, component_mapping = view.component_mapping, aspect = view.subresource.aspect, mip_range = view.subresource.mip_range, layer_range = view.subresource.layer_range)
   ImageView(new_image; type, format, component_mapping, aspect, mip_range, layer_range)
 end
 

@@ -146,7 +146,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       flags = Vk.IMAGE_CREATE_CUBE_COMPATIBLE_BIT
       # Include the sampled bit to avoid validation layers complaining for image views.
       usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
-      cubemap = Image(device; data, array_layers = 6, usage_flags, flags)
+      cubemap = Image(device; data, layers = 6, usage_flags, flags)
       for i in 1:6
         face = ImageView(cubemap; layer_range = i:i)
         @test collect(face, device) == data[i]
