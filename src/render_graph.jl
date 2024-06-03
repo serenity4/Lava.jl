@@ -243,6 +243,11 @@ function add_resource_dependencies!(rg, ex::Expr)
   Expr(:block, add_dependency_exs..., rg)
 end
 
+"""
+Declare resource dependencies for a [`RenderGraph`](@ref) to figure out any required synchronization logic.
+"""
+function resource_dependencies end
+
 function resource_dependencies(reads::AbstractVector, writes::AbstractVector)
   dependencies = Dictionary()
   for r in reads
