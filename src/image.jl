@@ -166,6 +166,7 @@ vk_handle_type(::Type{ImageView}) = Vk.ImageView
 @forward_methods ImageView field = :subresource aspect_flags layer_range mip_range
 
 Subresource(view::ImageView) = view.subresource
+image_layout(view::ImageView) = image_layout(view.image, view.subresource)
 update_layout(view::ImageView, layout::Vk.ImageLayout) = update_layout(view.image, view.subresource, layout)
 update_layout(view::ImageView, subresource::Subresource, layout::Vk.ImageLayout) = update_layout(view.image, subresource, layout)
 

@@ -58,6 +58,12 @@ Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = deserialize(
 
 # # Images
 
+function ensure_layout(device::Device, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
+  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
+  ensure_layout(command_buffer, view_or_image, layout)
+  wait(submit!(SubmissionInfo(signal_fence = fence(device)), command_buffer))
+end
+
 function ensure_layout(command_buffer::CommandBuffer, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
   match_subresource(view_or_image) do matched_layer_range, matched_mip_range, matched_layout
     matched_layout == layout && return
@@ -65,10 +71,18 @@ function ensure_layout(command_buffer::CommandBuffer, view_or_image::Union{Image
     transition_layout(command_buffer, view_or_image, subresource, matched_layout, layout)
   end
 end
-function ensure_layout(device::Device, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
-  ensure_layout(command_buffer, view_or_image, layout)
-  wait(submit!(SubmissionInfo(signal_fence = fence(device)), command_buffer))
+
+function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{Image,ImageView}, subresource::Subresource, old_layout::Vk.ImageLayout, new_layout::Vk.ImageLayout)
+  Vk.cmd_pipeline_barrier_2(command_buffer,
+    Vk.DependencyInfo([], [], [Vk.ImageMemoryBarrier2(old_layout, new_layout, 0, 0, get_image(view_or_image).handle, Vk.ImageSubresourceRange(subresource);
+      src_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      dst_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      src_access_mask = Vk.ACCESS_2_MEMORY_READ_BIT | Vk.ACCESS_2_MEMORY_WRITE_BIT,
+      dst_access_mask = Vk.ACCESS_2_MEMORY_READ_BIT | Vk.ACCESS_2_MEMORY_WRITE_BIT,
+    )]),
+  )
+  update_layout(view_or_image, subresource, new_layout)
+  nothing
 end
 
 get_image_handle(view::ImageView) = view.image.handle
@@ -179,7 +193,7 @@ function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Ima
     _ => error("Buffer layouts other than `NoPadding` or `NativeLayout` are not supported for copying to multiple image layers, got layout of type $(typeof(layout))")
   end
   @assert layer_offset ≥ layer_size "The computed layer offset should be bigger than the computed layer size, otherwise contents will alias each other from one layer to the next"
-  for i in layer_range(image)
+  for i in layer_range(view_or_image)
     buffer_offset + layer_size ≤ buffer.size || error("Buffer overflow detected while copying buffer data to multiple image layers")
     subresource = Subresource(view_or_image)
     region = Vk.BufferImageCopy(buffer_offset, width, height, (@set subresource.layer_range = i:i), image_offset, extent)
@@ -187,23 +201,6 @@ function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Ima
     buffer_offset += layer_offset
   end
   regions
-end
-
-function transition_layout_info(image::Image, subresource::Subresource, old_layout::Vk.ImageLayout, new_layout::Vk.ImageLayout)
-  Vk.ImageMemoryBarrier2(old_layout, new_layout, 0, 0, image.handle, Vk.ImageSubresourceRange(subresource);
-    src_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-    dst_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-    src_access_mask = Vk.ACCESS_2_MEMORY_READ_BIT | Vk.ACCESS_2_MEMORY_WRITE_BIT,
-    dst_access_mask = Vk.ACCESS_2_MEMORY_READ_BIT | Vk.ACCESS_2_MEMORY_WRITE_BIT
-  )
-end
-
-function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{Image,ImageView}, subresource::Subresource, old_layout::Vk.ImageLayout, new_layout::Vk.ImageLayout)
-  Vk.cmd_pipeline_barrier_2(command_buffer,
-    Vk.DependencyInfo([], [], [transition_layout_info(get_image(view_or_image), subresource, old_layout, new_layout)]),
-  )
-  update_layout(view_or_image, subresource, new_layout)
-  nothing
 end
 
 function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, layer = 1) where {T}
@@ -267,12 +264,12 @@ Base.collect(view::ImageView, device::Device) = collect(format_type(view.format)
 
 Base.collect(::Type{T}, attachment::Attachment, device::Device) where {T} = collect(T, attachment.view.image, device)
 Base.collect(::Type{T}, resource::Resource, device::Device) where {T} = collect(T, resource.data, device)
-Base.collect(attachment::Attachment, device::Device) = collect(attachment.view.image, device)
+Base.collect(attachment::Attachment, device::Device) = collect(attachment.view, device)
 Base.collect(resource::Resource, device::Device) = collect(resource.data, device)
 
-function Base.copyto!(view_or_image::Union{Image,ImageView}, data::AbstractArray, device::Device; kwargs...)
+function Base.copyto!(view_or_image::Union{Image,ImageView}, data::AbstractArray, device::Device; submission = SubmissionInfo(signal_fence = fence(device)), kwargs...)
   b = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
-  transfer(device, b, view_or_image; kwargs...)
+  transfer(device, b, view_or_image; submission, kwargs...)
   view_or_image
 end
 
