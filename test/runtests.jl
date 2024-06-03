@@ -132,7 +132,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)
 
       data = rand(RGBA{Float16}, 200, 100)
-      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
+      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT # sampled bit required for valid usage
       img1 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage_flags)
       @test collect(img1, device) == data
       img2 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage_flags)

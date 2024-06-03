@@ -6,12 +6,6 @@ function transfer(device::Device, args...; submission = nothing, kwargs...)
   isnothing(submission) ? ret : wait(ret)
 end
 
-function transition_layout(device::Device, view_or_image::Union{Image,ImageView}, new_layout)
-  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
-  transition_layout(command_buffer, view_or_image, new_layout)
-  wait(submit!(SubmissionInfo(signal_fence = fence(device)), command_buffer))
-end
-
 # # Buffers
 
 """
@@ -64,9 +58,17 @@ Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = deserialize(
 
 # # Images
 
-function ensure_layout(command_buffer, image_or_view, layout)
-  image_layout(image_or_view) == layout && return
-  transition_layout(command_buffer, image_or_view, layout)
+function ensure_layout(command_buffer::CommandBuffer, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
+  match_subresource(view_or_image) do matched_layers, matched_mip_levels, matched_layout
+    matched_layout == layout && return
+    subresource = Subresource(aspect_flags(view_or_image), matched_layers, matched_mip_levels)
+    transition_layout(command_buffer, view_or_image, subresource, matched_layout, layout)
+  end
+end
+function ensure_layout(device::Device, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
+  command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
+  ensure_layout(command_buffer, view_or_image, layout)
+  wait(submit!(SubmissionInfo(signal_fence = fence(device)), command_buffer))
 end
 
 get_image_handle(view::ImageView) = view.image.handle
@@ -95,16 +97,22 @@ function transfer(
     ensure_layout(command_buffer, aux, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
     Vk.cmd_resolve_image_2(command_buffer, Vk.ResolveImageInfo2(C_NULL,
       src_image, image_layout(src),
-      aux, image_layout(aux),
-      [Vk.ImageResolve2(subresource_layers(src), Vk.Offset3D(src_image), subresource_layers(aux), Vk.Offset3D(aux), Vk.Extent3D(src))]
+      get_image(aux), image_layout(aux),
+      [Vk.ImageResolve2(C_NULL, Subresource(src), Vk.Offset3D(src_image), Subresource(aux), Vk.Offset3D(aux), Vk.Extent3D(src))]
     ))
     return transfer(command_buffer, aux, dst; submission, free_src = true)
   else
-    Vk.cmd_copy_image(command_buffer,
-      src_image, image_layout(src),
-      dst_image, image_layout(dst),
-      [Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src_image), subresource_layers(dst), Vk.Offset3D(dst_image), Vk.Extent3D(src_image))],
-    )
+    match_subresource(src_image.layout, Subresource(src)) do src_matched_layers, src_matched_mip_levels, src_layout
+      match_subresource(dst_image.layout, Subresource(dst)) do dst_matched_layers, dst_matched_mip_levels, dst_layout
+        src_subresource = Subresource(aspect_flags(src), src_matched_layers, src_matched_mip_levels)
+        dst_subresource = Subresource(aspect_flags(dst), dst_matched_layers, dst_matched_mip_levels)
+        Vk.cmd_copy_image(command_buffer,
+        src_image, src_layout,
+        dst_image, dst_layout,
+        [Vk.ImageCopy(src_subresource, Vk.Offset3D(src_image), dst_subresource, Vk.Offset3D(dst_image), Vk.Extent3D(src_image))],
+      )
+      end
+    end
   end
 
   push!(command_buffer.to_preserve, dst)
@@ -151,7 +159,7 @@ buffer_regions_for_transfer(buffer, view_or_image) = nlayers(view_or_image) == 1
 
 function whole_buffer_to_whole_image(buffer::Buffer, view_or_image::Union{Image,ImageView})
   image = get_image(view_or_image)
-  Vk.BufferImageCopy(buffer.offset, image.dims..., subresource_layers(view_or_image), Vk.Offset3D(image), Vk.Extent3D(image))
+  Vk.BufferImageCopy(buffer.offset, image.dims..., Subresource(view_or_image), Vk.Offset3D(image), Vk.Extent3D(image))
 end
 
 function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Image,ImageView})
@@ -174,23 +182,16 @@ function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Ima
   @assert layer_offset ≥ layer_size "The computed layer offset should be bigger than the computed layer size, otherwise contents will alias each other from one layer to the next"
   for i in 1:n
     buffer_offset + layer_size ≤ buffer.size || error("Buffer overflow detected while copying buffer data to multiple image layers")
-    region = Vk.BufferImageCopy(buffer_offset, width, height, subresource_layers(view_or_image; layers = i:i), image_offset, extent)
+    subresource = Subresource(view_or_image)
+    region = Vk.BufferImageCopy(buffer_offset, width, height, (@set subresource.layers = i:i), image_offset, extent)
     push!(regions, region)
     buffer_offset += layer_offset
   end
   regions
 end
 
-function transition_layout_info(view_or_image::Union{Image,ImageView}, new_layout)
-  image = get_image(view_or_image)
-
-  # Technically, layout transitions may only affect part of an image.
-  # But to simplify tracking image layouts, we will transition the whole image.
-  # XXX: It may be that for depth/stencil formats, selecting an aspect makes
-  # only part of the image to transition; in this case, we'll need to do some aspect/layout tracking.
-  subresource = subresource_range(aspect_flags(view_or_image), mip_range_all(image), layer_range_all(image))
-
-  Vk.ImageMemoryBarrier2(image_layout(view_or_image), new_layout, 0, 0, image.handle, subresource;
+function transition_layout_info(image::Image, subresource::Subresource, old_layout::Vk.ImageLayout, new_layout::Vk.ImageLayout)
+  Vk.ImageMemoryBarrier2(old_layout, new_layout, 0, 0, image.handle, Vk.ImageSubresourceRange(subresource);
     src_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
     dst_stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
     src_access_mask = Vk.ACCESS_2_MEMORY_READ_BIT | Vk.ACCESS_2_MEMORY_WRITE_BIT,
@@ -198,11 +199,12 @@ function transition_layout_info(view_or_image::Union{Image,ImageView}, new_layou
   )
 end
 
-function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{Image,ImageView}, new_layout)
+function transition_layout(command_buffer::CommandBuffer, view_or_image::Union{Image,ImageView}, subresource::Subresource, old_layout::Vk.ImageLayout, new_layout::Vk.ImageLayout)
   Vk.cmd_pipeline_barrier_2(command_buffer,
-    Vk.DependencyInfo([], [], [transition_layout_info(view_or_image, new_layout)]),
+    Vk.DependencyInfo([], [], [transition_layout_info(get_image(view_or_image), subresource, old_layout, new_layout)]),
   )
-  get_image(view_or_image).layout[] = new_layout
+  update_layout(view_or_image, subresource, new_layout)
+  nothing
 end
 
 function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, layer = 1) where {T}
@@ -211,7 +213,7 @@ function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, la
   if image.is_linear && Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in image.memory[].property_flags
     # Get the data from the host-visible memory directly.
     # Since we don't rely on driver transfers to rearrange the data nicely, we have to query and follow the driver-dependent layout.
-    (; offset, size, row_pitch) = subresource_layout(device, image; mip_level, layer)
+    (; offset, size, row_pitch) = subresource_layout(device, image, Subresource(aspect_flags(image), layer:layer, mip_level:mip_level))
     memory = @view(image.memory[][offset:(size + offset)])
     bytes = collect(memory, size, device)
     layout = NoPadding()
@@ -222,10 +224,17 @@ function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, la
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-    dst = Image(device, image.dims, image.format, usage_flags; is_linear = true, image.mip_levels, array_layers = image.layers)
+    dst = Image(device, image.dims, T, usage_flags; is_linear = true, mip_levels = 1, array_layers = 1, flags = Vk.ImageCreateFlag())
     allocate!(dst, MEMORY_DOMAIN_HOST)
-    transfer(device, image, dst; submission = sync_submission(device))
-    collect(T, dst, device)
+    ensure_layout(device, image, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    if image.mip_levels == 1 && image.layers == 1
+      transfer(device, image, dst; submission = sync_submission(device))
+      collect(T, dst, device)
+    else
+      view = ImageView(image; layer_range = layer:layer, mip_range = mip_level:mip_level)
+      transfer(device, view, dst; submission = sync_submission(device))
+      collect(T, dst, device)
+    end
   end
 end
 Base.collect(image::Image, device::Device; mip_level = 1, layer = 1) = collect(format_type(image.format), image, device; mip_level, layer)
@@ -300,7 +309,7 @@ function Image(
   img = Image(device, dims, format, usage_flags; is_linear = !optimal_tiling, samples, queue_family_indices, sharing_mode, mip_levels, array_layers, flags)
   allocate!(img, memory_domain)
   !isnothing(data) && copyto!(img, data, device; submission)
-  !isnothing(layout) && transition_layout(device, img, layout)
+  !isnothing(layout) && ensure_layout(device, img, layout)
   img
 end
 
@@ -359,7 +368,7 @@ function Attachment(
   layer_range = @something(layer_range, layer_range_all(img))
   view = ImageView(img; aspect, mip_range, layer_range, component_mapping)
   !isnothing(data) && copyto!(view, data, device; submission)
-  !isnothing(layout) && transition_layout(device, view, layout)
+  !isnothing(layout) && ensure_layout(device, view, layout)
   Attachment(view, access)
 end
 

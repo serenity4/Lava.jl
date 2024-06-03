@@ -10,6 +10,27 @@ end
 Subresource(layers, mip_levels) = Subresource(nothing, layers, mip_levels)
 Subresource(aspect::Optional{Vk.ImageAspectFlag} = nothing) = Subresource(aspect, 1:1, 1:1)
 
+function Vk.ImageSubresourceRange(subresource::Subresource)
+  mip_range, layer_range, aspect = mip_levels(subresource), layers(subresource), subresource.aspect::Vk.ImageAspectFlag
+  Vk.ImageSubresourceRange(aspect, mip_range[begin] - 1, 1 + mip_range[end] - mip_range[begin], layer_range[begin] - 1, 1 + layer_range[end] - layer_range[begin])
+end
+Base.convert(::Type{Vk.ImageSubresourceRange}, subresource::Subresource) = Vk.ImageSubresourceRange(subresource)
+
+function Vk.ImageSubresourceLayers(subresource::Subresource)
+  mip_range, layer_range, aspect = mip_levels(subresource), layers(subresource), subresource.aspect::Vk.ImageAspectFlag
+  length(mip_range) == 1 || error("Only a single mip level is allowed; for multiple mip levels, a `Vk.ImageSubresourceRange` structure will be expected")
+  Vk.ImageSubresourceLayers(aspect, mip_range[begin] - 1, layer_range[begin] - 1, 1 + layer_range[end] - layer_range[begin])
+end
+Base.convert(::Type{Vk.ImageSubresourceLayers}, subresource::Subresource) = Vk.ImageSubresourceLayers(subresource)
+
+function Vk.ImageSubresource(subresource::Subresource)
+  mip_range, layer_range, aspect = mip_levels(subresource), layers(subresource), subresource.aspect::Vk.ImageAspectFlag
+  length(mip_range) == 1 || error("Only a single mip level is allowed; for multiple mip levels, a `Vk.ImageSubresourceRange` structure will be expected")
+  length(layer_range) == 1 || error("Only a single layer is allowed; for multiple array layers, a `Vk.ImageSubresourceLayers` structure will be expected")
+  Vk.ImageSubresource(aspect, mip_range[begin] - 1, layer_range[begin] - 1)
+end
+Base.convert(::Type{Vk.ImageSubresource}, subresource::Subresource) = Vk.ImageSubresource(subresource)
+
 layers(sub::Subresource) = sub.layers
 mip_levels(sub::Subresource) = sub.mip_levels
 
@@ -110,6 +131,16 @@ function Base.getindex(map::SubresourceMap{T}, subresource::Subresource) where {
   end::T
 end
 
+function Base.getindex(map::SubresourceMap{T}) where {T}
+  result = Ref{Optional{T}}(nothing)
+  match_subresource(map, Subresource(1:map.layers, 1:map.mip_levels)) do matched_layers, matched_mip_levels, value
+    isnothing(result[]) || result[] == value || error("Different subresources have different values (found $(result[]) ≠ $value); use `match_subresource` or `query_subresource` instead.")
+    result[] = value
+  end
+  isnothing(result[]) && error_map_invalid_state(map)
+  result[]::T
+end
+
 """
     match_subresource(f, map, subresource)
 
@@ -119,7 +150,7 @@ and call `f(matched_layers, matched_mip_levels, value)` on each entry.
 function match_subresource(f::F, map::SubresourceMap{T}, subresource::Subresource) where {F,T}
   check_subresource(map, subresource)
   if !isnothing(map.value)
-    f(layers(map), mip_levels(map), map.value::T)
+    f(layers(subresource), mip_levels(subresource), map.value::T)
   elseif isused(map.value_per_aspect)
     match_subresource(f, map.value_per_aspect[subresource.aspect], subresource)
   elseif isused(map.value_per_layer)

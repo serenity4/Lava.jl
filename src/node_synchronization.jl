@@ -6,30 +6,44 @@ end
 SyncRequirements() = SyncRequirements(0, 0)
 SyncRequirements(usage) = SyncRequirements(access_flags(usage.type, usage.access, usage.stages), usage.stages)
 
-struct ResourceState
-  sync_reqs::SyncRequirements
-  last_accesses::Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}
-  current_layout::RefValue{Vk.ImageLayout} # for images and attachments only
+struct BufferResourceState
+  sync::SyncRequirements
+  accesses::Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}
 end
 
-ResourceState(usage::BufferUsage) = ResourceState(SyncRequirements(usage), Dictionary(), Ref{Vk.ImageLayout}())
-ResourceState(usage, layout) = ResourceState(SyncRequirements(usage), Dictionary(), layout)
-ResourceState(layout::Ref{Vk.ImageLayout} = Ref{Vk.ImageLayout}()) = ResourceState(SyncRequirements(), Dictionary(), layout)
+BufferResourceState(usage::BufferUsage) = BufferResourceState(SyncRequirements(usage), Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}())
+BufferResourceState() = BufferResourceState(SyncRequirements(), Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}())
+
+struct SubresourceState
+  sync::SyncRequirements
+  accesses::Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}
+end
+
+SubresourceState(usage::Union{ImageUsage, AttachmentUsage}) = SubresourceState(SyncRequirements(usage), Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}())
+SubresourceState() = SubresourceState(SyncRequirements(), Dictionary{Vk.AccessFlag2,Vk.PipelineStageFlag2}())
+
+struct ImageResourceState
+  map::SubresourceMap{SubresourceState}
+end
+
+ImageResourceState(image::Image) = ImageResourceState(SubresourceMap(image.layers, image.mip_levels, SubresourceState()))
+
+const ResourceState = Union{BufferResourceState, ImageResourceState}
 
 struct SynchronizationState
   resources::Dictionary{ResourceID,ResourceState}
 end
 
-SynchronizationState() = SynchronizationState(Dictionary())
+SynchronizationState() = SynchronizationState(Dictionary{ResourceID,ResourceState}())
 
-must_synchronize(sync_reqs::SyncRequirements) = !iszero(sync_reqs.stages)
-must_synchronize(sync_reqs::SyncRequirements, from_layout, to_layout) = must_synchronize(sync_reqs) || from_layout ≠ to_layout
+must_synchronize(sync::SyncRequirements) = !iszero(sync.stages)
+must_synchronize(sync::SyncRequirements, from_layout, to_layout) = must_synchronize(sync) || from_layout ≠ to_layout
 
 function synchronize_access!(state::SynchronizationState, resource::Resource, usage::BufferUsage)
-  rstate = get!(ResourceState, state.resources, resource.id)
-  sync_reqs = restrict_synchronization_scope(rstate.last_accesses, SyncRequirements(usage))
-  must_synchronize(sync_reqs) || return
-  WRITE in usage.access && (state.resources[resource.id] = ResourceState(usage))
+  buffer_state = get!(BufferResourceState, state.resources, resource.id)::BufferResourceState
+  sync = restrict_synchronization_scope(buffer_state.accesses, SyncRequirements(usage))
+  must_synchronize(sync) || return
+  WRITE in usage.access && (state.resources[resource.id] = BufferResourceState(usage))
   buffer = resource.data::Buffer
   Vk.BufferMemoryBarrier2(
     0,
@@ -37,22 +51,22 @@ function synchronize_access!(state::SynchronizationState, resource::Resource, us
     buffer.handle,
     buffer.offset,
     buffer.size;
-    src_access_mask = rstate.sync_reqs.access,
-    dst_access_mask = sync_reqs.access,
-    src_stage_mask = rstate.sync_reqs.stages,
-    dst_stage_mask = sync_reqs.stages,
+    src_access_mask = buffer_state.sync.access,
+    dst_access_mask = sync.access,
+    src_stage_mask = buffer_state.sync.stages,
+    dst_stage_mask = sync.stages,
   )
 end
 
-function restrict_synchronization_scope(last_accesses, sync_reqs)
-  remaining_sync_stages = sync_reqs.stages
-  for (access, stages) in pairs(last_accesses)
-    if covers(access, sync_reqs.access)
+function restrict_synchronization_scope(accesses, sync)
+  remaining_sync_stages = sync.stages
+  for (access, stages) in pairs(accesses)
+    if covers(access, sync.access)
       remaining_sync_stages &= ~stages
     end
     iszero(remaining_sync_stages) && break
   end
-  @set sync_reqs.stages = remaining_sync_stages
+  @set sync.stages = remaining_sync_stages
 end
 
 function synchronize_access!(state::SynchronizationState, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
@@ -60,28 +74,26 @@ function synchronize_access!(state::SynchronizationState, resource::Resource, us
     ::ImageUsage => resource.data::Image
     ::AttachmentUsage => (resource.data::Attachment).view.image
   end
-  rstate = get!(() -> ResourceState(image.layout), state.resources, resource.id)
-  sync_reqs = restrict_synchronization_scope(rstate.last_accesses, SyncRequirements(usage))
-  from_layout = rstate.current_layout[]
+  image_state = get!(() -> ImageResourceState(image), state.resources, resource.id)
+  subresource = Subresource(resource.data::Union{Image, Attachment})
+  subresource_state = image_state.map[subresource]
+  sync = restrict_synchronization_scope(subresource_state.accesses, SyncRequirements(usage))
+  from_layout = image.layout[subresource]
   to_layout = image_layout(usage.type, usage.access)
-  must_synchronize(sync_reqs, from_layout, to_layout) || return
-  rstate.current_layout[] = to_layout
-  WRITE in usage.access && (state.resources[resource.id] = ResourceState(usage, rstate.current_layout))
-  subresource = @match usage begin
-    ::ImageUsage => subresource_range(image)
-    ::AttachmentUsage => subresource_range((resource.data::Attachment).view)
-  end
+  must_synchronize(sync, from_layout, to_layout) || return
+  image_state.map[subresource] = SubresourceState(usage)
+  image.layout[subresource] = to_layout
   Vk.ImageMemoryBarrier2(
     from_layout,
     to_layout,
     0,
     0,
     image.handle,
-    subresource;
-    src_access_mask = rstate.sync_reqs.access,
-    dst_access_mask = sync_reqs.access,
-    src_stage_mask = rstate.sync_reqs.stages,
-    dst_stage_mask = sync_reqs.stages,
+    Vk.ImageSubresourceRange(subresource);
+    src_access_mask = subresource_state.sync.access,
+    dst_access_mask = sync.access,
+    src_stage_mask = subresource_state.sync.stages,
+    dst_stage_mask = sync.stages,
   )
 end
 

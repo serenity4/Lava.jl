@@ -12,6 +12,11 @@ struct LogicalImage <: LogicalResource
   samples::Optional{Int64}
 end
 
+aspect_flags(image::LogicalImage) = aspect_flags(image.format)
+layers(image::LogicalImage) = 1:image.layers
+mip_levels(image::LogicalImage) = 1:image.mip_levels
+Subresource(image::LogicalImage) = Subresource(aspect_flags(image), layers(image), mip_levels(image))
+
 function LogicalImage(format::Union{Vk.Format, DataType}, dims; mip_levels = 1, array_layers = 1, samples = nothing)
   isa(format, DataType) && (format = Vk.Format(format))
   LogicalImage(format, dims, mip_levels, array_layers, samples)
@@ -27,6 +32,11 @@ struct LogicalAttachment <: LogicalResource
   samples::Optional{Int64}
 end
 
+aspect_flags(attachment::LogicalAttachment) = attachment.aspect
+layers(attachment::LogicalAttachment) = attachment.layer_range
+mip_levels(attachment::LogicalAttachment) = attachment.mip_range
+Subresource(attachment::LogicalAttachment) = Subresource(aspect_flags(attachment), layers(attachment), mip_levels(attachment))
+
 function LogicalAttachment(
   format::Union{Vk.Format, DataType},
   dims = nothing;
@@ -40,7 +50,6 @@ function LogicalAttachment(
   LogicalAttachment(format, dims, mip_range, layer_range, aspect, samples)
 end
 
-aspect_flags(attachment::LogicalAttachment) = attachment.aspect
 
 dimensions(x::Union{LogicalImage,LogicalAttachment}) = x.dims
 samples(x::Union{LogicalImage,LogicalAttachment}) = something(x.samples, 1)

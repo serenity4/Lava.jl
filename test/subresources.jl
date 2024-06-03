@@ -127,6 +127,14 @@ end
   @test haskey(smap.value_per_layer[5:6], 1:4)
   validate_map(smap)
 
+  # Limit matched ranges to only what is contained within the requested subresource.
+  map = SubresourceMap(6, 4, :a)
+  match_subresource(map, Subresource(5:5, 2:3)) do matched_layers, matched_mip_levels, value
+    @test value == :a
+    @test matched_layers == 5:5
+    @test matched_mip_levels == 2:3
+  end
+
   smap = SubresourceMap(6, 4, :a)
   smap[Subresource(2:3, 2:4)] = :b
   validate_map(smap)

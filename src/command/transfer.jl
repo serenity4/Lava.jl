@@ -39,11 +39,11 @@ function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
       # Perform a blit operation instead.
       # TODO: Allow copying for size-compatible image formats instead of blitting,
       # See https://registry.khronos.org/vulkan/specs/1.3-extensions/html/chap47.html#formats-compatibility-classes.
-      region = Vk.ImageBlit2(C_NULL, subresource_layers(src), (Vk.Offset3D(src), Vk.Offset3D(dimensions(src)..., 1)), subresource_layers(dst), (Vk.Offset3D(dst), Vk.Offset3D(dimensions(dst)..., 1)))
+      region = Vk.ImageBlit2(C_NULL, Subresource(src), (Vk.Offset3D(src), Vk.Offset3D(dimensions(src)..., 1)), Subresource(dst), (Vk.Offset3D(dst), Vk.Offset3D(dimensions(dst)..., 1)))
       info = Vk.BlitImageInfo2(C_NULL, src_image, image_layout(src), dst_image, image_layout(dst), [region], Vk.FILTER_LINEAR)
       Vk.cmd_blit_image_2(cb, info)
     else
-      info = Vk.ImageCopy(subresource_layers(src), Vk.Offset3D(src), subresource_layers(dst), Vk.Offset3D(dst), Vk.Extent3D(src))
+      info = Vk.ImageCopy(Subresource(src), Vk.Offset3D(src), Subresource(dst), Vk.Offset3D(dst), Vk.Extent3D(src))
       Vk.cmd_copy_image(cb,
         src_image, image_layout(src),
         dst_image, image_layout(dst),
@@ -57,7 +57,7 @@ function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
     info = Vk.BufferImageCopy(
       src.offset,
       dimensions(dst)...,
-      subresource_layers(dst),
+      Subresource(dst),
       Vk.Offset3D(dst),
       Vk.Extent3D(dst),
     )
@@ -69,7 +69,7 @@ function apply(cb::CommandBuffer, transfer::TransferCommand, resources)
     info = Vk.BufferImageCopy(
       dst.offset,
       dimensions(src)...,
-      subresource_layers(src),
+      Subresource(src),
       Vk.Offset3D(src),
       Vk.Extent3D(src),
     )
