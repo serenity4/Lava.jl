@@ -211,17 +211,33 @@ end
 function parametrize_by_layer!(map::SubresourceMap{T}) where {T}
   isused(map.value_per_layer) && return map
   map.value_per_layer = @something(map.value_per_layer, ValuePerLayer{T}())
-  insert!(map.value_per_layer, layers(map), deepcopy(map.value_per_mip_level::ValuePerMipLevel{T}))
-  empty!(map.value_per_mip_level)
+  dict = @something(map.value_per_mip_level, ValuePerMipLevel{T}([mip_levels(map)], [map.value::T]))
+  map.value = nothing
+  map.value_per_mip_level = nothing
+  insert!(map.value_per_layer, layers(map), dict)
   map
 end
 
 function update_for_layers!(map::SubresourceMap{T}, subresource::Subresource, value::T) where {T}
-  parametrize_by_mip_level!(map)
   parametrize_by_layer!(map)
   merge_for_range!(map.value_per_layer, subresource.layers) do value_per_mip_level::Optional{ValuePerMipLevel{T}}
-    dict = isnothing(value_per_mip_level) ? ValuePerMipLevel{T}() : deepcopy(value_per_mip_level)
-    replace_for_range!(dict, subresource.mip_levels, value)
+    if isnothing(value_per_mip_level)
+      dict = ValuePerMipLevel{T}()
+      replace_for_range!(dict, subresource.mip_levels, value)
+    else
+      # Reuse dictionary if no change occurs.
+      # This will also avoid splitting a key since identity (`===`) is maintained.
+      # Otherwise make a new copy of it and perform the changes.
+      dict = value_per_mip_level
+      is_same = false
+      match_range(dict, subresource.mip_levels) do other
+        is_same |= other === value
+      end
+      if !is_same
+        dict = deepcopy(dict)
+        replace_for_range!(dict, subresource.mip_levels, value)
+      end
+    end
     dict
   end
   map
@@ -249,6 +265,23 @@ Existing entries will be updated whenever necessary to ensure that the keys rema
 """
 replace_for_range!(dict, range::UnitRange{Int64}, value) = merge_for_range!(old -> value, dict, range)
 
+"Call `f(value)` for each entry of `dict` that overlaps with `range`."
+function match_range(f, dict, range::UnitRange{Int64})
+  current_value = nothing
+  for (key, value) in pairs(dict)
+    isdisjoint(key, range) && continue
+    !isnothing(current_value) && current_value !== value && f(current_value)
+    current_value = value
+  end
+  !isnothing(current_value) && f(current_value)
+end
+
+"""
+Replace any entry in `dict` overlapping with `range` by `f(other)`.
+
+`other === nothing` if the operation is a sort of `insert!`; that is, if overlapping entries are strict subsets of `range`,
+or if no entry exists which overlaps with `range`.
+"""
 function merge_for_range!(merge, dict, range::UnitRange{Int64})
   # See if the range matches an existing key or supersedes any, removing all those that are superseded.
   for (key, other) in pairs(dict)
@@ -263,13 +296,18 @@ function merge_for_range!(merge, dict, range::UnitRange{Int64})
 
   for (key, other) in pairs(dict)
     isdisjoint(range, key) && continue
+
+    # Avoid splitting a key if no value changes occurs.
+    new = merge(other)
+    new === other && (issubset(range, key) ? (return dict) : continue)
+
     before, after = split_range(key, range)
     delete!(dict, key)
     !isempty(before) && insert!(dict, before, other)
     !isempty(after) && insert!(dict, after, other)
     if !isempty(before) && !isempty(after) # also means that `range` is a strict subset of `key`
       common = intersect(range, key)
-      insert!(dict, common, merge(other))
+      insert!(dict, common, new)
       return dict
     end
   end

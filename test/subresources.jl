@@ -111,4 +111,14 @@ end
   @test query_subresource(smap, Subresource(3:3, 1:4)) == [(3:3, 1:2) => :d, (3:3, 3:4) => :e]
   @test query_subresource(smap, Subresource(1:3, 1:4)) == [(1:1, 1:4) => :b, (2:3, 1:2) => :d, (2:3, 3:4) => :e]
   @test query_subresource(smap, Subresource(1:6, 1:4)) == [(1:1, 1:4) => :b, (2:3, 1:2) => :d, (2:3, 3:4) => :e, (4:4, 1:4) => :c, (5:6, 1:4) => :f]
+
+  # Avoid key splitting when the set value is identical to the one in the encompassing range.
+  smap[Subresource(5:5, 1:4)] = :f
+  @test !haskey(smap.value_per_layer, 5:5)
+  @test haskey(smap.value_per_layer, 5:6)
+  smap[Subresource(5:5, 2:3)] = :f
+  @test !haskey(smap.value_per_layer, 5:5)
+  @test haskey(smap.value_per_layer, 5:6)
+  @test !haskey(smap.value_per_layer[5:6], 2:3)
+  @test haskey(smap.value_per_layer[5:6], 1:4)
 end;
