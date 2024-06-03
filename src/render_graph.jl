@@ -406,13 +406,13 @@ function resolve_attachment_pairs(rg::RenderGraph)
         combined_uses = reduce(merge, resource_uses)
         if combined_uses.usage.samples > 1
           attachment = resource.data::LogicalAttachment
-          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.subresource.mip_range, attachment.subresource.layer_range, attachment.subresource.aspect, 1), resolve_attachment_name(resource))
+          resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.subresource, 1), resolve_attachment_name(resource))
         end
       end
     else
       attachment = resource.data::Attachment
       is_multisampled(attachment) || continue
-      resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims; attachment.view.subresource.mip_range, attachment.view.subresource.layer_range), resolve_attachment_name(resource))
+      resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims, attachment.view.subresource, 1), resolve_attachment_name(resource))
     end
     !isnothing(resolve_attachment) && insert!(resolve_pairs, resource, resolve_attachment)
   end
