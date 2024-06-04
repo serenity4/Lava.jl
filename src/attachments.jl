@@ -9,7 +9,7 @@ struct Attachment
   access::MemoryAccess
 end
 
-@forward_methods Attachment field = :view Subresource layer_range mip_range aspect_flags image_layout samples dimensions get_image Vk.Offset3D Vk.Extent3D
+@forward_methods Attachment field = :view Subresource layer_range mip_range aspect_flags image_layout samples dimensions image_dimensions attachment_dimensions get_image Vk.Offset3D Vk.Extent3D
 
 function Base.similar(att::Attachment; memory_domain = nothing, usage_flags = att.view.image.usage_flags, access = att.access, is_linear = att.view.image.is_linear, dims = att.view.image.dims, format = att.view.format)
   (; view) = att

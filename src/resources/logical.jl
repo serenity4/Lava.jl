@@ -49,5 +49,7 @@ function LogicalAttachment(
 end
 
 
-dimensions(x::Union{LogicalImage,LogicalAttachment}) = x.dims
+image_dimensions(x::Union{LogicalImage,LogicalAttachment}) = x.dims
+attachment_dimensions(x::Union{LogicalImage,LogicalAttachment}) = isnothing(image_dimensions(x)) ? nothing : attachment_dimensions(image_dimensions(x), x.subresource)
+dimensions(x::Union{LogicalImage,LogicalAttachment}) = attachment_dimensions(x)
 samples(x::Union{LogicalImage,LogicalAttachment}) = something(x.samples, 1)

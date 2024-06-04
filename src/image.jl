@@ -19,7 +19,8 @@ end
 vk_handle_type(::Type{Image}) = Vk.Image
 
 Base.ndims(image::Image) = length(image.dims)
-dimensions(image::Image) = image.dims
+image_dimensions(image::Image) = image.dims
+dimensions(image::Image) = image_dimensions(image)
 
 Vk.bind_image_memory(image::Image, memory::Memory) = Vk.bind_image_memory(device(image), image, memory, memory.offset)
 
@@ -162,8 +163,16 @@ end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D samples dimensions
+@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D samples image_dimensions
 @forward_methods ImageView field = :subresource aspect_flags layer_range mip_range
+
+function attachment_dimensions(base_dimensions, subresource::Subresource)
+  range = mip_range(subresource)
+  length(range) == 1 || error("A view into multiple image mip levels does not have definite dimensions")
+  base_dimensions .>> (range[1] - 1)
+end
+attachment_dimensions(view::ImageView) = attachment_dimensions(image_dimensions(view), view.subresource)
+dimensions(view::ImageView) = attachment_dimensions(view)
 
 Subresource(view::ImageView) = view.subresource
 image_layout(view::ImageView) = image_layout(view.image, view.subresource)

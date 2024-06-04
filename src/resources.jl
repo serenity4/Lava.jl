@@ -100,8 +100,16 @@ function samples(r::Resource)
 end
 
 function dimensions(r::Resource)
-  isbuffer(r) && error("Cannot retrieve image dimensions for buffer resources.")
+  isbuffer(r) && error("Cannot retrieve dimensions for buffer resources.")
   dimensions(r.data::Union{Image,LogicalImage,Attachment,LogicalAttachment})
+end
+function image_dimensions(r::Resource)
+  isbuffer(r) && error("Cannot retrieve image dimensions for buffer resources.")
+  image_dimensions(r.data::Union{Image,LogicalImage,Attachment,LogicalAttachment})
+end
+function attachment_dimensions(r::Resource)
+  isbuffer(r) && error("Cannot retrieve attachment dimensions for buffer resources.")
+  attachment_dimensions(r.data::Union{Attachment,LogicalAttachment})
 end
 
 function image_format(r::Resource)
