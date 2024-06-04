@@ -69,8 +69,7 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
 
   n = length(dims)
   initial_layout = preinitialized ? Vk.IMAGE_LAYOUT_PREINITIALIZED : Vk.IMAGE_LAYOUT_UNDEFINED
-  extent_dims = ones(Int64, 3)
-  extent_dims[1:n] .= dims
+  extent_dims = ntuple(i -> i > n ? 1 : dims[i], 3)
   info = Vk.ImageCreateInfo(
     image_type(n),
     format,
@@ -163,8 +162,10 @@ end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D samples image_dimensions
+@forward_methods ImageView field = :image Vk.Offset3D samples image_dimensions
 @forward_methods ImageView field = :subresource aspect_flags layer_range mip_range
+
+Vk.Extent3D(view::ImageView) = Vk.Extent3D(dimensions(view)..., ntuple(Returns(1), 3 - length(image_dimensions(view)))...)
 
 function attachment_dimensions(base_dimensions, subresource::Subresource)
   range = mip_range(subresource)

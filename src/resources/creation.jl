@@ -123,7 +123,7 @@ function transfer(
         Vk.cmd_copy_image(command_buffer,
         src_image, src_layout,
         dst_image, dst_layout,
-        [Vk.ImageCopy(src_subresource, Vk.Offset3D(src_image), dst_subresource, Vk.Offset3D(dst_image), Vk.Extent3D(src_image))],
+        [Vk.ImageCopy(src_subresource, Vk.Offset3D(src), dst_subresource, Vk.Offset3D(dst), Vk.Extent3D(src))],
       )
       end
     end
@@ -172,17 +172,16 @@ end
 buffer_regions_for_transfer(buffer, view_or_image) = layer_range(view_or_image) == 1:1 ? [whole_buffer_to_whole_image(buffer, view_or_image)] : buffer_regions_to_image_layers(buffer, view_or_image)
 
 function whole_buffer_to_whole_image(buffer::Buffer, view_or_image::Union{Image,ImageView})
-  image = get_image(view_or_image)
-  Vk.BufferImageCopy(buffer.offset, image.dims..., Subresource(view_or_image), Vk.Offset3D(image), Vk.Extent3D(image))
+  Vk.BufferImageCopy(buffer.offset, dimensions(view_or_image)..., Subresource(view_or_image), Vk.Offset3D(view_or_image), Vk.Extent3D(view_or_image))
 end
 
 function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Image,ImageView})
   image = get_image(view_or_image)
   regions = Vk.BufferImageCopy[]
   buffer_offset = buffer.offset
-  image_offset = Vk.Offset3D(image)
-  extent = Vk.Extent3D(image)
-  width, height = image.dims
+  image_offset = Vk.Offset3D(view_or_image)
+  extent = Vk.Extent3D(view_or_image)
+  width, height = dimensions(view_or_image)
   (layer_size, layer_offset) = @match layout = buffer.layout begin
     ::NoPadding || ::NativeLayout => begin
         T = Vk.format_type(image.format)
@@ -255,9 +254,9 @@ function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = image.usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-    dst = similar(image; layers = 1, mip_levels = 1, is_linear = true, usage_flags, flags = Vk.ImageCreateFlag())
+    dst = similar(image; dims = dimensions(view), layers = 1, mip_levels = 1, is_linear = true, usage_flags, flags = Vk.ImageCreateFlag())
     transfer(device, view, dst; submission = sync_submission(device))
-    collect(T, similar(view, dst; layer_range = 1:1), device)
+    collect(T, similar(view, dst; layer_range = 1:1, mip_range = 1:1), device)
   end
 end
 Base.collect(view::ImageView, device::Device) = collect(format_type(view.format), view, device)
