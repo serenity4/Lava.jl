@@ -162,7 +162,7 @@ end
 
 vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
-@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D image_layout samples dimensions
+@forward_methods ImageView field = :image Vk.Offset3D Vk.Extent3D samples dimensions
 @forward_methods ImageView field = :subresource aspect_flags layer_range mip_range
 
 Subresource(view::ImageView) = view.subresource

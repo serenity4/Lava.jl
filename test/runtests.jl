@@ -131,8 +131,10 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       b3 = Buffer(device; data = collect(1:1000), usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT)
       @test reinterpret(Int64, collect(b3, device)) == collect(1:1000)
 
+      # Include the sampled bit to avoid validation layers complaining for image views.
+      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
+
       data = rand(RGBA{Float16}, 200, 100)
-      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT # sampled bit required for valid usage
       img1 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage_flags)
       @test collect(img1, device) == data
       img2 = Image(device; data, memory_domain = MEMORY_DOMAIN_HOST, optimal_tiling = false, usage_flags)
@@ -144,12 +146,24 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
 
       data = [rand(RGBA{Float16}, 256, 256) for _ in 1:6]
       flags = Vk.IMAGE_CREATE_CUBE_COMPATIBLE_BIT
-      # Include the sampled bit to avoid validation layers complaining for image views.
-      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
       cubemap = Image(device; data, layers = 6, usage_flags, flags)
       for i in 1:6
         face = ImageView(cubemap; layer_range = i:i)
         @test collect(face, device) == data[i]
+      end
+
+      image = Image(device; format = RGBA{Float16}, dims = [256, 256], layers = 6, mip_levels = 4, usage_flags = usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+      for layer in 1:6
+        for mip_level in 1:4
+          layer = 1
+          mip_level = 1
+          let view = ImageView(image; layer_range = layer:layer, mip_range = mip_level:mip_level)
+            n = 256 >> (mip_level - 1)
+            data = rand(RGBA{Float16}, n, n)
+            copyto!(view, data, device)
+            @test collect(view, device) == data
+          end
+        end
       end
     end
   end

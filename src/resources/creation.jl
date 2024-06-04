@@ -255,7 +255,7 @@ function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = image.usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-    dst = similar(image; layers = 1, is_linear = true, usage_flags, flags = Vk.ImageCreateFlag())
+    dst = similar(image; layers = 1, mip_levels = 1, is_linear = true, usage_flags, flags = Vk.ImageCreateFlag())
     transfer(device, view, dst; submission = sync_submission(device))
     collect(T, similar(view, dst; layer_range = 1:1), device)
   end
