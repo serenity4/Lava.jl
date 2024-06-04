@@ -263,22 +263,22 @@ end
 
 function update_for_layers!(map::SubresourceMap{T}, subresource::Subresource, value::T) where {T}
   parametrize_by_layer!(map)
-  merge_for_range!(map.value_per_layer, subresource.layer_range) do value_per_mip_level::Optional{ValuePerMipLevel{T}}
+  merge_for_range!(map.value_per_layer, layer_range(subresource)) do value_per_mip_level::Optional{ValuePerMipLevel{T}}
     if isnothing(value_per_mip_level)
       dict = ValuePerMipLevel{T}()
-      replace_for_range!(dict, subresource.mip_range, value)
+      replace_for_range!(dict, mip_range(subresource), value)
     else
       # Reuse dictionary if no change occurs.
       # This will also avoid splitting a key since identity (`===`) is maintained.
       # Otherwise make a new copy of it and perform the changes.
       dict = value_per_mip_level
       is_same = false
-      match_range(dict, subresource.mip_range) do other
+      match_range(dict, mip_range(subresource)) do other
         is_same |= other === value
       end
       if !is_same
         dict = deepcopy(dict)
-        replace_for_range!(dict, subresource.mip_range, value)
+        replace_for_range!(dict, mip_range(subresource), value)
       end
     end
     dict
@@ -348,7 +348,7 @@ function merge_for_range!(merge, dict, range::UnitRange{Int64})
     delete!(dict, key)
     !isempty(before) && insert!(dict, before, other)
     !isempty(after) && insert!(dict, after, other)
-    if !isempty(before) && !isempty(after) # also means that `range` is a strict subset of `key`
+    if issubset(range, key)
       common = intersect(range, key)
       insert!(dict, common, new)
       return dict

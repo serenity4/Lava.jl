@@ -176,4 +176,8 @@ end
       @test !isempty(matched)
     end
   end
+
+  smap = SubresourceMap(6, 4, :a)
+  smap[Subresource(1:1, 1:1)] = :b
+  @test query_subresource(smap, Subresource(1:1, 1:4)) == [(1:1, 1:1) => :b, (1:1, 2:4) => :a]
 end;
