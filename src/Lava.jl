@@ -114,6 +114,11 @@ export
   device_address, allocate!, isallocated, bind!,
   transfer,
 
+  # subresources
+  Subresource, SubresourceMap,
+  LayerRange, layer_range,
+  MipRange, mip_range,
+
   # images
   LogicalImage, Image, ImageView,
 
