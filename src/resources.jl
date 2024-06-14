@@ -57,8 +57,8 @@ end
   getfield(resource, name)
 end
 
-Resource(type::ResourceType, data, name = nothing, flags = ResourceFlags(0)) = Resource(ResourceID(type), data, name, flags)
-Resource(data, name = nothing, flags = zero(ResourceFlags)) = Resource(resource_type(data), data, name, flags | ResourceFlags(data))
+Resource(type::ResourceType, data; name = nothing, flags = ResourceFlags(0)) = Resource(ResourceID(type), data, name, flags)
+Resource(data; name = nothing, flags = zero(ResourceFlags)) = Resource(resource_type(data), data; name, flags = flags | ResourceFlags(data))
 
 print_name(io::IO, resource::Resource) = printstyled(IOContext(io, :color => true), isnothing(resource.name) ? resource.id : resource.name; color = color(resource))
 
@@ -118,4 +118,4 @@ function image_format(r::Resource)
   throw(ArgumentError("Formats can only be extracted from image or attachment resources."))
 end
 
-Base.similar(r::Resource, args...; name = nothing, kwargs...) = Resource(similar(r.data, args...; kwargs...), name)
+Base.similar(r::Resource, args...; name = nothing, kwargs...) = Resource(similar(r.data, args...; kwargs...); name)
