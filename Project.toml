@@ -43,7 +43,7 @@ SnoopPrecompile = "1"
 StructEquality = "2"
 StyledStrings = "1"
 TimerOutputs = "0.5"
-Vulkan = "0.6"
+Vulkan = "0.6.16"
 julia = "1.7"
 
 [extras]

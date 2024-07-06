@@ -7,7 +7,10 @@ end
 
 function Frame(image::Image)
     (; device) = image.handle
-    Frame(image, BinarySemaphore(device), BinarySemaphore(device), TimelineSemaphore(device))
+    image_acquired = BinarySemaphore(device)
+    may_present = BinarySemaphore(device)
+    image_rendered = TimelineSemaphore(device)
+    Frame(image, image_acquired, may_present, image_rendered)
 end
 
 mutable struct FrameCycle{T}
@@ -19,7 +22,8 @@ mutable struct FrameCycle{T}
 end
 
 function FrameCycle(device::Device, swapchain::Swapchain)
-    FrameCycle(device, swapchain, get_frames(device, swapchain), 1, 0)
+    frames = frames_from_swapchain(device, swapchain)
+    FrameCycle(device, swapchain, frames, lastindex(frames), 0)
 end
 
 function FrameCycle(device::Device, surface::Surface; swapchain_kwargs...)
@@ -42,7 +46,7 @@ function recreate_swapchain!(fc::FrameCycle, new_extent::Vk.Extent2D)
     fc.swapchain = setproperties(swapchain, (; info, handle))
 end
 
-function get_frames(device, swapchain)
+function frames_from_swapchain(device, swapchain)
     frames = Frame[]
     for handle in unwrap(Vk.get_swapchain_images_khr(device, swapchain))
         img = image_wsi(handle, swapchain.info)
@@ -56,7 +60,7 @@ function recreate!(fc::FrameCycle)
     if current_extent ≠ fc.swapchain.info.image_extent
         recreate_swapchain!(fc, current_extent)
     end
-    fc.frames .= get_frames(fc.device, fc.swapchain)
+    fc.frames .= frames_from_swapchain(fc.device, fc.swapchain)
 end
 
 function next_frame!(fc::FrameCycle, idx)
@@ -72,8 +76,6 @@ function acquire_next_image(fc::FrameCycle)
     (; image_acquired) = current_frame(fc)
     # We pass in a semaphore to signal because the implementation
     # may not be done reading from the image when this returns.
-    # We use the semaphore from the last frame because we don't know
-    # which index we'll get, but we'll exchange the semaphores once we know.
     status = Vk.acquire_next_image_khr(fc.device, fc.swapchain, 0; semaphore = image_acquired)
     if !iserror(status)
         idx, result = unwrap(status)
@@ -114,28 +116,26 @@ function cycle!(f, fc::FrameCycle)
 end
 
 function cycle!(f, fc::FrameCycle, idx::Integer)
+    (; swapchain, device) = fc
     last_frame = current_frame(fc)
     (; image_acquired) = last_frame
     frame = next_frame!(fc, idx)
-    # Exchange semaphores.
-    last_frame.image_acquired, frame.image_acquired = frame.image_acquired, last_frame.image_acquired
-
-    (; queues) = fc.device
 
     # Submit rendering commands.
     @timeit to "Submit rendering commands" begin
         @timeit to "User-specified cycle function" submission = f(frame.image)
+        isnothing(submission) && return nothing
         isa(submission, SubmissionInfo) || throw(ArgumentError("A `SubmissionInfo` must be returned to properly synchronize with frame presentation."))
         push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfo(image_acquired.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT))
         push!(submission.signal_semaphores, Vk.SemaphoreSubmitInfo(frame.may_present.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT))
         push!(submission.release_after_completion, frame)
-        @timeit to "Submission" state = submit(queues, submission)
+        @timeit to "Submission" state = submit(device.queues, submission)
     end
 
     # Submit the presentation command.
     @timeit to "Submit presentation commands" begin
-        present_info = Vk.PresentInfoKHR([frame.may_present.handle], [fc.swapchain.handle], [idx - 1])
-        ret = Vk.queue_present_khr(fc.swapchain.queue, present_info)
+        present_info = Vk.PresentInfoKHR([frame.may_present.handle], [swapchain.handle], [idx - 1])
+        ret = Vk.queue_present_khr(swapchain.queue, present_info)
         # Ignore out of date errors, but throw if others are encountered.
         iserror(ret) && unwrap_error(ret).code ≠ Vk.ERROR_OUT_OF_DATE_KHR && unwrap(ret)
     end

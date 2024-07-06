@@ -199,14 +199,14 @@ function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")
 end
 
-buffer_resource(size::Integer; name = nothing) = Resource(LogicalBuffer(size), name)
+buffer_resource(size::Integer; name = nothing) = Resource(LogicalBuffer(size); name)
 
 function buffer_resource(device::Device, data; name = nothing, memory_domain::MemoryDomain = MEMORY_DOMAIN_DEVICE, usage_flags = Vk.BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, submission = nothing, queue_family_indices = queue_family_indices(device), sharing_mode = Vk.SHARING_MODE_EXCLUSIVE)
   buffer = Buffer(device; data, memory_domain, usage_flags, submission, queue_family_indices, sharing_mode)
   Resource(buffer; name)
 end
 
-image_resource(format::Union{Vk.Format, DataType}, dims; name = nothing, mip_levels = 1, layers = 1) = Resource(LogicalImage(format, dims; mip_levels, layers), name)
+image_resource(format::Union{Vk.Format, DataType}, dims; name = nothing, mip_levels = 1, layers = 1) = Resource(LogicalImage(format, dims; mip_levels, layers); name)
 
 function image_resource(device::Device, data;
   name = nothing,

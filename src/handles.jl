@@ -13,6 +13,8 @@ handle(x) = Vk.handle(x)
 handle(x::LavaAbstraction) = handle(x.handle)
 Vk.handle(x::LavaAbstraction) = handle(x)
 
+depends_on(handle, other) = Vk.depends_on(@__MODULE__().handle(handle)::Vk.Handle, @__MODULE__().handle(other)::Vk.Handle)
+
 Base.finalize(x::LavaAbstraction) = finalize(handle(x))
 
 Vk.instance(x::LavaAbstraction) = Vk.instance(handle(x))
