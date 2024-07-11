@@ -76,7 +76,7 @@ function Base.empty!(device::Device)
 end
 
 Shader(device::Device, source::ShaderSource) = Shader(device.shader_cache, source)
-ShaderSource(device::Device, spec::ShaderSpec) = ShaderSource(device.shader_cache, spec)
+ShaderSource(device::Device, info::ShaderInfo) = ShaderSource(device.shader_cache, info)
 
 const QUEUE_GENERAL_BITS = Vk.QUEUE_GRAPHICS_BIT | Vk.QUEUE_COMPUTE_BIT | Vk.QUEUE_TRANSFER_BIT
 
