@@ -50,7 +50,7 @@ function Device(physical_device::Vk.PhysicalDevice, application_version::Version
     Dictionary(),
     Vk.GraphicsPipelineCreateInfo[],
     Vk.ComputePipelineCreateInfo[],
-    ShaderCache(handle, alignment),
+    ShaderCache(handle),
     [],
     CommandPools(handle),
     SupportedFeatures(physical_device, api_version, extensions, features),

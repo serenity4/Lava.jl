@@ -176,7 +176,8 @@ Base.convert(::Type{DescriptorIndex}, idx::UInt32) = reinterpret(DescriptorIndex
 Base.convert(::Type{DescriptorIndex}, idx::Integer) = convert(DescriptorIndex, convert(UInt32, idx))
 Base.convert(::Type{UInt32}, idx::DescriptorIndex) = reinterpret(UInt32, idx)
 
-Base.getindex(arr::Union{Arr,AbstractVector}, idx::DescriptorIndex) = getindex(arr, convert(UInt32, idx))
+Base.getindex(arr::AbstractVector, idx::DescriptorIndex) = getindex(arr, convert(UInt32, idx))
+Base.getindex(arr::Arr, idx::DescriptorIndex) = getindex(arr, convert(UInt32, idx))
 
 Base.show(io::IO, desc::DescriptorIndex) = print(io, DescriptorIndex, '(', reinterpret(UInt32, desc), ')')
 

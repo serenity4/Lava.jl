@@ -3,7 +3,7 @@ using Lava: Memory
 using Test
 using Random: Random, MersenneTwister, AbstractRNG
 using Dictionaries
-using SPIRV: SPIRV, @compile, validate, ShaderInterface, U, F, πF, @mat, image_type, invalidate_all!
+using SPIRV: SPIRV, @compile, validate, ShaderInterface, U, F, πF, @mat, image_type
 using SPIRV.MathFunctions
 using SymbolicGA: @ga
 using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve, Point, Point2, Point2f, Box, PointSet, HyperCube, MeshEncoding, reencode, MESH_TOPOLOGY_TRIANGLE_LIST

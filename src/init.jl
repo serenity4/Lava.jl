@@ -80,7 +80,7 @@ function init(;
 
   union!(
     device_vulkan_features,
-    [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :synchronization2, :dynamic_rendering, :timeline_semaphore],
+    [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :variable_pointers, :variable_pointers_storage_buffer, :synchronization2, :dynamic_rendering, :timeline_semaphore, :maintenance4],
   )
   vulkan_features = physical_device_features_core(device_vulkan_features)
   union!(device_specific_features, [:shader_float_64, :shader_int_16, :shader_int_64, :sampler_anisotropy])

@@ -5,7 +5,7 @@ end
 @testset "Shader cache" begin
   @test_throws "`Device` expected" @fragment "hello" test_shader(::Vec4::Output)
 
-  vert_shader = @shader :vertex device test_shader(::Vec4::Output)
+  vert_shader = @vertex device test_shader(::Vec4::Output)
   @test isa(vert_shader, Shader)
 
   frag_shader = @fragment device test_shader(::Vec4::Output)

@@ -1,8 +1,3 @@
-macro shader(model::QuoteNode, device, kwargs...)
-  (ex, options, cached, interpreter, assemble) = parse_shader_kwargs(kwargs)
-  propagate_source(__source__, esc(shader(device, ex, __module__, SPIRV.execution_models[model.value::Symbol], options, cached, interpreter, assemble)))
-end
-
 function parse_shader_kwargs(kwargs)
   ex = options = cached = interpreter = assemble = nothing
   for kwarg in kwargs
@@ -20,10 +15,26 @@ function parse_shader_kwargs(kwargs)
   (ex, options, cached, interpreter, assemble)
 end
 
-for (name, model) in pairs(SPIRV.execution_models)
+for (name, model) in pairs(SPIRV.EXECUTION_MODELS)
   @eval macro $name(device, kwargs...)
-    (ex, options, cached, interpreter, assemble) = parse_shader_kwargs(kwargs)
-    propagate_source(__source__, esc(shader(device, ex, __module__, $model, options, cached, interpreter, assemble)))
+    cached = true
+    kwargs = collect(kwargs)
+    for (i, kwarg) in enumerate(kwargs)
+      Meta.isexpr(kwarg, :(=), 2) && kwarg.args[1] === :cached && (cached = kwarg.args[2]; deleteat!(kwargs, i))
+    end
+    (ex, options, features, cache, assemble, layout, interpreter) = SPIRV.parse_shader_kwargs(kwargs)
+    _device, _features, _layout, _cache, _assemble, _source = gensym.([:device, :features, :layout, :cache, :assemble, :source])
+    compile_ex = SPIRV.compile_shader_ex(ex, __module__, $model; options, features = _features, cache = _cache, interpreter, layout = _layout, assemble = _assemble)
+    propagate_source(__source__, esc(quote
+      $_device = $device
+      isa($_device, $Device) || error("`Device` expected as first positional argument, got value of type ", typeof($_device))
+      $_features = something($features, $_device.spirv_features)
+      $_layout = something($layout, $VulkanLayout($_device.alignment))
+      $_cache = $cached === true ? something($cache, $_device.shader_cache.compilation_cache) : nothing
+      $_assemble = something($assemble, true)
+      $_source = $compile_ex
+      $cached === true ? $Shader($_device.shader_cache, $_source) : $Shader($_device.handle, $_source)
+    end))
   end
   @eval export $(Symbol("@$name"))
 end
@@ -48,7 +59,6 @@ struct ShaderCache
   device::Vk.Device
   compilation_cache::ShaderCompilationCache
   shaders::Cache{IdDict{ShaderSource,Shader}}
-  alignment::VulkanAlignment
 end
 
 function Base.empty!(cache::ShaderCache)
@@ -56,25 +66,10 @@ function Base.empty!(cache::ShaderCache)
   empty!(cache.shaders)
   cache
 end
-ShaderCache(device, alignment) = ShaderCache(device, ShaderCompilationCache(), Cache{IdDict{ShaderSource,Shader}}(), alignment)
+ShaderCache(device) = ShaderCache(device, ShaderCompilationCache(), Cache{IdDict{ShaderSource,Shader}}())
 
 Shader(cache::ShaderCache, source::ShaderSource) = get!(cache, source)
 Base.get!(cache::ShaderCache, source::ShaderSource) = get!(() -> Shader(cache.device, source), cache.shaders, source)
-
-function shader(device, ex::Expr, __module__, execution_model, options, cached, interpreter, assemble)
-  _device, _source, _cached, _compilation_cache, _interpreter, _assemble = gensym.((:device, :source, :cached, :compilation_cache, :interpreter, :assemble))
-  quote
-    $_device = $device
-    isa($_device, $Device) || throw(ArgumentError("`Device` expected as first argument, got a value of type $(typeof(device))`"))
-    $_assemble = something($assemble, true)
-    $_cached = something($cached, true) & $_assemble
-    $_interpreter = @something($interpreter, $SPIRVInterpreter())
-    $_compilation_cache = $_cached ? $_device.shader_cache.compilation_cache : nothing
-    $_source = $(SPIRV.shader(ex, __module__, execution_model, options, :($_device.spirv_features), :($_compilation_cache); assemble = :($_assemble), interpreter = :($_interpreter), layout = :(VulkanLayout($_device.shader_cache.alignment))))
-    !$_assemble && return $_source
-    $_cached ? $Shader($_device, $_source) : $Shader($_device.shader_cache.device, $_source)
-  end
-end
 
 function Vk.PipelineShaderStageCreateInfo(shader::Shader)
   specialization_info = isempty(shader.specialization_constants) ? C_NULL : shader.specialization_constants
