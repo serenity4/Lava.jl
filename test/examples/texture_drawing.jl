@@ -1,5 +1,5 @@
 struct TextureDrawing
-  uv_scaling::Vec{2,Float32}
+  uv_scaling::Vec2
   img_index::DescriptorIndex
 end
 
@@ -20,14 +20,13 @@ function texture_frag(out_color, uv, data_address, images)
   data = @load data_address::TextureData
   drawing = @load data.drawing::TextureDrawing
   (; uv_scaling, img_index) = drawing
-  texcolor = images[img_index](uv .* uv_scaling)
-  out_color[] = Vec(texcolor.r, texcolor.g, texcolor.b, 1F)
+  out_color[] = images[img_index](uv .* uv_scaling)
 end
 
 function texture_program(device)
-  vert = @vertex device texture_vert(::Vec2::Output, ::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+  vert = @vertex device texture_vert(::Mutable{Vec2}::Output, ::Mutable{Vec4}::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
   frag = @fragment device texture_frag(
-    ::Vec4::Output,
+    ::Mutable{Vec4}::Output,
     ::Vec2::Input,
     ::DeviceAddressBlock::PushConstant,
     ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)}}::UniformConstant{@DescriptorSet($GLOBAL_DESCRIPTOR_SET_INDEX), @Binding($BINDING_COMBINED_IMAGE_SAMPLER)})
@@ -70,5 +69,5 @@ end
   ]
   draw = draw_texture(device, vdata, color)
   data = render_graphics(device, draw)
-  save_test_render("distorted_normal_map.png", data, 0x9eda4cb9b969b269)
+  save_test_render("distorted_normal_map.png", data, 0x7c14e3ffe5603da5)
 end;

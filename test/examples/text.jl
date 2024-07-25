@@ -28,8 +28,8 @@ function glyph_quads(line::Line, segment::LineSegment, glyph_size, pen_position 
     # Assume that the absence of a glyph means there is no glyph to draw.
     isnothing(glyph) && continue
     (; header) = glyph
-    min = scale .* Point(header.xmin, header.ymin)
-    max = scale .* Point(header.xmax, header.ymax)
+    min = scale .* Vec(header.xmin, header.ymin)
+    max = scale .* Vec(header.xmax, header.ymax)
     set = PointSet(Box(min .+ origin, max .+ origin))
     append!(positions, Vec2.(set.points))
     index = get!(processed_glyphs, glyph_id) do
@@ -68,8 +68,8 @@ function text_vert(position, glyph_coordinates, frag_quad_index, index, data_add
   frag_quad_index.x = quad_index
   origin = @load data.glyph_origins[quad_index]::Vec2
   glyph_coordinates[] = xy - origin
-  position.xyz = orthogonal_projection(Vec3(xy..., 1F), data.camera)
-  position.w = 1F
+  @swizzle position.xyz = orthogonal_projection(Vec3(xy..., 1F), data.camera)
+  @swizzle position.w = 1F
 end
 
 function text_frag(out_color, glyph_coordinates, quad_index, data_address)
@@ -77,13 +77,13 @@ function text_frag(out_color, glyph_coordinates, quad_index, data_address)
   (; glyph_curves, glyph_indices, glyph_ranges, glyph_origins, font_size, color) = @load data_address::TextData
   glyph_index = @load glyph_indices[quad_index]::UInt32
   range = @load glyph_ranges[glyph_index]::UnitRange{UInt32}
-  out_color.rgb = color
-  out_color.a = intensity(glyph_coordinates / font_size, glyph_curves, range, 60F)
+  @swizzle out_color.rgb = color
+  @swizzle out_color.a = intensity(glyph_coordinates / font_size, glyph_curves, range, 60F)
 end
 
 function text_program(device)
-  vert = @vertex device text_vert(::Vec4::Output{Position}, ::Vec2::Output, ::Vec{2,UInt32}::Output, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
-  frag = @fragment device text_frag(::Vec4::Output, ::Vec2::Input, ::Vec{2,UInt32}::Input{@Flat}, ::DeviceAddressBlock::PushConstant)
+  vert = @vertex device text_vert(::Mutable{Vec4}::Output{Position}, ::Mutable{Vec2}::Output, ::Vec2U::Output, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+  frag = @fragment device text_frag(::Mutable{Vec4}::Output, ::Vec2::Input, ::Vec2U::Input{@Flat}, ::DeviceAddressBlock::PushConstant)
 
   Program(vert, frag)
 end

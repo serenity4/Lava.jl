@@ -86,7 +86,7 @@ end
     p = Vec3(0.2, 0.2, 1.0)
     p′ = apply_rotation(p, rot)
     @test p′.z == p.z
-    @test p′.xy ≈ Vec2(0, 0.2sqrt(2))
+    @test @swizzle(p′.xy) ≈ Vec2(0, 0.2sqrt(2))
     @test apply_rotation(p, @set rot.angle = 0) == p
     rot = Rotation(Plane(Tuple(rand(3))), 1.5)
     @test apply_rotation(p, rot) ≉ p
@@ -102,11 +102,11 @@ end
     camera = PinholeCamera(0, 10, Transform())
     p = Vec3(0.4, 0.5, 1.7)
     p′ = orthogonal_projection(p, camera)
-    @test p′.xy == Vec2(0.4, 0.5)
+    @test @swizzle(p′.xy) == Vec2(0.4, 0.5)
     @test camera.near_clipping_plane < p′.z < camera.far_clipping_plane
-    p.z = camera.near_clipping_plane
+    @reset p.z = camera.near_clipping_plane
     @test orthogonal_projection(p, camera).z == 0
-    p.z = camera.far_clipping_plane
+    @reset p.z = camera.far_clipping_plane
     @test orthogonal_projection(p, camera).z == 1
 
     @test unwrap(validate(@compile orthogonal_projection(::Vec3, ::PinholeCamera)))

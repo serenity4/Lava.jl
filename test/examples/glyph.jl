@@ -61,13 +61,13 @@ end
 
 function glyph_frag(out_color, position, data_address)
   (; range, curves, color) = @load data_address::GlyphData
-  out_color.rgb = color
-  out_color.a = intensity(position, curves, range, 36F)
+  @swizzle out_color.rgb = color
+  @swizzle out_color.a = intensity(position, curves, range, 36F)
 end
 
 function glyph_program(device)
-  vert = @vertex device glyph_vert(::Vec4::Output{Position}, ::Vec2::Output, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
-  frag = @fragment device glyph_frag(::Vec4::Output, ::Vec2::Input, ::DeviceAddressBlock::PushConstant)
+  vert = @vertex device glyph_vert(::Mutable{Vec4}::Output{Position}, ::Mutable{Vec2}::Output, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+  frag = @fragment device glyph_frag(::Mutable{Vec4}::Output, ::Vec2::Input, ::DeviceAddressBlock::PushConstant)
 
   Program(vert, frag)
 end
@@ -108,118 +108,3 @@ end
   data = render_graphics(device, draw)
   save_test_render("glyph.png", data, 0x29cebbf69bf12f45)
 end
-
-nothing;
-
-# Prototyping area
-
-#=
-
-function intensity(point, glyph, units_per_em, font_size)
-    res = sum(curves(glyph) ./ units_per_em) do p
-        intensity(p .- Ref(point), float(font_size))
-    end
-    sqrt(abs(res))
-end
-
-function intensity2(curve_points, pixel_per_em)
-    VT = eltype(curve_points)
-    FT = eltype(VT)
-    res = zero(FT)
-    for coord in (1, 2)
-        (x̄₁, x̄₂, x̄₃) = getindex.(curve_points, 3 - coord)
-        code = classify_bezier_curve((x̄₁, x̄₂, x̄₃))
-        rshift = ifelse(x̄₁ > 0, 1 << 1, 0) + ifelse(x̄₂ > 0, 1 << 2, 0) + ifelse(x̄₃ > 0, 1 << 3, 0)
-        code = (0x2e74 >> rshift) & 0x0003
-        # Terminate early if we know there are no roots.
-        iszero(code) && continue
-        (t₁, t₂) = compute_roots(x̄₁ - 2x̄₂ + x̄₃, x̄₁ - x̄₂, x̄₁)
-        # In classes C and F, there may be no real roots.
-        isnan(t₁) && continue
-        bezier = BezierCurve(3)
-        val = zero(FT)
-        if code & 0x0001 == 0x0001 # `code` is 0x0001 or 0x0003
-            val += saturated_softmax(pixel_per_em, bezier(t₁, curve_points)[coord])
-            # val += smoothstep(-one(FT)/pixel_per_em, one(FT)/pixel_per_em, bezier(t₁, curve_points)[coord])
-        end
-        if code > 0x0001 # `code` is 0x0002 or 0x0003
-            val -= saturated_softmax(pixel_per_em, bezier(t₂, curve_points)[coord])
-            # val -= smoothstep(-one(FT)/pixel_per_em, one(FT)/pixel_per_em, bezier(t₂, curve_points)[coord])
-        end
-        res += val * (coord == 1 ? 1 : -1)
-    end
-    res
-end
-
-function plot_outline(glyph)
-    cs = curves(glyph)
-    p = plot()
-    for (i, curve) in enumerate(cs)
-        for (i, point) in enumerate(curve)
-            color = i == 1 ? :blue : i == 2 ? :cyan : :green
-            scatter!(p, [point[1]], [point[2]], legend=false, color=color)
-        end
-        points = BezierCurve().(0:0.1:1, Ref(curve))
-        curve_color = UInt8[255 - Int(floor(i / length(cs) * 255)), 40, 40]
-        plot!(p, first.(points), last.(points), color=string('#', bytes2hex(curve_color)))
-    end
-    p
-end
-
-function render_glyph(font, glyph, units_per_em, font_size)
-    step = 0.01
-    xs = -0.5:step:1
-    ys = -0.5:step:1
-    n = length(xs)
-
-    grid = map(xs) do x
-        map(ys) do y
-            Point(x, y)
-        end
-    end
-
-    grid = hcat(grid...)
-
-    is = map(grid) do p
-        try
-            intensity(p, glyph, units_per_em, font_size)
-        catch e
-            if e isa DomainError
-                NaN
-            else
-                rethrow(e)
-            end
-        end
-    end
-    @assert !all(iszero, is)
-
-    p = heatmap(is)
-    xticks!(p, 1:n ÷ 10:n, string.(xs[1:n ÷ 10:n]))
-    yticks!(p, 1:n ÷ 10:n, string.(ys[1:n ÷ 10:n]))
-end
-
-render_glyph(font, char::Char, font_size) = render_glyph(font, font[char], font.units_per_em, font_size)
-
-using Plots: heatmap, xticks!, yticks!, plot, plot!, scatter!
-
-font = OpenTypeFont(font_file("juliamono-regular.ttf"));
-
-glyph = font.glyphs[563]
-
-glyph = font.glyphs[64]
-plot_outline(glyph)
-render_glyph(font, glyph, 12)
-
-glyph = font.glyphs[75]
-plot_outline(glyph)
-render_glyph(font, glyph, 12)
-
-glyph = font.glyphs[13]
-plot_outline(glyph)
-render_glyph(font, glyph, 12)
-
-render_glyph(font, '€', 12)
-
-render_glyph(font, 'A', 12)
-
-=#

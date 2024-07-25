@@ -8,20 +8,19 @@ end
 gaussian_2d((x, y), σ) = gaussian_1d(x, σ) * gaussian_1d(y, σ)
 
 function compute_blur((; σ)::GaussianBlur, reference, uv)
-  res = zero(Vec3)
+  color = zero(Vec3)
   imsize = size(SPIRV.Image(reference), 0U)
   pixel_size = 1F ./ imsize # size of one pixel in UV coordinates.
   rx, ry = Int32.(min.(ceil.(3σ .* imsize), imsize))
-  for i in -rx:rx
-    for j in -ry:ry
+  @for i in -ry:ry begin
+    @for j in -ry:ry begin
       uv_offset = Vec2(i, j) .* pixel_size
-      weight = gaussian_2d(uv_offset, σ) * 0.5(pixel_size[1]^2 + pixel_size[2]^2)
+      weight = gaussian_2d(uv_offset, σ) * 0.5f0(pixel_size[1]^2 + pixel_size[2]^2)
       sampled = reference(uv + uv_offset)
-      color = sampled.rgb
-      res .+= color * weight
+      color += @swizzle(sampled.rgb) * weight
     end
   end
-  res
+  color
 end
 
 IT = image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)
@@ -44,15 +43,15 @@ function blur_frag(out_color, uv, data_address, images)
   drawing = @load data.texture.drawing::TextureDrawing
   (; uv_scaling, img_index) = drawing
   reference = images[img_index]
-  # color = reference(uv * uv_scaling)
   color = compute_blur(data.blur, reference, uv .* uv_scaling)
-  out_color[] = Vec(color.r, color.g, color.b, 1F)
+  @swizzle out_color.rgb = color
+  @swizzle out_color.a = 1F
 end
 
 function blur_program(device)
-  vert = @vertex device blur_vert(::Vec2::Output, ::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+  vert = @vertex device blur_vert(::Mutable{Vec2}::Output, ::Mutable{Vec4}::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
   frag = @fragment device blur_frag(
-    ::Vec4::Output,
+    ::Mutable{Vec4}::Output,
     ::Vec2::Input,
     ::DeviceAddressBlock::PushConstant,
     ::Arr{2048,SPIRV.SampledImage{IT}}::UniformConstant{@DescriptorSet($GLOBAL_DESCRIPTOR_SET_INDEX), @Binding($BINDING_COMBINED_IMAGE_SAMPLER)})

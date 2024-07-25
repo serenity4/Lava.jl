@@ -22,9 +22,9 @@ for (name, model) in pairs(SPIRV.EXECUTION_MODELS)
     for (i, kwarg) in enumerate(kwargs)
       Meta.isexpr(kwarg, :(=), 2) && kwarg.args[1] === :cached && (cached = kwarg.args[2]; deleteat!(kwargs, i))
     end
-    (ex, options, features, cache, assemble, layout, interpreter) = SPIRV.parse_shader_kwargs(kwargs)
-    _device, _features, _layout, _cache, _assemble, _source = gensym.([:device, :features, :layout, :cache, :assemble, :source])
-    compile_ex = SPIRV.compile_shader_ex(ex, __module__, $model; options, features = _features, cache = _cache, interpreter, layout = _layout, assemble = _assemble)
+    (ex, options, features, cache, assemble, layout, interpreter, validate, optimize) = SPIRV.parse_shader_kwargs(kwargs)
+    _device, _features, _layout, _cache, _assemble, _source, _validate, _optimize = gensym.([:device, :features, :layout, :cache, :assemble, :source, :validate, :optimize])
+    compile_ex = SPIRV.compile_shader_ex(ex, __module__, $model; options, features = _features, cache = _cache, interpreter, layout = _layout, assemble = _assemble, validate = _validate, optimize = _optimize)
     propagate_source(__source__, esc(quote
       $_device = $device
       isa($_device, $Device) || error("`Device` expected as first positional argument, got value of type ", typeof($_device))
@@ -32,8 +32,12 @@ for (name, model) in pairs(SPIRV.EXECUTION_MODELS)
       $_layout = something($layout, $VulkanLayout($_device.alignment))
       $_cache = $cached === true ? something($cache, $_device.shader_cache.compilation_cache) : nothing
       $_assemble = something($assemble, true)
+      $_validate = something($validate, true)
+      $_optimize = something($validate, false)
       $_source = $compile_ex
-      $cached === true ? $Shader($_device.shader_cache, $_source) : $Shader($_device.handle, $_source)
+      !$_assemble ? $_source : begin
+        $cached === true ? $Shader($_device.shader_cache, $_source) : $Shader($_device.handle, $_source)
+      end
     end))
   end
   @eval export $(Symbol("@$name"))

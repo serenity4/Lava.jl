@@ -41,7 +41,7 @@ Vk.Extent3D(image::Image) = Vk.Extent3D(image.dims..., ntuple(Returns(1), 3 - le
 Vk.Offset3D(::Image) = Vk.Offset3D(0, 0, 0)
 samples(img::Image) = img.samples
 
-function image_type(ndims)
+function vk_image_type(ndims)
   @match ndims begin
     1 => Vk.IMAGE_TYPE_1D
     2 => Vk.IMAGE_TYPE_2D
@@ -71,7 +71,7 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
   initial_layout = preinitialized ? Vk.IMAGE_LAYOUT_PREINITIALIZED : Vk.IMAGE_LAYOUT_UNDEFINED
   extent_dims = ntuple(i -> i > n ? 1 : dims[i], 3)
   info = Vk.ImageCreateInfo(
-    image_type(n),
+    vk_image_type(n),
     format,
     Vk.Extent3D(extent_dims...),
     mip_levels,

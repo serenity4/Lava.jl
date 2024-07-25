@@ -128,8 +128,8 @@ using Graphs: nv, ne
   end
 
   function test_program(device)
-    vert_shader = @vertex device test_program_vert(::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
-    frag_shader = @fragment device test_program_frag(::Vec4::Output)
+    vert_shader = @vertex device test_program_vert(::Mutable{Vec4}::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+    frag_shader = @fragment device test_program_frag(::Mutable{Vec4}::Output)
     Program(vert_shader, frag_shader)
   end
 
@@ -143,7 +143,7 @@ using Graphs: nv, ne
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
     graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
-    data = @invocation_data prog @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Point2f)]
+    data = @invocation_data prog @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Vec2)]
     push!(graphics.commands, graphics_command(DrawIndexed(collect(1:4)), prog, data, color; depth))
 
     @add_resource_dependencies rg begin
@@ -216,7 +216,7 @@ using Graphs: nv, ne
       (color => (0.0, 0.0, 0.0, 1.0))::Color
       depth::Depth
     end
-    command = graphics_command(draw, prog, @invocation_data(prog, @block collect(PointSet(HyperCube(1.0f0), Point2f))), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
+    command = graphics_command(draw, prog, @invocation_data(prog, @block collect(PointSet(HyperCube(1.0f0), Vec2))), RenderTargets(color; depth), RenderState(), ProgramInvocationState(), dependencies)
     push!(graphics.commands, command)
 
     rg = RenderGraph(device)

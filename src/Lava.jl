@@ -192,5 +192,25 @@ export
   Frame, FrameCycle, cycle!, recreate!, acquire_next_image, draw_and_prepare_for_presentation,
 
   # SPIR-V reexports
-  ShaderInterface, Decorations, Vec, Arr, Mat, Vec2, Vec3, Vec4, Mat2, Mat3, Mat4
+  ShaderInterface, Decorations,
+  U, F, πF,
+  Mutable, Mut,
+  Vec,
+  Vec2, Vec3, Vec4,
+  Vec2U, Vec3U, Vec4U,
+  Vec2I, Vec3I, Vec4I,
+  Arr,
+  Mat, Mat2, Mat3, Mat4,
+  Mat23, Mat32, Mat24, Mat42, Mat34, Mat43,
+  MatU, Mat2U, Mat3U, Mat4U,
+  Mat23U, Mat32U, Mat24U, Mat42U, Mat34U, Mat43U,
+  MatI, Mat2I, Mat3I, Mat4I,
+  Mat23I, Mat32I, Mat24I, Mat42I, Mat34I, Mat43I,
+  @vec, @arr, @mat,
+  @load, @store,
+  Image, image_type, Sampler,
+  SampledImage,
+  DPdx, DPdy, Fwidth,
+  DPdxCoarse, DPdyCoarse, FwidthCoarse,
+  DPdxFine, DPdyFine, FwidthFine
 end

@@ -50,18 +50,18 @@ function compute_forces(agents, parameters::BoidParameters, i::Integer, Δt::Flo
     d = periodic_distance(position, other.position)
     d < parameters.awareness_radius || continue
     flock_size += 1U
-    flock_center[] = flock_center + other.position
+    flock_center += other.position
     repulsion_strength = exp(-d^2 / (2 * parameters.separation_radius^2))
-    forces[] = forces - (other.position - position) * repulsion_strength
-    average_velocity[] = average_velocity + other.velocity
+    forces += -(other.position - position) * repulsion_strength
+    average_velocity += other.velocity
   end
 
   if !iszero(flock_size)
-    flock_center[] = flock_center ./ flock_size
-    average_velocity[] = average_velocity ./ flock_size
+    flock_center /= flock_size
+    average_velocity /= flock_size
 
-    forces[] = forces + (flock_center - position) .* parameters.cohesion_strength
-    forces[] = forces + (average_velocity - velocity) .* parameters.alignment_strength
+    forces += (flock_center - position) .* parameters.cohesion_strength
+    forces += (average_velocity - velocity) .* parameters.alignment_strength
   end
 
   forces
@@ -84,11 +84,6 @@ end
 
 wrap_around(position::Vec2) = mod.(position .+ 1F, 2F) .- 1F
 
-linearize_index((x, y, z), (nx, ny, nz)) = x + y * nx + z * nx * ny
-function linearize_index(global_id, global_size, local_id, local_size)
-  linearize_index(local_id, local_size) + prod(local_size) * linearize_index(global_id, global_size)
-end
-
 struct BoidsInfo
   agents::DeviceAddress
   parameters::BoidParameters
@@ -96,16 +91,16 @@ struct BoidsInfo
   forces::DeviceAddress
 end
 
-function compute_forces!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
-  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE)) + 1U
+function compute_forces!(data_address::DeviceAddressBlock, global_id::Vec3U)
+  i = global_id.x + 1U
   (; agents, parameters, Δt, forces) = @load data_address::BoidsInfo
   agents = @load agents::Arr{512,BoidAgent}
   @store forces[i]::Vec2 = compute_forces(agents, parameters, i, Δt)
   nothing
 end
 
-function step_euler!(data_address::DeviceAddressBlock, local_id::Vec{3,UInt32}, global_id::Vec{3,UInt32})
-  i = linearize_index(global_id, Vec(DISPATCH_SIZE), local_id, Vec(WORKGROUP_SIZE)) + 1U
+function step_euler!(data_address::DeviceAddressBlock, global_id::Vec3U)
+  i = global_id.x + 1U
   (; agents, Δt, forces) = @load data_address::BoidsInfo
   agent = @load agents[i]::BoidAgent
   @store agents[i]::BoidAgent = step_euler(agent, (@load forces[i]::Vec2), Δt)
@@ -115,8 +110,7 @@ end
 function boids_forces_program(device)
   compute = @compute device compute_forces!(
     ::DeviceAddressBlock::PushConstant,
-    ::Vec{3,UInt32}::Input{LocalInvocationId},
-    ::Vec{3,UInt32}::Input{WorkgroupId},
+    ::Vec3U::Input{GlobalInvocationId},
   ) options = COMPUTE_EXECUTION_OPTIONS
   Program(compute)
 end
@@ -124,8 +118,7 @@ end
 function boids_update_program(device)
   compute = @compute device step_euler!(
     ::DeviceAddressBlock::PushConstant,
-    ::Vec{3,UInt32}::Input{LocalInvocationId},
-    ::Vec{3,UInt32}::Input{WorkgroupId},
+    ::Vec3U::Input{GlobalInvocationId},
   ) options = COMPUTE_EXECUTION_OPTIONS
   Program(compute)
 end
@@ -200,9 +193,9 @@ function boid_frag(color::Vec4, uv::Vec2, data::DeviceAddressBlock, textures)
 end
 
 function boid_drawing_program(device)
-  vert = @vertex device boid_vert(::Vec2::Output, ::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::UInt32::Input{InstanceIndex}, ::DeviceAddressBlock::PushConstant)
+  vert = @vertex device boid_vert(::Mutable{Vec2}::Output, ::Mutable{Vec4}::Output{Position}, ::UInt32::Input{VertexIndex}, ::UInt32::Input{InstanceIndex}, ::DeviceAddressBlock::PushConstant)
   frag = @fragment device boid_frag(
-    ::Vec4::Output,
+    ::Mutable{Vec4}::Output,
     ::Vec2::Input,
     ::DeviceAddressBlock::PushConstant,
     ::Arr{2048,SPIRV.SampledImage{SPIRV.image_type(SPIRV.ImageFormatRgba16f, SPIRV.Dim2D, 0, false, false, 1)}}::UniformConstant{@DescriptorSet($GLOBAL_DESCRIPTOR_SET_INDEX), @Binding($BINDING_COMBINED_IMAGE_SAMPLER)})
@@ -255,11 +248,6 @@ end
   end
 
   @testset "GPU implementation" begin
-    @test linearize_index((0, 0, 0), (8, 1, 1), (0, 0, 0), (8, 8, 1)) == 0
-    @test linearize_index((1, 0, 0), (8, 1, 1), (0, 0, 0), (8, 8, 1)) == 64
-    @test linearize_index((1, 0, 0), (8, 1, 1), (1, 0, 0), (8, 8, 1)) == 65
-    @test linearize_index((7, 0, 0), (8, 1, 1), (7, 7, 0), (8, 8, 1)) == 511
-
     sprite_image = read_boid_image(device)
 
     parameters = BoidParameters()

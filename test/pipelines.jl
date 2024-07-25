@@ -2,8 +2,8 @@
   layout = Lava.pipeline_layout(device)
 
   @testset "Graphics pipelines" begin
-    vertex_shader = @vertex device test_shader(::Vec{4,Float32}::Output{Position})
-    fragment_shader = @fragment device test_shader(::Vec{4,Float32}::Output)
+    vertex_shader = @vertex device test_shader(::Mutable{Vec4}::Output{Position})
+    fragment_shader = @fragment device test_shader(::Mutable{Vec4}::Output)
     program = Program(vertex_shader, fragment_shader)
     color = attachment_resource(device, nothing; format = BGRA{N0f8}, dims = [1920, 1080])
 

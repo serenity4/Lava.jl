@@ -21,9 +21,9 @@ end
 
 @testset "Multisampled triangle" begin
   vdata = [
-    PosColor(Vec2(0.0, -0.8), Arr{Float32}(1.0, 0.0, 0.0)),
-    PosColor(Vec2(0.5, 0.8), Arr{Float32}(0.0, 0.0, 1.0)),
-    PosColor(Vec2(-0.5, 0.8), Arr{Float32}(0.0, 1.0, 0.0)),
+    PosColor(Vec2(0.0, -0.8), Vec3(1.0, 0.0, 0.0)),
+    PosColor(Vec2(0.5, 0.8), Vec3(0.0, 0.0, 1.0)),
+    PosColor(Vec2(-0.5, 0.8), Vec3(0.0, 1.0, 0.0)),
   ]
 
   for samples in (4, :four, nothing)

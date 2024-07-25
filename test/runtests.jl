@@ -3,12 +3,15 @@ using Lava: Memory
 using Test
 using Random: Random, MersenneTwister, AbstractRNG
 using Dictionaries
-using SPIRV: SPIRV, @compile, validate, ShaderInterface, U, F, πF, @mat, image_type
+using SPIRV: SPIRV, @compile, validate, @for
+using Swizzles: @swizzle
 using SPIRV.MathFunctions
 using SymbolicGA: @ga
-using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve, Point, Point2, Point2f, Box, PointSet, HyperCube, MeshEncoding, reencode, MESH_TOPOLOGY_TRIANGLE_LIST
+using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve, Box, PointSet, HyperCube, MeshEncoding, reencode, MESH_TOPOLOGY_TRIANGLE_LIST
+using ColorTypes: AbstractRGBA
 using FixedPointNumbers
-using FileIO, ImageIO, VideoIO
+using FileIO, ImageIO
+using VideoIO
 using Accessors
 # XCB must be loaded prior to creating the instance that will use VK_KHR_xcb_surface.
 using XCB: XCB, XWindowManager, current_screen, XCBWindow, resize, extent

@@ -1,20 +1,3 @@
-function save_render(filename, data; tmp = false)
-  filename = render_file(filename; tmp)
-  mkpath(dirname(filename))
-  ispath(filename) && rm(filename)
-  save(filename, data')
-  filename
-end
-
-function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp = false)
-  file = save_render(filename, data; tmp)
-  @test stat(file).size > 0
-  h′ = hash(data)
-  isnothing(h) && return (h′, file)
-  @test h′ == h
-  file
-end
-
 render_graphics(device, node::RenderNode) = render_graphics(device, node.commands[end])
 render_graphics(device, command::Command) = render_graphics(device, only(command.graphics.targets.color), [command])
 function render_graphics(device, color, nodes)

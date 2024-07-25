@@ -28,10 +28,10 @@ end
 
 function data_blocks_2()
   b1 = DataBlock([
-    (Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
-    (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
-    (Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
-    (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
+    (Vec2(-0.5, 0.5), @arr Float32[3.0, 5.0, 1.0, 0.0, 0.0]),
+    (Vec2(-0.5, -0.5), @arr Float32[3.0, 5.0, 0.0, 1.0, 0.0]),
+    (Vec2(0.5, 0.5), @arr Float32[3.0, 5.0, 1.0, 1.0, 1.0]),
+    (Vec2(0.5, -0.5), @arr Float32[3.0, 5.0, 0.0, 0.0, 1.0]),
   ], layout)
   b2 = DataBlock((Vec2(0.1, 1.0), DescriptorIndex(1)), layout)
   b3 = DataBlock((generated_block_address(1), generated_block_address(2)), layout)
@@ -40,10 +40,10 @@ end
 
 function data_blocks_3()
   b1 = DataBlock([
-    (Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
-    (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
-    (Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
-    (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
+    (Vec2(-0.5, 0.5), @arr Float32[3.0, 5.0, 1.0, 0.0, 0.0]),
+    (Vec2(-0.5, -0.5), @arr Float32[3.0, 5.0, 0.0, 1.0, 0.0]),
+    (Vec2(0.5, 0.5), @arr Float32[3.0, 5.0, 1.0, 1.0, 1.0]),
+    (Vec2(0.5, -0.5), @arr Float32[3.0, 5.0, 0.0, 0.0, 1.0]),
   ], layout)
   b2 = DataBlock((Vec2(0.1, 1.0), generated_logical_buffer_address(1), DescriptorIndex(1)), layout)
   b3 = DataBlock((generated_block_address(1), generated_block_address(2)), layout)
@@ -152,10 +152,10 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
 
   data4 = @invocation_data fake_program begin
     b1 = @block [
-      (Vec2(-0.5, 0.5), Arr{Float32}(1.0, 0.0, 0.0)),
-      (Vec2(-0.5, -0.5), Arr{Float32}(0.0, 1.0, 0.0)),
-      (Vec2(0.5, 0.5), Arr{Float32}(1.0, 1.0, 1.0)),
-      (Vec2(0.5, -0.5), Arr{Float32}(0.0, 0.0, 1.0)),
+      (Vec2(-0.5, 0.5), @arr Float32[3.0, 5.0, 1.0, 0.0, 0.0]),
+      (Vec2(-0.5, -0.5), @arr Float32[3.0, 5.0, 0.0, 1.0, 0.0]),
+      (Vec2(0.5, 0.5), @arr Float32[3.0, 5.0, 1.0, 1.0, 1.0]),
+      (Vec2(0.5, -0.5), @arr Float32[3.0, 5.0, 0.0, 0.0, 1.0]),
     ]
     b2 = @block((Vec2(0.1, 1.0), @descriptor desc))
     @block ((@address(b1), @address(b2)))

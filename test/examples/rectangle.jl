@@ -1,6 +1,6 @@
 struct PosColor
-  pos::Vec{2,Float32}
-  color::Arr{3,Float32}
+  pos::Vec2
+  color::Vec3
 end
 
 function rectangle_vert(frag_color, position, index, data_address::DeviceAddressBlock)
@@ -15,8 +15,8 @@ function rectangle_frag(out_color, frag_color)
 end
 
 function rectangle_program(device)
-  vert = @vertex device rectangle_vert(::Vec4::Output, ::Vec4::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
-  frag = @fragment device rectangle_frag(::Vec4::Output, ::Vec4::Input)
+  vert = @vertex device rectangle_vert(::Mutable{Vec4}::Output, ::Mutable{Vec4}::Output{Position}, ::UInt32::Input{VertexIndex}, ::DeviceAddressBlock::PushConstant)
+  frag = @fragment device rectangle_frag(::Mutable{Vec4}::Output, ::Vec4::Input)
   Program(vert, frag)
 end
 
@@ -41,10 +41,10 @@ end
 
 @testset "Rectangle" begin
   vdata = [
-    PosColor(Vec2(-0.7, 0.7), Arr{Float32}(1.0, 0.0, 0.0)),
-    PosColor(Vec2(0.3, 0.7), Arr{Float32}(0.0, 1.0, 0.0)),
-    PosColor(Vec2(-0.7, -0.3), Arr{Float32}(1.0, 1.0, 1.0)),
-    PosColor(Vec2(0.3, -0.3), Arr{Float32}(0.0, 0.0, 1.0)),
+    PosColor(Vec2(-0.7, 0.7), Vec3(1.0, 0.0, 0.0)),
+    PosColor(Vec2(0.3, 0.7), Vec3(0.0, 1.0, 0.0)),
+    PosColor(Vec2(-0.7, -0.3), Vec3(1.0, 1.0, 1.0)),
+    PosColor(Vec2(0.3, -0.3), Vec3(0.0, 0.0, 1.0)),
   ]
   draw = draw_rectangle(device, vdata, color)
   data = render_graphics(device, draw)
