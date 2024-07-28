@@ -107,6 +107,7 @@ end
 function Base.empty!(gdescs::GlobalDescriptors)
   empty!(gdescs.arrays)
   empty!(gdescs.descriptors)
+  empty!(gdescs.pending)
   @atomic gdescs.counter = 1
   nothing
 end

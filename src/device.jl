@@ -65,13 +65,15 @@ Base.wait(device::Device) = Vk.device_wait_idle(device)
 function Base.empty!(device::Device)
   unwrap(wait(device))
   empty!(device.pipeline_ht_graphics)
+  empty!(device.pipeline_ht_compute)
   empty!(device.pipeline_layout_ht)
   empty!(device.pipeline_layouts)
   empty!(device.pending_pipelines_graphics)
+  empty!(device.pending_pipelines_compute)
+  empty!(device.shader_cache)
   empty!(device.transfer_ops)
   empty!(device.fence_pool)
   empty!(device.descriptors)
-  empty!(device.shader_cache)
   nothing
 end
 
