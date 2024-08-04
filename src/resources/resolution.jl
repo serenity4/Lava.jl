@@ -5,11 +5,7 @@ The index will only be valid until the end of the next render operation.
 """
 function request_index!(gdescs::GlobalDescriptors, descriptor::Descriptor)
   idx = new_descriptor!(get!(DescriptorArray, gdescs.arrays, Vk.DescriptorType(descriptor)), descriptor.id)
-  if haskey(gdescs.descriptors, descriptor.id)
-    gdescs.descriptors[descriptor.id] === descriptor || error(descriptor.id, " has already been registered for a different descriptor.")
-  else
-    insert!(gdescs.descriptors, descriptor.id, descriptor)
-  end
+  !haskey(gdescs.descriptors, descriptor.id) && insert!(gdescs.descriptors, descriptor.id, descriptor)
   idx
 end
 request_index!(device::Device, descriptor::Descriptor) = request_index!(device.descriptors, descriptor)

@@ -25,9 +25,10 @@ end
 
 fake_compute_command() = compute_command(Dispatch(1, 1, 1), Program(PROGRAM_TYPE_COMPUTE, nothing, VulkanLayout(VulkanAlignment())), DeviceAddressBlock(0))
 
-read_transposed(::Type{T}, file) where {T<:AbstractRGBA} = permutedims(convert(Matrix{T}, load(file)), (2, 1))
+read_transposed(::Type{T}, file) where {T} = permutedims(convert(Matrix{T}, load(file)), (2, 1))
 read_transposed(file) = read_transposed(RGBA{Float16}, file)
-read_png(file) = read_transposed(file)
+read_png(::Type{T}, file) where {T} = read_transposed(T, file)
+read_png(file) = read_png(RGBA{Float16}, file)
 save_png(filename, data) = save(filename, PermutedDimsArray(data, (2, 1)))
 
 function save_render(path, data)
