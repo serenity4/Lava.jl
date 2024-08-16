@@ -20,6 +20,9 @@ Base.@kwdef struct RenderState
   stencil_front::Vk.StencilOpState = Vk.StencilOpState(Vk.STENCIL_OP_ZERO, Vk.STENCIL_OP_KEEP, Vk.STENCIL_OP_ZERO, Vk.COMPARE_OP_GREATER_OR_EQUAL, 0x00000000, 0xffffffff, 1)
   stencil_back::Vk.StencilOpState = stencil_front
   line_width::Float32 = 1f0
+  enable_fragment_supersampling::Bool = false
+  # Number of fragment shader invocations equals max(1, ceil(fragment_supersampling_rate * <sample count>))
+  fragment_supersampling_rate::Float32 = 1f0
 end
 
 Vk.PipelineDepthStencilStateCreateInfo(state::RenderState) = Vk.PipelineDepthStencilStateCreateInfo(

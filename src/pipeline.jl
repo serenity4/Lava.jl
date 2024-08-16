@@ -110,7 +110,7 @@ function pipeline_info_graphics(
   color_samples = samples.(get_physical_resource.(Ref(resources), targets.color))
   all(==(first(color_samples)), color_samples) || error("Incoherent number of samples detected for color attachments: ", color_samples)
   nsamples = first(color_samples)
-  multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), false, 1.0, false, false)
+  multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), state.enable_fragment_supersampling, state.fragment_supersampling_rate, false, false)
   color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1.0f0), 4))
   depth_stencil_state = !isnothing(targets.depth) || !isnothing(targets.stencil) ? Vk.PipelineDepthStencilStateCreateInfo(state) : C_NULL
   Vk.GraphicsPipelineCreateInfo(
