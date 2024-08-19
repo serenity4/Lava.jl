@@ -13,6 +13,7 @@ end
 
 function Base.similar(att::Attachment; memory_domain = nothing, usage_flags = att.view.image.usage_flags, access = att.access, is_linear = att.view.image.is_linear, dims = att.view.image.dims, format = att.view.format)
   (; view) = att
+  usage_flags = minimal_image_view_flags(usage_flags)
   img = similar(view.image; memory_domain, usage_flags, is_linear, dims, format)
   Attachment(ImageView(img; img.format, view.subresource.aspect, view.subresource.mip_range, view.subresource.layer_range), access)
 end

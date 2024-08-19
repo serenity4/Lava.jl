@@ -357,6 +357,7 @@ function Attachment(
 
   dims, format = infer_dims_and_format(data, dims, format, layers)
   !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+  usage_flags = minimal_image_view_flags(usage_flags)
   img = Image(device; format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, layers, mip_levels, flags = image_flags)
   aspect = img.format == Vk.FORMAT_UNDEFINED ? Vk.IMAGE_ASPECT_COLOR_BIT : aspect_flags(img.format)
   layer_range = @something(layer_range, Lava.layer_range(img))
@@ -365,6 +366,28 @@ function Attachment(
   !isnothing(data) && copyto!(view, data, device; submission)
   !isnothing(layout) && ensure_layout(device, view, layout)
   Attachment(view, access)
+end
+
+const REQUIRED_IMAGE_VIEW_FLAGS = |(
+  Vk.IMAGE_USAGE_SAMPLED_BIT,
+  Vk.IMAGE_USAGE_STORAGE_BIT,
+  Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+  Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+  Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
+  Vk.IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+  Vk.IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR,
+  Vk.IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT,
+  Vk.IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR,
+  Vk.IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR,
+  Vk.IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR,
+  Vk.IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR,
+  Vk.IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM,
+  Vk.IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM,
+)
+
+function minimal_image_view_flags(usage_flags::Vk.ImageUsageFlag)
+  !iszero(usage_flags & REQUIRED_IMAGE_VIEW_FLAGS) && return usage_flags
+  usage_flags | Vk.IMAGE_USAGE_SAMPLED_BIT
 end
 
 # # Memory
