@@ -67,21 +67,19 @@ end
 function Memory(device, size::Integer, type::Integer, domain::MemoryDomain)
   ret = allocate_memory(device, size, type, domain)
   !iserror(ret) && return unwrap(ret)
-  err = unwrap_error(ret)
-  if in(err.code, (Vk.ERROR_OUT_OF_DEVICE_MEMORY, Vk.ERROR_OUT_OF_HOST_MEMORY))
-    GC.gc(false)
-    ret2 = allocate_memory(device, size, type, domain)
-    if iserror(ret2)
-      err2 = unwrap_error(ret2)
-      if err2.code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
-        throw(OutOfDeviceMemoryError(size))
-      elseif err2.code == Vk.ERROR_OUT_OF_HOST_MEMORY
-        throw(OutOfMemoryError())
-      end
-    end
-    unwrap(ret2)
-  else
-    unwrap(ret)
+  (; code) = unwrap_error(ret)
+  # Try to free up some memory if the error is memory-related, otherwise just throw via unwrapping.
+  in(code, (Vk.ERROR_OUT_OF_DEVICE_MEMORY, Vk.ERROR_OUT_OF_HOST_MEMORY)) || return unwrap(ret)
+  for full in (false, true)
+    GC.gc(full)
+    ret = allocate_memory(device, size, type, domain)
+    !iserror(ret) && return unwrap(ret)
+  end
+  (; code) = unwrap_error(ret)
+  if code == Vk.ERROR_OUT_OF_DEVICE_MEMORY
+    throw(OutOfDeviceMemoryError(size))
+  elseif code == Vk.ERROR_OUT_OF_HOST_MEMORY
+    throw(OutOfMemoryError())
   end
 end
 
