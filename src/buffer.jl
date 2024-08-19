@@ -69,6 +69,14 @@ function Base.similar(buffer::Buffer; memory_domain = nothing, usage_flags = buf
   similar
 end
 
+function Vk.set_debug_name(buffer::Buffer, name)
+  isnothing(name) && return
+  ret = set_debug_name(handle(buffer), name)
+  isdefined(buffer.memory, 1) || return ret
+  memory = buffer.memory[]
+  set_debug_name(handle(memory), Symbol(name, :_memory))
+end
+
 function ptrcopy!(ptr, data::DenseArray{T}) where {T}
   check_isbits(T)
   GC.@preserve data unsafe_copyto!(Ptr{T}(ptr), pointer(data), length(data))

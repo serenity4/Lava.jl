@@ -32,6 +32,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
     b = Buffer(device, 100)
     @test_throws UndefRefError b.memory[]
     @test !isallocated(b)
+    set_debug_name(b, :buffer)
 
     sb = similar(b)
     @test sb.size == b.size
@@ -75,6 +76,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
     @test b2.memory[] === mem2
 
     sb = similar(b, memory_domain = MEMORY_DOMAIN_DEVICE)
+    set_debug_name(sb, :similar_buffer)
     @test isallocated(sb)
     @test sb.memory[] ≠ b.memory[]
 

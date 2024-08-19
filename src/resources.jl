@@ -57,7 +57,6 @@ end
   getfield(resource, name)
 end
 
-Vk.set_debug_name(data::Union{LogicalBuffer,LogicalImage,LogicalAttachment}, name) = nothing
 Vk.set_debug_name(resource::Resource, name) = set_debug_name(resource.data, name)
 
 function Resource(type::ResourceType, data; name = nothing, flags = ResourceFlags(0))
