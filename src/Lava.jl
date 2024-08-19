@@ -28,6 +28,7 @@ const to = TimerOutput()
 @reexport using ResultTypes
 @reexport using ResultTypes: iserror
 @reexport using SPIRV: Vec, Mat, Arr, Pointer, F, U, @load, @store, ShaderExecutionOptions, FragmentExecutionOptions, ComputeExecutionOptions, GeometryExecutionOptions, TessellationExecutionOptions, MeshExecutionOptions, CommonExecutionOptions, VulkanLayout, VulkanAlignment
+@reexport using Vulkan: set_debug_name
 
 const Optional{T} = Union{T,Nothing}
 

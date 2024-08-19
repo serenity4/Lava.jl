@@ -57,7 +57,13 @@ end
   getfield(resource, name)
 end
 
-Resource(type::ResourceType, data; name = nothing, flags = ResourceFlags(0)) = Resource(ResourceID(type), data, name, flags)
+Vk.set_debug_name(data::Union{LogicalBuffer,LogicalImage,LogicalAttachment}, name) = nothing
+Vk.set_debug_name(resource::Resource, name) = set_debug_name(resource.data, name)
+
+function Resource(type::ResourceType, data; name = nothing, flags = ResourceFlags(0))
+  Vk.set_debug_name(data, name)
+  Resource(ResourceID(type), data, name, flags)
+end
 Resource(data; name = nothing, flags = zero(ResourceFlags)) = Resource(resource_type(data), data; name, flags = flags | ResourceFlags(data))
 
 print_name(io::IO, resource::Resource) = printstyled(IOContext(io, :color => true), isnothing(resource.name) ? resource.id : resource.name; color = color(resource))
@@ -76,7 +82,11 @@ isattachment(x) = resource_type(x) == RESOURCE_TYPE_ATTACHMENT
 
 isphysical(resource::Resource) = !in(RESOURCE_IS_LOGICAL, resource.flags)
 islogical(resource::Resource) = in(RESOURCE_IS_LOGICAL, resource.flags)
-promote_to_physical(resource::Resource, x) = setproperties(resource, (; data = x, flags = resource.flags & ~RESOURCE_IS_LOGICAL))
+function promote_to_physical(resource::Resource, x)
+  physical = setproperties(resource, (; data = x, flags = resource.flags & ~RESOURCE_IS_LOGICAL))
+  set_debug_name(physical, resource.name)
+  physical
+end
 
 function DeviceAddress(resource::Resource)
   isbuffer(resource) && isphysical(resource) || error("Device addresses can only be retrieved from physical buffer resources.")

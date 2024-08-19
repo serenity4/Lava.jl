@@ -2,18 +2,36 @@ struct TransferCommand <: CommandImplementation
   src::Resource
   dst::Resource
   blit_filter::Vk.Filter
+  multisample_resolve::Optional{Resource}
 end
-TransferCommand(src, dst; blit_filter = Vk.FILTER_CUBIC_IMG) = TransferCommand(src, dst, blit_filter)
+TransferCommand(src, dst; blit_filter = Vk.FILTER_CUBIC_IMG) = TransferCommand(src, dst, blit_filter, multisample_resolve(src, dst))
+
+function multisample_resolve(src, dst)
+  (isbuffer(src) || isbuffer(dst)) && return nothing
+  (; name) = src
+  src = isimage(src) ? src.data::Union{Image,LogicalImage} : src.data::Union{Attachment,LogicalAttachment}
+  dst = isimage(dst) ? dst.data::Union{Image,LogicalImage} : dst.data::Union{Attachment,LogicalAttachment}
+  samples(src) == samples(dst) && return nothing
+  samples(src) > 1 || error("Image transfers require a destination image with the same number of samples, or will perform a multisampling resolve operation requiring a single-sampled destination image.")
+  samples(dst) == 1 || error("Multisampling resolution requires a single-sampled destination image.")
+  src_image = get_image(src)
+  name = isnothing(name) ? nothing : Symbol(name, :_resolve_transient)
+  image_resource(src_image.format, src_image.dims; src_image.layers, src_image.mip_levels, samples = 1, name)
+end
 
 function resource_dependencies(transfer::TransferCommand)
-  (; src, dst) = transfer
-  Dictionary(
+  (; src, dst, multisample_resolve) = transfer
+  dependencies = Dictionary(
     [src, dst],
     [
       ResourceDependency(RESOURCE_USAGE_TRANSFER_SRC, READ, nothing, samples(src)),
       ResourceDependency(RESOURCE_USAGE_TRANSFER_DST, WRITE, nothing, samples(dst)),
     ]
   )
+
+  !isnothing(multisample_resolve) && insert!(dependencies, multisample_resolve, ResourceDependency(RESOURCE_USAGE_TRANSFER_SRC | RESOURCE_USAGE_TRANSFER_DST, READ | WRITE, nothing, 1))
+
+  dependencies
 end
 
 is_blit(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && dimensions(transfer.src) ≠ dimensions(transfer.dst)
@@ -23,6 +41,17 @@ is_copy(transfer::TransferCommand) = isbuffer(transfer.src) || isbuffer(transfer
 function apply(command_buffer::CommandBuffer, transfer::TransferCommand, resources)
   src = get_physical_resource(resources, transfer.src)
   dst = get_physical_resource(resources, transfer.dst)
+
+  if !isnothing(transfer.multisample_resolve)
+    # Perform a multisampling resolution step, then transfer again.
+    multisample_resolve = get_physical_resource(resources, transfer.multisample_resolve)
+    src = isimage(src) ? src.image : src.attachment
+    aux = multisample_resolve.image
+    regions = [Vk.ImageResolve(Subresource(src), Vk.Offset3D(src), Subresource(aux), Vk.Offset3D(aux), Vk.Extent3D(src))]
+    Vk.cmd_resolve_image(command_buffer, get_image(src), image_layout(src), get_image(aux), image_layout(aux), regions)
+    return apply(command_buffer, TransferCommand(multisample_resolve, transfer.dst, transfer.blit_filter, nothing), resources)
+  end
+
   if isbuffer(src) && isbuffer(dst)
     src, dst = src.buffer, dst.buffer
     info = Vk.BufferCopy(src.offset, dst.offset, src.size)
@@ -34,7 +63,6 @@ function apply(command_buffer::CommandBuffer, transfer::TransferCommand, resourc
     dst_image = get_image(dst)
     # TODO: Implement resolve operations for multisampled images.
     # We could consider the resolve attachment to be a "dynamic" resource dependency, that would be added to `resource_dependencies` above.
-    samples(src_image) == samples(dst_image) || throw(error("Only transfers between images of identical sample counts are currently supported"))
     if dimensions(src_image) != dimensions(dst_image) || src_image.format != dst_image.format
       # Perform a blit operation instead.
       # TODO: Allow copying for size-compatible image formats instead of blitting,

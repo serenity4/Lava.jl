@@ -4,7 +4,9 @@ Request a 0-based descriptor index for use in a shader.
 The index will only be valid until the end of the next render operation.
 """
 function request_index!(gdescs::GlobalDescriptors, descriptor::Descriptor)
-  idx = new_descriptor!(get!(DescriptorArray, gdescs.arrays, Vk.DescriptorType(descriptor)), descriptor.id)
+  array = get!(DescriptorArray, gdescs.arrays, Vk.DescriptorType(descriptor))
+  idx = get_descriptor_index!(array, descriptor.id)
+  # Make sure the descriptor is made known to the `GlobalDescriptors`, so it is kept during use.
   !haskey(gdescs.descriptors, descriptor.id) && insert!(gdescs.descriptors, descriptor.id, descriptor)
   idx
 end

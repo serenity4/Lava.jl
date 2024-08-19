@@ -427,7 +427,7 @@ function add_resolve_attachments!(rg::RenderGraph, resolve_pairs::Dictionary{Res
     add_resource!(rg, resolve_resource)
 
     # Add resource usage for all nodes used by the destination attachment.
-    for j in neighbors(rg.resource_graph, rg.resource_indices[resource.id])
+    for j in outneighbors(rg.resource_graph, rg.resource_indices[resource.id])
       uses_by_node = rg.uses[rg.node_indices_inv[j]]
       for use in uses_by_node[resource.id]
         @reset use.id = resolve_resource.id

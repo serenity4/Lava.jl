@@ -108,8 +108,6 @@ device_addresses(block::DataBlock) = [Base.unsafe_load(Ptr{UInt64}(pointer(@view
   allocator = LinearAllocator(device, 1_000)
   data = ProgramInvocationData(data_blocks(), descriptors, [], 3, layout)
   @test data.postorder_traversal == [1, 2, 3]
-  @test_throws "different descriptor" device_address_block!(allocator, gdescs, nothing, NodeID(), data)
-  empty!(gdescs)
   address = device_address_block!(allocator, gdescs, nothing, NodeID(), data)
   @test isa(address, DeviceAddressBlock)
 

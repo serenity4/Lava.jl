@@ -48,8 +48,9 @@ end
 
 function frames_from_swapchain(device, swapchain)
     frames = Frame[]
-    for handle in unwrap(Vk.get_swapchain_images_khr(device, swapchain))
+    for (i, handle) in enumerate(unwrap(Vk.get_swapchain_images_khr(device, swapchain)))
         img = image_wsi(handle, swapchain.info)
+        Vk.set_debug_name(img, "swapchain_image_$i")
         push!(frames, Frame(img))
     end
     frames
@@ -59,6 +60,13 @@ function recreate!(fc::FrameCycle)
     (; current_extent) = surface_capabilities(fc)
     if current_extent ≠ fc.swapchain.info.image_extent
         recreate_swapchain!(fc, current_extent)
+    end
+    # Eagerly finalize old frame semaphores, as swapchain recreation may
+    # happen at a fast rate during window resize we don't want to hang onto them
+    # for longer than necessary.
+    for frame in fc.frames
+        finalize(frame.may_present)
+        finalize(frame.image_acquired)
     end
     fc.frames .= frames_from_swapchain(fc.device, fc.swapchain)
 end

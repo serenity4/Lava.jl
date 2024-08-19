@@ -208,7 +208,7 @@ function buffer_resource(device::Device, data; name = nothing, memory_domain::Me
   Resource(buffer; name)
 end
 
-image_resource(format::Union{Vk.Format, DataType}, dims; name = nothing, mip_levels = 1, layers = 1) = Resource(LogicalImage(format, dims; mip_levels, layers); name)
+image_resource(format::Union{Vk.Format, DataType}, dims; name = nothing, mip_levels = 1, layers = 1, samples = nothing) = Resource(LogicalImage(format, dims; mip_levels, layers, samples); name)
 
 function image_resource(device::Device, data;
   name = nothing,

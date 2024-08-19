@@ -67,7 +67,7 @@ end
 
 DescriptorArray() = DescriptorArray(Dictionary(), Dictionary(), UInt32[])
 
-function new_descriptor!(arr::DescriptorArray, id::DescriptorID)
+function get_descriptor_index!(arr::DescriptorArray, id::DescriptorID)
   existing = get(arr.indices, id, nothing)
   !isnothing(existing) && return existing
   index = isempty(arr.holes) ? UInt32(1 + length(arr.descriptors)) : pop!(arr.holes)

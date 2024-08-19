@@ -13,6 +13,9 @@ handle(x) = Vk.handle(x)
 handle(x::LavaAbstraction) = handle(x.handle)
 Vk.handle(x::LavaAbstraction) = handle(x)
 
+Vk.set_debug_name(data::LavaAbstraction, name) = set_debug_name(handle(data), name)
+Vk.set_debug_name(data::LavaAbstraction, name::Nothing) = nothing
+
 depends_on(handle, other) = Vk.depends_on(@__MODULE__().handle(handle)::Vk.Handle, @__MODULE__().handle(other)::Vk.Handle)
 
 Base.finalize(x::LavaAbstraction) = finalize(handle(x))
