@@ -34,7 +34,7 @@ function resource_dependencies(transfer::TransferCommand)
   dependencies
 end
 
-is_blit(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && dimensions(transfer.src) ≠ dimensions(transfer.dst)
+is_blit(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && (dimensions(transfer.src) ≠ dimensions(transfer.dst) || image_format(transfer.src) ≠ image_format(transfer.dst))
 is_resolve(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && samples(transfer.src) ≠ samples(transfer.dst)
 is_copy(transfer::TransferCommand) = isbuffer(transfer.src) || isbuffer(transfer.dst) || (!is_blit(transfer) && !is_resolve(transfer))
 
@@ -68,7 +68,7 @@ function apply(command_buffer::CommandBuffer, transfer::TransferCommand, resourc
       # TODO: Allow copying for size-compatible image formats instead of blitting,
       # See https://registry.khronos.org/vulkan/specs/1.3-extensions/html/chap47.html#formats-compatibility-classes.
       region = Vk.ImageBlit2(C_NULL, Subresource(src), (Vk.Offset3D(src), Vk.Offset3D(dimensions(src)..., 1)), Subresource(dst), (Vk.Offset3D(dst), Vk.Offset3D(dimensions(dst)..., 1)))
-      info = Vk.BlitImageInfo2(C_NULL, src_image, image_layout(src), dst_image, image_layout(dst), [region], Vk.FILTER_LINEAR)
+      info = Vk.BlitImageInfo2(C_NULL, src_image, image_layout(src), dst_image, image_layout(dst), [region], transfer.blit_filter)
       Vk.cmd_blit_image_2(command_buffer, info)
     else
       info = Vk.ImageCopy(Subresource(src), Vk.Offset3D(src), Subresource(dst), Vk.Offset3D(dst), Vk.Extent3D(src))
