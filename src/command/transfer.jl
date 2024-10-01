@@ -4,7 +4,7 @@ struct TransferCommand <: CommandImplementation
   blit_filter::Vk.Filter
   multisample_resolve::Optional{Resource}
 end
-TransferCommand(src, dst; blit_filter = Vk.FILTER_CUBIC_IMG) = TransferCommand(src, dst, blit_filter, multisample_resolve(src, dst))
+TransferCommand(src, dst; blit_filter = Vk.FILTER_LINEAR) = TransferCommand(src, dst, blit_filter, multisample_resolve(src, dst))
 
 function multisample_resolve(src, dst)
   (isbuffer(src) || isbuffer(dst)) && return nothing

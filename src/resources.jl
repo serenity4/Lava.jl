@@ -60,7 +60,7 @@ end
 Vk.set_debug_name(resource::Resource, name) = set_debug_name(resource.data, name)
 
 function Resource(type::ResourceType, data; name = nothing, flags = ResourceFlags(0))
-  Vk.set_debug_name(data, name)
+  !isnothing(data) && Vk.set_debug_name(data, name)
   Resource(ResourceID(type), data, name, flags)
 end
 Resource(data; name = nothing, flags = zero(ResourceFlags)) = Resource(resource_type(data), data; name, flags = flags | ResourceFlags(data))

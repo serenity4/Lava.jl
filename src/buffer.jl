@@ -69,7 +69,7 @@ function Base.similar(buffer::Buffer; memory_domain = nothing, usage_flags = buf
   similar
 end
 
-function Vk.set_debug_name(buffer::Buffer, name)
+function Vk.set_debug_name(buffer::Buffer, name::Symbol)
   isnothing(name) && return
   ret = set_debug_name(handle(buffer), name)
   isdefined(buffer.memory, 1) || return ret
