@@ -13,8 +13,16 @@ handle(x) = Vk.handle(x)
 handle(x::LavaAbstraction) = handle(x.handle)
 Vk.handle(x::LavaAbstraction) = handle(x)
 
-Vk.set_debug_name(data::LavaAbstraction, name) = set_debug_name(handle(data), name)
-Vk.set_debug_name(data::LavaAbstraction, name::Nothing) = nothing
+function is_device_function_available(handle, function_name)
+  fptr = Vk.function_pointer(Vk.global_dispatcher[], device(handle), function_name; allow_null = true)
+  fptr ≠ C_NULL
+end
+
+function Vk.set_debug_name(x::LavaAbstraction, name)
+  is_device_function_available(x, :vkSetDebugUtilsObjectNameEXT) || return
+  set_debug_name(handle(x), name)
+end
+Vk.set_debug_name(x::LavaAbstraction, name::Nothing) = nothing
 
 depends_on(handle, other) = Vk.depends_on(@__MODULE__().handle(handle)::Vk.Handle, @__MODULE__().handle(other)::Vk.Handle)
 
