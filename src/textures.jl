@@ -2,8 +2,8 @@
 Sampling parameters to use with a texture.
 """
 Base.@kwdef struct Sampling
-  magnification::Vk.Filter = Vk.FILTER_CUBIC_IMG
-  minification::Vk.Filter = Vk.FILTER_CUBIC_IMG
+  magnification::Vk.Filter = Vk.FILTER_LINEAR
+  minification::Vk.Filter = Vk.FILTER_LINEAR
   mipmap_mode::Vk.SamplerMipmapMode = Vk.SAMPLER_MIPMAP_MODE_LINEAR
   address_modes::NTuple{3,Vk.SamplerAddressMode} = ntuple(Returns(Vk.SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER), 3)
   mip_lod_bias::Float32 = 0.0

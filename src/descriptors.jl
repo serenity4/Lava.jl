@@ -45,6 +45,12 @@ end
 
 Descriptor(type::DescriptorType, data, node_id::Optional{NodeID} = nothing; flags = DescriptorFlags(0)) = Descriptor(DescriptorID(type), data, flags, node_id, nothing)
 
+"Run finalizers for handles we know may be destroyed once the descriptor is freed."
+function run_finalizers(descriptor::Descriptor)
+  isa(descriptor.written_state, Vk.DescriptorImageInfo) || return
+  finalize(descriptor.written_state.sampler)
+end
+
 Vk.DescriptorType(descriptor::Descriptor) = Vk.DescriptorType(descriptor.id)
 descriptor_type(id::DescriptorID) = DescriptorType(UInt8(UInt128(id) >> 120))
 descriptor_type(descriptor::Descriptor) = descriptor_type(descriptor.id)
@@ -157,8 +163,10 @@ function free_descriptor_batch!(gdescs::GlobalDescriptors, batch::Int64)
   !haskey(gdescs.pending, batch) && return
   for id in gdescs.pending[batch]
     dtype = Vk.DescriptorType(id)
+    descriptor = gdescs.descriptors[id]
     delete_descriptor!(gdescs.arrays[dtype], id)
     delete!(gdescs.descriptors, id)
+    run_finalizers(descriptor)
   end
   delete!(gdescs.pending, batch)
 end
