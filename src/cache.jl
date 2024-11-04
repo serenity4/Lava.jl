@@ -18,7 +18,13 @@ function Base.empty!(cache::Cache)
   cache
 end
 
-@forward_methods Cache field = :d Base.haskey(_, key) Base.iterate(_, args...) Base.length Base.keys Base.getindex(_, key)
+@forward_methods Cache field = :d begin
+  Base.haskey(_, key)
+  Base.iterate(_, args...)
+  Base.length
+  Base.keys
+  Base.getindex(_, key)
+end
 
 function Base.get!(f, cache::Cache, key)
   if haskey(cache, key)

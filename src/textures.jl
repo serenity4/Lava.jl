@@ -47,3 +47,5 @@ struct Texture
 end
 
 Texture(image::Resource) = Texture(assert_type(image, RESOURCE_TYPE_IMAGE), DEFAULT_SAMPLING)
+
+@forward_methods Texture field = image dimensions image_format
