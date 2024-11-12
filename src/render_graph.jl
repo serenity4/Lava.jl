@@ -169,6 +169,7 @@ function add_node!(rg::RenderGraph, node::Union{RenderNode, Command})
 end
 
 add_nodes!(rg::RenderGraph, nodes::Union{RenderNode, Command}...) = add_nodes!(rg, collect(nodes))
+add_node!(rg::RenderGraph, nodes::Vector{Command}) = add_nodes!(rg, nodes)
 
 function add_nodes!(rg::RenderGraph, nodes)
   for node in nodes
