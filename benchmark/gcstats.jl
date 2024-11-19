@@ -44,14 +44,14 @@ color = attachment_resource(device, nothing; format = Vk.FORMAT_R16G16B16A16_SFL
 
 include("test/examples/boids.jl")
 
-function xcb_surface(instance, win::XCBWindow)
-  handle = unwrap(Vk.create_xcb_surface_khr(instance, Vk.XcbSurfaceCreateInfoKHR(win.conn.h, win.id)))
-  Surface(handle, win)
+function xcb_surface(instance, window::XCBWindow)
+  handle = unwrap(Vk.create_xcb_surface_khr(instance, Vk.XcbSurfaceCreateInfoKHR(window.conn.h, window.id)))
+  Surface(handle, window)
 end
 
 wm = XWindowManager()
-win = XCBWindow(wm; x=0, y=0, width=1920, height=1080, border_width=50, window_title="Test window", icon_title="Test", attributes=[XCB.XCB_CW_BACK_PIXEL], values=[zero(UInt32)])
-cycle = FrameCycle(device, xcb_surface(instance, win))
+window = XCBWindow(wm; x=0, y=0, width=1920, height=1080, border_width=50, window_title="Test window", icon_title="Test", attributes=[XCB.XCB_CW_BACK_PIXEL], values=[zero(UInt32)])
+cycle = FrameCycle(device, xcb_surface(instance, window))
 color = attachment_resource(Vk.FORMAT_R16G16B16A16_SFLOAT, [1920, 1080])
 sprite_image = read_boid_image(device)
 compute_progs = (boids_forces_program(device), boids_update_program(device))
