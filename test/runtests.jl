@@ -7,7 +7,7 @@ using SPIRV: SPIRV, @compile, validate, @for
 using Swizzles: @swizzle
 using SPIRV.MathFunctions
 using SymbolicGA: @ga
-using GeometryExperiments: GeometryExperiments, Mesh, VertexMesh, subdivide!, UniformSubdivision, triangulate!, orientation, FACE_ORIENTATION_COUNTERCLOCKWISE, BezierCurve, Box, PointSet, HyperCube, MeshEncoding, reencode, MESH_TOPOLOGY_TRIANGLE_LIST
+using GeometryExperiments: GeometryExperiments, FACE_ORIENTATION_COUNTERCLOCKWISE, Box, PointSet, HyperCube, MeshEncoding, reencode, MESH_TOPOLOGY_TRIANGLE_LIST
 using ColorTypes: AbstractRGBA
 using FixedPointNumbers
 using FileIO, ImageIO
