@@ -69,6 +69,7 @@ function recreate!(fc::FrameCycle)
         finalize(frame.image_acquired)
     end
     fc.frames .= frames_from_swapchain(fc.device, fc.swapchain)
+    fc.frame_index = lastindex(fc.frames)
 end
 
 function next_frame!(fc::FrameCycle, idx)
