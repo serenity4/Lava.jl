@@ -5,24 +5,27 @@ mutable struct Frame
     const image_rendered::TimelineSemaphore
 end
 
-function Frame(image::Image)
+function Frame(image::Image, index, frame_count)
     (; device) = image.handle
     image_acquired = BinarySemaphore(device)
     may_present = BinarySemaphore(device)
     image_rendered = TimelineSemaphore(device)
+    Vk.set_debug_name(image_acquired, Symbol(:image_acquired_, index, :_, frame_count))
+    Vk.set_debug_name(may_present, Symbol(:may_present_, index, :_, frame_count))
+    Vk.set_debug_name(image_rendered, Symbol(:image_rendered_, index, :_, frame_count))
     Frame(image, image_acquired, may_present, image_rendered)
 end
 
 mutable struct FrameCycle{T}
     const device::Device
     swapchain::Swapchain{T}
-    const frames::Vector{Frame}
+    frames::Vector{Frame}
     frame_index::Int64
     frame_count::Int64
 end
 
 function FrameCycle(device::Device, swapchain::Swapchain)
-    frames = frames_from_swapchain(device, swapchain)
+    frames = frames_from_swapchain(device, swapchain, 0)
     FrameCycle(device, swapchain, frames, lastindex(frames), 0)
 end
 
@@ -46,30 +49,38 @@ function recreate_swapchain!(fc::FrameCycle, new_extent::Vk.Extent2D)
     fc.swapchain = setproperties(swapchain, (; info, handle))
 end
 
-function frames_from_swapchain(device, swapchain)
+function frames_from_swapchain(device, swapchain, frame_count)
     frames = Frame[]
     for (i, handle) in enumerate(unwrap(Vk.get_swapchain_images_khr(device, swapchain)))
         img = image_wsi(handle, swapchain.info)
         Vk.set_debug_name(img, "swapchain_image_$i")
-        push!(frames, Frame(img))
+        push!(frames, Frame(img, i, frame_count))
     end
     frames
 end
 
+function finalize_semaphores(frames)
+    # Eagerly finalize old frame semaphores, as swapchain recreation may
+    # happen at a fast rate during window resize we don't want to hang onto them
+    # for longer than necessary.
+    for frame in frames
+        finalize(frame.may_present)
+        finalize(frame.image_acquired)
+    end
+end
+
 function recreate!(fc::FrameCycle)
+    old_frames = fc.frames
     (; current_extent) = surface_capabilities(fc)
     if current_extent ≠ fc.swapchain.info.image_extent
         recreate_swapchain!(fc, current_extent)
     end
-    # Eagerly finalize old frame semaphores, as swapchain recreation may
-    # happen at a fast rate during window resize we don't want to hang onto them
-    # for longer than necessary.
-    for frame in fc.frames
-        finalize(frame.may_present)
-        finalize(frame.image_acquired)
-    end
-    fc.frames .= frames_from_swapchain(fc.device, fc.swapchain)
+    fc.frames = frames_from_swapchain(fc.device, fc.swapchain, fc.frame_count)
+    println("Recreating on frame ", fc.frame_count, " (last index: ", fc.frame_index, ", new index: ", lastindex(fc.frames), ')')
     fc.frame_index = lastindex(fc.frames)
+    # XXX: Don't finalize semaphores eagerly, because
+    # this seems to trigger 
+    # finalize_semaphores(old_frames)
 end
 
 function next_frame!(fc::FrameCycle, idx)
@@ -146,7 +157,9 @@ function cycle!(f, fc::FrameCycle, idx::Integer)
         present_info = Vk.PresentInfoKHR([frame.may_present.handle], [swapchain.handle], [idx - 1])
         ret = Vk.queue_present_khr(swapchain.queue, present_info)
         # Ignore out of date errors, but throw if others are encountered.
-        iserror(ret) && unwrap_error(ret).code ≠ Vk.ERROR_OUT_OF_DATE_KHR && unwrap(ret)
+        !iserror(ret) && return state
+        (; code) = unwrap_error(ret)
+        code ≠ Vk.ERROR_OUT_OF_DATE_KHR && unwrap(ret)
     end
 
     state

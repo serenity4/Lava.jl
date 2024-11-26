@@ -81,6 +81,7 @@ include("node_synchronization.jl")
 include("flush.jl")
 include("resources/resolution.jl")
 include("debug.jl")
+include("show.jl")
 
 @precompile_all_calls @compile_traces verbose = false joinpath(pkgdir(Lava), "traces", "precompilation_traces.jl")
 
