@@ -52,9 +52,10 @@ function annotate!(block, layout, x::T, offset = 0) where {T}
       annotate!(block, layout, el, offset + (i - 1)s)
     end
   elseif isstructtype(T)
+    (isa(layout, VulkanLayout) || isa(layout, ShaderLayout)) && (t = spir_type(T, layout.tmap; fill_tmap = false))
     for i in 1:fieldcount(T)
       field_offset = if isa(layout, VulkanLayout) || isa(layout, ShaderLayout)
-        dataoffset(layout, spir_type(T, layout.tmap; fill_tmap = false), i)
+        dataoffset(layout, t, i)::Int
       else
         dataoffset(layout, T, i)
       end
