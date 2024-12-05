@@ -73,7 +73,8 @@ function glyph_program(device)
 end
 
 function draw_glyph(device, vdata, glyph, glyph_color, color; prog = glyph_program(device))
-  curves = map(x -> Arr{3,Vec2}(Vec2.(broadcast.(remap, x, 0.0, 1.0, -0.9, 0.9))), curves_normalized(glyph))
+  transform((x, y)) = Vec2(remap(x, glyph.header.xmin, glyph.header.xmax, 0, 1), remap(y, glyph.header.ymin, glyph.header.ymax, 0, 1))
+  curves = map(ps -> Arr{3,Vec2}(transform.(ps)), OpenType.curves(glyph))
   data = @invocation_data prog begin
     b1 = @block vdata
     b2 = @block curves
