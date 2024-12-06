@@ -45,6 +45,7 @@ function DataBlock(x, layout::LayoutStrategy)
 end
 
 function annotate!(block, layout, x::T, offset = 0) where {T}
+  requires_annotations(T) || return false
   isprimitivetype(T) && return add_annotations!(block, x, offset)
   if T <: Array
     s = stride(layout, T)
@@ -62,6 +63,14 @@ function annotate!(block, layout, x::T, offset = 0) where {T}
       annotate!(block, layout, getfield(x, i), offset + field_offset)
     end
   end
+end
+
+requires_annotations(::Type{DeviceAddress}) = true
+requires_annotations(::Type{DescriptorIndex}) = true
+requires_annotations(::Type{T}) where {ET,T<:Array{ET}} = requires_annotations(ET)
+Base.@assume_effects :foldable function requires_annotations(::Type{T}) where {T}
+  isstructtype(T) || return false
+  any(requires_annotations, fieldtypes(T))
 end
 
 function add_annotations!(block, x::T, byte_offset) where {T}

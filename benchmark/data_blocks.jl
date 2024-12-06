@@ -1,5 +1,5 @@
 using Lava, Test, Dictionaries
-using Lava: generated_block_address, generated_logical_buffer_address
+using Lava: generated_block_address, generated_logical_buffer_address, requires_annotations
 using BenchmarkTools: @btime
 
 using SPIRV: VulkanLayout
@@ -31,5 +31,5 @@ data = [Arr{3,Vec2}(rand(Vec2, 3)) for _ in 1:100]
 ctx = InvocationDataContext(layout)
 @btime DataBlock($data, $ctx)
 
-@profview for _ in 1:5000; DataBlock(data, ctx); end
+@profview for _ in 1:100000; DataBlock(data, ctx); end
 @descend DataBlock(data, ctx)
