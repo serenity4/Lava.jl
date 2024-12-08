@@ -110,8 +110,9 @@ end
 
 function find_memory_type(f, physical_device, type_flag)
   mem_props = Vk.get_physical_device_memory_properties(physical_device)
-  memtypes = mem_props.memory_types[1:(mem_props.memory_type_count)]
-  candidate_indices = findall(i -> type_flag & (1 << i) ≠ 0, 0:(mem_props.memory_type_count - 1))
+  n = mem_props.memory_type_count
+  memtypes = mem_props.memory_types[1:n]
+  candidate_indices = findall(i -> type_flag & (1 << (i - 1)) ≠ 0, 1:n)
   index = argmax(i -> f(memtypes[i].property_flags), candidate_indices)
   memtypes[index], index - 1
 end
