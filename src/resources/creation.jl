@@ -19,7 +19,7 @@ function Buffer(device::Device; data = nothing, memory_domain::MemoryDomain = ME
   buffer = Buffer(device, size; usage_flags, queue_family_indices, sharing_mode, layout)
   allocate!(buffer, memory_domain)
   isnothing(data) && return buffer
-  Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in buffer.memory[].property_flags && (submission = @something(submission, SubmissionInfo(signal_fence = fence(device))))
+  Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in buffer.memory[].property_flags && (submission = @something(submission, SubmissionInfo(signal_fence = get_fence!(device))))
   copyto!(buffer, data; device, submission)
 end
 
@@ -61,7 +61,7 @@ Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = deserialize(
 function ensure_layout(device::Device, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
   command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
   ensure_layout(command_buffer, view_or_image, layout)
-  wait(submit!(SubmissionInfo(signal_fence = fence(device)), command_buffer))
+  wait(submit!(SubmissionInfo(signal_fence = get_fence!(device)), command_buffer))
 end
 
 function ensure_layout(command_buffer::CommandBuffer, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
@@ -266,7 +266,7 @@ Base.collect(::Type{T}, resource::Resource, device::Device) where {T} = collect(
 Base.collect(attachment::Attachment, device::Device) = collect(attachment.view, device)
 Base.collect(resource::Resource, device::Device) = collect(resource.data, device)
 
-function Base.copyto!(view_or_image::Union{Image,ImageView}, data::AbstractArray, device::Device; submission = SubmissionInfo(signal_fence = fence(device)), kwargs...)
+function Base.copyto!(view_or_image::Union{Image,ImageView}, data::AbstractArray, device::Device; submission = SubmissionInfo(signal_fence = get_fence!(device)), kwargs...)
   b = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
   transfer(device, b, view_or_image; submission, kwargs...)
   view_or_image
@@ -293,7 +293,7 @@ function Image(
   mip_levels = 1,
   flags = nothing,
   layout::Optional{Vk.ImageLayout} = nothing,
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)),
 )
 
   check_data(data, layers)
@@ -352,7 +352,7 @@ function Attachment(
   mip_range = nothing,
   image_flags = nothing,
   component_mapping = COMPONENT_MAPPING_IDENTITY,
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)),
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)),
 )
 
   dims, format = infer_dims_and_format(data, dims, format, layers)

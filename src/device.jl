@@ -194,8 +194,9 @@ function request_pipeline(device::Device, info::Vk.ComputePipelineCreateInfo)
   hash(info)
 end
 
-@forward_methods Device field = :fence_pool fence
 @forward_methods Device field = :queues set_presentation_queue
+
+get_fence!(device::Device; signaled = false) = get_fence!(device.fence_pool; signaled)
 
 function Base.show(io::IO, device::Device)
   print(io, Device, "($(device.handle))")
@@ -224,7 +225,7 @@ function image_resource(device::Device, data;
   mip_levels = 1,
   layers = 1,
   layout::Optional{Vk.ImageLayout} = nothing,
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = fence(device)))
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)))
 
   image = Image(device; data, flags, format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, layers, layout, submission)
   Resource(image; name)

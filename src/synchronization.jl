@@ -1,28 +1,3 @@
-abstract type Semaphore <: LavaAbstraction end
-
-vk_handle_type(::Type{<:Semaphore}) = Vk.Semaphore
-
-mutable struct TimelineSemaphore <: Semaphore
-  const handle::Vk.Semaphore
-  signal_value::UInt64
-end
-
-TimelineSemaphore(device) = TimelineSemaphore(Vk.Semaphore(device, next = Vk.SemaphoreTypeCreateInfo(Vk.SEMAPHORE_TYPE_TIMELINE, 0)), 0)
-next_value!(semaphore::TimelineSemaphore) = semaphore.signal_value += 1
-
-function timeline_semaphores(infos::AbstractVector{Vk.SemaphoreSubmitInfo})
-  semaphores = TimelineSemaphore[]
-  for info in infos
-    !iszero(info.value) && push!(semaphores, TimelineSemaphore(info.semaphore, info.value))
-  end
-  semaphores
-end
-
-struct BinarySemaphore <: Semaphore
-  handle::Vk.Semaphore
-  BinarySemaphore(device) = new(Vk.Semaphore(device))
-end
-
 """
 Execution state that encapsulates synchronization primitives and resources
 bound to a command submission on the GPU.
@@ -35,14 +10,14 @@ been completed execution.
 """
 struct ExecutionState
   queue::Queue
-  fences::Vector{Vk.Fence}
+  fences::Vector{Fence}
   semaphores::Vector{TimelineSemaphore}
   command_buffers::Vector{Vk.CommandBuffer}
   free_after_completion::Vector{Any}
   release_after_completion::Vector{Any}
 end
 
-function ExecutionState(queue::Queue; command_buffers = Vk.CommandBuffer[], fences = Vk.Fence[], semaphores = TimelineSemaphore[], free_after_completion = [], release_after_completion = [])
+function ExecutionState(queue::Queue; command_buffers = Vk.CommandBuffer[], fences = Fence[], semaphores = TimelineSemaphore[], free_after_completion = [], release_after_completion = [])
   ExecutionState(queue, fences, semaphores, command_buffers, free_after_completion, release_after_completion)
 end
 
@@ -56,27 +31,9 @@ function finalize!(exec::ExecutionState)
   end
   empty!(exec.free_after_completion)
   empty!(exec.release_after_completion)
-end
-
-function Base.wait(fences::AbstractVector{Vk.Fence}, timeout)
-  isempty(fences) && return true
-  ret = unwrap(Vk.wait_for_fences(Vk.device(first(fences)), fences, true, timeout))
-  ret == Vk.SUCCESS
-end
-
-function semaphore_wait_info(semaphores::AbstractVector{TimelineSemaphore})
-  info = Vk.SemaphoreWaitInfo(Vk.Semaphore[], UInt64[])
-  for semaphore in semaphores
-    push!(info.semaphores, semaphore.handle)
-    push!(info.values, semaphore.signal_value)
+  for fence in exec.fences
+    recycle!(fence)
   end
-  info
-end
-
-function Base.wait(semaphores::AbstractVector{TimelineSemaphore}, timeout)
-  isempty(semaphores) && return true
-  ret = unwrap(Vk.wait_semaphores(first(semaphores).handle.device, semaphore_wait_info(semaphores), timeout))
-  ret == Vk.SUCCESS
 end
 
 function Base.wait(exec::ExecutionState, timeout = typemax(UInt32); finalize = true)
@@ -86,7 +43,7 @@ function Base.wait(exec::ExecutionState, timeout = typemax(UInt32); finalize = t
 end
 
 function Base.wait(execs::AbstractVector{ExecutionState}, timeout = typemax(UInt32); finalize = true)
-  !all(Base.Fix2(wait, timeout), execs) && return false
+  !all(exec -> wait(exec, timeout), execs) && return false
   finalize && foreach(finalize!, execs)
   true
 end
@@ -102,7 +59,7 @@ Base.@kwdef mutable struct SubmissionInfo
   const wait_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
   const command_buffers::Vector{Vk.CommandBufferSubmitInfo} = []
   const signal_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
-  const signal_fence::Optional{Vk.Fence} = nothing
+  const signal_fence::Optional{Fence} = nothing
   const release_after_completion::Vector{Any} = []
   const free_after_completion::Vector{Any} = []
   queue_family::Int64 = -1
@@ -124,8 +81,8 @@ function submit(dispatch::QueueDispatch, info::SubmissionInfo)
 
   submit_info = Vk.SubmitInfo2(info.wait_semaphores, info.command_buffers, info.signal_semaphores)
 
-  unwrap(Vk.queue_submit_2(q, [submit_info]; fence = something(info.signal_fence, C_NULL)))
-  fences = Vk.Fence[]
+  unwrap(Vk.queue_submit_2(q, [submit_info]; fence = something(info.signal_fence.handle, C_NULL)))
+  fences = Fence[]
   !isnothing(info.signal_fence) && push!(fences, info.signal_fence)
   ExecutionState(q; command_buffers, fences, semaphores = timeline_semaphores(info.signal_semaphores), info.free_after_completion, info.release_after_completion)
 end
@@ -140,59 +97,4 @@ function Base.show(io::IO, exec::ExecutionState)
   print(io, " on queue ", exec.queue, ')')
 end
 
-sync_submission(device) = SubmissionInfo(signal_fence = fence(device))
-
-struct FencePool
-  device::Vk.Device
-  available::Vector{Vk.Fence}
-  completed::Vector{Vk.Fence}
-  pending::Vector{Vk.Fence}
-end
-
-FencePool(device) = FencePool(device, [Vk.Fence(device) for _ in 1:10], [], [])
-
-function recycle_completed!(pool::FencePool)
-  (; available, completed) = pool
-  n = length(completed)
-  if !iszero(n)
-    unwrap(Vk.reset_fences(pool.device, completed))
-    append!(available, completed)
-    empty!(completed)
-  end
-  n
-end
-
-function compact!(pool::FencePool)
-  !iszero(recycle_completed!(pool)) && return
-  filter!(pool.pending) do fence
-    fence_status(fence) == Vk.NOT_READY && return true
-    push!(pool.completed, fence)
-    false
-  end
-  recycle_completed!(pool)
-end
-
-fence_status(fence::Vk.Fence) = unwrap(Vk.get_fence_status(fence.device, fence))
-
-"""
-Retrieve a fence from the `pool`.
-
-Note that the fence that is retrieved will be automatically listed as pending execution.
-If the fence is never signaled, then it will never be released; it is the responsibility
-of the calling code to have a signal operation perform on the fence.
-"""
-function fence(pool::FencePool)
-  (; available) = pool
-  isempty(available) && compact!(pool)
-  fence = isempty(available) ? Vk.Fence(pool.device) : pop!(available)
-  push!(pool.pending, fence)
-  fence
-end
-
-function Base.empty!(pool::FencePool)
-  empty!(pool.available)
-  empty!(pool.pending)
-  pool
-end
-
-Base.show(io::IO, pool::FencePool) = print(io, FencePool, "(", pool.device, ", ", length(pool.available), " available fences, ", length(pool.pending), " pending execution)")
+sync_submission(device) = SubmissionInfo(signal_fence = get_fence!(device))

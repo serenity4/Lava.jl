@@ -43,6 +43,8 @@ abstract type LavaAbstraction end
 include("utils.jl")
 include("handles.jl")
 include("queue_dispatch.jl")
+include("fence.jl")
+include("semaphore.jl")
 include("synchronization.jl")
 include("hashtable.jl")
 include("cache.jl")
