@@ -86,7 +86,7 @@ function delete_descriptor!(arr::DescriptorArray, id::DescriptorID)
   index = get(arr.indices, id, nothing)
   isnothing(index) && return
   delete!(arr.indices, id)
-  delete!(arr.descriptors, index)
+  unset!(arr.descriptors, index)
   push!(arr.holes, index)
 end
 
