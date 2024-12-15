@@ -19,14 +19,59 @@ vk_handle_type(::Type{<:Swapchain}) = Vk.SwapchainKHR
 list_print(f, values) = string("\n• ", join(map(f, values), "\n• "), '\n')
 list_print(values) = list_print(identity, values)
 
-function Swapchain(device::Device, surface::Surface, usage_flags::Vk.ImageUsageFlag; n = 2, present_mode = Vk.PRESENT_MODE_IMMEDIATE_KHR, format = Vk.FORMAT_B8G8R8A8_SRGB, color_space = Vk.COLOR_SPACE_SRGB_NONLINEAR_KHR, composite_alpha = Vk.COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
-  (; physical_device) = device.handle
-  surface_info = Vk.PhysicalDeviceSurfaceInfo2KHR(; surface)
-  capabilities = unwrap(Vk.get_physical_device_surface_capabilities_2_khr(physical_device, surface_info)).surface_capabilities
+struct SwapchainScaling
+  preferred_scalings::NTuple{3, Vk.PresentScalingFlagEXT}
+  preferred_gravities::NTuple{2, NTuple{3, Vk.PresentGravityFlagEXT}}
+end
 
-  capabilities.min_image_count ≤ n ≤ capabilities.max_image_count || error("The provided surface requires $(capabilities.min_image_count) ≤ n ≤ $(capabilities.max_image_count) (got $n)")
-  usage_flags in capabilities.supported_usage_flags || error("The surface does not support swapchain images with usage $usage_flags. Supported flags are $(capabilities.supported_usage_flags)")
-  composite_alpha in capabilities.supported_composite_alpha || error("The surface does not support the provided composite alpha $composite_alpha. Supported flags are $(capabilities.supported_composite_alpha)")
+default_preferred_scalings() = (Vk.PRESENT_SCALING_STRETCH_BIT_EXT, Vk.PRESENT_SCALING_ASPECT_RATIO_STRETCH_BIT_EXT, Vk.PRESENT_SCALING_ONE_TO_ONE_BIT_EXT)
+default_preferred_gravities() = (Vk.PRESENT_GRAVITY_CENTERED_BIT_EXT, Vk.PRESENT_GRAVITY_MIN_BIT_EXT, Vk.PRESENT_GRAVITY_MAX_BIT_EXT)
+
+function SwapchainScaling(; preferred_scalings = default_preferred_scalings(), preferred_gravities = default_preferred_gravities())
+  isa(preferred_gravities, NTuple{2}) || (preferred_gravities = (preferred_gravities, preferred_gravities))
+  SwapchainScaling(preferred_scalings, preferred_gravities)
+end
+
+function find_supported_scaling_parameters(info::Vk.SurfacePresentScalingCapabilitiesEXT, swapchain_scaling::SwapchainScaling)
+  (; preferred_scalings, preferred_gravities) = swapchain_scaling
+  i = findfirst(scaling -> in(scaling, info.supported_present_scaling), preferred_scalings)
+  scaling = isnothing(i) ? Vk.PresentScalingFlagEXT() : preferred_scalings[i]
+  i = findfirst(gravity -> in(gravity, info.supported_present_gravity_x), preferred_gravities[1])
+  gravity_x = !isnothing(i) ? preferred_gravities[1][i] : iszero(scaling) ? Vk.PresentScalingFlagEXT() : nothing
+  i = findfirst(gravity -> in(gravity, info.supported_present_gravity_y), preferred_gravities[2])
+  gravity_y = !isnothing(i) ? preferred_gravities[2][i] : iszero(scaling) ? Vk.PresentScalingFlagEXT() : nothing
+  iszero(gravity_x) && (gravity_y = gravity_x)
+  iszero(gravity_y) && (gravity_x = gravity_y)
+
+  scaling, gravity_x, gravity_y
+end
+
+function scaling_info(info::Vk.SurfacePresentScalingCapabilitiesEXT, swapchain_scaling::SwapchainScaling)
+  scaling, gravity_x, gravity_y = find_supported_scaling_parameters(info, swapchain_scaling)
+  iszero(scaling) && return C_NULL
+  Vk.SwapchainPresentScalingCreateInfoEXT(; scaling_behavior = scaling, present_gravity_x = gravity_x, present_gravity_y = gravity_y)
+end
+
+function Swapchain(device::Device, surface::Surface, usage_flags::Vk.ImageUsageFlag;
+                   n = 2,
+                   present_mode = Vk.PRESENT_MODE_IMMEDIATE_KHR,
+                   format = Vk.FORMAT_B8G8R8A8_SRGB,
+                   color_space = Vk.COLOR_SPACE_SRGB_NONLINEAR_KHR,
+                   composite_alpha = Vk.COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+                   scaling::Optional{SwapchainScaling} = SwapchainScaling(),
+  )
+  (; physical_device) = device.handle
+
+  surface_info = Vk.PhysicalDeviceSurfaceInfo2KHR(; surface, next = Vk.SurfacePresentModeEXT(present_mode))
+  capabilities = unwrap(Vk.get_physical_device_surface_capabilities_2_khr(physical_device, surface_info, Vk.SurfacePresentScalingCapabilitiesEXT))
+  flags = Vk.SWAPCHAIN_CREATE_DEFERRED_MEMORY_ALLOCATION_BIT_EXT
+  next = scaling_info(capabilities.next::Vk.SurfacePresentScalingCapabilitiesEXT, scaling)
+
+  info = capabilities.surface_capabilities
+  info.min_image_count ≤ n ≤ info.max_image_count || error("The provided surface requires $(info.min_image_count) ≤ n ≤ $(info.max_image_count) (got $n)")
+  usage_flags in info.supported_usage_flags || error("The surface does not support swapchain images with usage $usage_flags. Supported flags are $(info.supported_usage_flags)")
+  composite_alpha in info.supported_composite_alpha || error("The surface does not support the provided composite alpha $composite_alpha. Supported flags are $(info.supported_composite_alpha)")
+  (; current_extent, current_transform) = info
 
   formats = unwrap(Vk.get_physical_device_surface_formats_khr(physical_device; surface))
   any(formats) do fmt
@@ -41,15 +86,17 @@ function Swapchain(device::Device, surface::Surface, usage_flags::Vk.ImageUsageF
     n,
     format,
     color_space,
-    capabilities.current_extent,
+    current_extent,
     1,
     usage_flags,
     Vk.SHARING_MODE_EXCLUSIVE,
     [],
-    capabilities.current_transform,
+    current_transform,
     composite_alpha,
     present_mode,
-    false,
+    false;
+    flags,
+    next,
   )
   handle = unwrap(Vk.create_swapchain_khr(device, info))
   swapchain = Swapchain(handle, info, surface, find_presentation_queue(device.queues, [surface]))

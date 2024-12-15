@@ -46,7 +46,7 @@ function init(;
     push!(instance_layers, "VK_LAYER_KHRONOS_validation")
   end
   debug && union!(instance_extensions, ["VK_EXT_debug_utils"])
-  union!(instance_extensions, ["VK_KHR_surface", "VK_KHR_get_surface_capabilities2"])
+  union!(instance_extensions, ["VK_KHR_surface", "VK_KHR_get_surface_capabilities2", "VK_EXT_surface_maintenance1"])
 
   available_layers = unwrap(Vk.enumerate_instance_layer_properties())
   unsupported_layers = filter(!in(getproperty.(available_layers, :layer_name)), instance_layers)
@@ -83,6 +83,7 @@ function init(;
     [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :variable_pointers, :variable_pointers_storage_buffer, :synchronization2, :dynamic_rendering, :timeline_semaphore, :maintenance4],
   )
   vulkan_features = physical_device_features_core(device_vulkan_features)
+  vulkan_features = Vk.PhysicalDeviceSwapchainMaintenance1FeaturesEXT(true; next = vulkan_features)
   union!(device_specific_features, [:shader_float_64, :shader_int_16, :shader_int_64, :sampler_anisotropy])
   device_features = physical_device_features(Vk.PhysicalDeviceFeatures, device_specific_features)
   enabled_features = Vk.PhysicalDeviceFeatures2(device_features; next = vulkan_features)
@@ -91,7 +92,8 @@ function init(;
 
   available_extensions = unwrap(Vk.enumerate_device_extension_properties(physical_device))
   union!(device_extensions, REQUIRED_DEVICE_EXTENSIONS)
-  union!(device_extensions, ["VK_KHR_swapchain"])
+  union!(device_extensions, ["VK_KHR_swapchain", "VK_EXT_swapchain_maintenance1"])
+
   unsupported_extensions = filter(!in(getproperty.(available_extensions, :extension_name)), device_extensions)
   if !isempty(unsupported_extensions)
     error("Requesting unsupported device extensions: $unsupported_extensions")

@@ -1,19 +1,30 @@
 mutable struct Frame
+    # Swapchain image.
     const image::Image
-    image_acquired::BinarySemaphore
-    may_present::BinarySemaphore
-    const image_rendered::TimelineSemaphore
+    # Semaphore signaled by the driver when the swapchain image
+    # that has been acquired is now ready for use.
+    const image_acquired::BinarySemaphore
+    # This semaphore is signaled by the rendering queue to ensure presentation
+    # happens after the image has been fully written to.
+    const may_present::BinarySemaphore
+    # This field is `nothing` until the first render has been submitted.
+    # This fence is signaled by the rendering queue when all rendering work has finished.
+    has_rendered::Optional{Fence}
 end
 
-function Frame(image::Image, index, frame_count)
-    (; device) = image.handle
+function Frame(device::Device, image::Image, index, frame_count)
     image_acquired = BinarySemaphore(device)
     may_present = BinarySemaphore(device)
-    image_rendered = TimelineSemaphore(device)
     Vk.set_debug_name(image_acquired, Symbol(:image_acquired_, index, :_, frame_count))
     Vk.set_debug_name(may_present, Symbol(:may_present_, index, :_, frame_count))
-    Vk.set_debug_name(image_rendered, Symbol(:image_rendered_, index, :_, frame_count))
-    Frame(image, image_acquired, may_present, image_rendered)
+    Frame(image, image_acquired, may_present, nothing)
+end
+
+function free!(frame::Frame)
+    @debug "Finalizing frame $frame"
+    finalize(frame.image)
+    finalize(frame.image_acquired)
+    finalize(frame.may_present)
 end
 
 mutable struct FrameCycle{T}
@@ -22,11 +33,14 @@ mutable struct FrameCycle{T}
     frames::Vector{Frame}
     frame_index::Int64
     frame_count::Int64
+    next_image::Int64
+    outdated::Bool
+    pending_frames::Dictionary{Swapchain, Dictionary{Frame, Vector{Fence}}}
 end
 
 function FrameCycle(device::Device, swapchain::Swapchain)
-    frames = frames_from_swapchain(device, swapchain, 0)
-    FrameCycle(device, swapchain, frames, lastindex(frames), 0)
+    frames = get_frames_from_swapchain(device, swapchain, 0)
+    FrameCycle(device, swapchain, frames, lastindex(frames), 0, -1, false, Dictionary{Swapchain, Dictionary{Frame, Vector{Fence}}}())
 end
 
 function FrameCycle(device::Device, surface::Surface; swapchain_kwargs...)
@@ -34,7 +48,9 @@ function FrameCycle(device::Device, surface::Surface; swapchain_kwargs...)
 end
 
 function surface_capabilities(fc::FrameCycle)
-    unwrap(Vk.get_physical_device_surface_capabilities_2_khr(fc.device.handle.physical_device, Vk.PhysicalDeviceSurfaceInfo2KHR(; fc.swapchain.surface))).surface_capabilities
+    info = Vk.PhysicalDeviceSurfaceInfo2KHR(; fc.swapchain.surface)
+    capabilities = unwrap(Vk.get_physical_device_surface_capabilities_2_khr(fc.device.handle.physical_device, info))
+    capabilities.surface_capabilities
 end
 
 current_frame(fc::FrameCycle) = fc.frames[fc.frame_index]
@@ -42,49 +58,48 @@ current_frame(fc::FrameCycle) = fc.frames[fc.frame_index]
 Base.collect(::Type{T}, fc::FrameCycle) where {T} = collect(T, current_frame(fc).image, fc.device)
 Base.collect(fc::FrameCycle) = collect(current_frame(fc).image, fc.device)
 
-function recreate_swapchain!(fc::FrameCycle, new_extent::Vk.Extent2D)
+function recreate_swapchain!(fc::FrameCycle, capabilities::Vk.SurfaceCapabilitiesKHR)
     (; swapchain) = fc
-    info = setproperties(swapchain.info, old_swapchain = swapchain.handle, image_extent = new_extent)
+    info = setproperties(swapchain.info; old_swapchain = swapchain.handle, image_extent = capabilities.current_extent)
     handle = unwrap(Vk.create_swapchain_khr(fc.device, info))
     fc.swapchain = setproperties(swapchain, (; info, handle))
 end
 
-function frames_from_swapchain(device, swapchain, frame_count)
+function get_frames_from_swapchain(device, swapchain, frame_count)
     frames = Frame[]
     for (i, handle) in enumerate(unwrap(Vk.get_swapchain_images_khr(device, swapchain)))
         img = image_wsi(handle, swapchain.info)
         Vk.set_debug_name(img, "swapchain_image_$i")
-        push!(frames, Frame(img, i, frame_count))
+        push!(frames, Frame(device, img, i, frame_count))
     end
     frames
 end
 
-function finalize_semaphores(frames)
-    # Eagerly finalize old frame semaphores, as swapchain recreation may
-    # happen at a fast rate during window resize we don't want to hang onto them
-    # for longer than necessary.
-    for frame in frames
-        finalize(frame.may_present)
-        finalize(frame.image_acquired)
-    end
+function is_outdated(fc::FrameCycle)
+    fc.outdated && return true
+    extent_has_changed(fc)
+end
+
+function extent_has_changed(fc::FrameCycle, capabilities = surface_capabilities(fc))
+    (; current_extent) = capabilities
+    (; image_extent) = fc.swapchain.info
+    current_extent ≠ image_extent
 end
 
 function recreate!(fc::FrameCycle)
-    old_frames = fc.frames
-    (; current_extent) = surface_capabilities(fc)
-    if current_extent ≠ fc.swapchain.info.image_extent
-        recreate_swapchain!(fc, current_extent)
-    end
-    fc.frames = frames_from_swapchain(fc.device, fc.swapchain, fc.frame_count)
-    println("Recreating on frame ", fc.frame_count, " (last index: ", fc.frame_index, ", new index: ", lastindex(fc.frames), ')')
+    @debug string("Recreating on frame ", fc.frame_count, " (last index: ", fc.frame_index, ", new index: ", lastindex(fc.frames), ')')
+    capabilities = surface_capabilities(fc)
+    extent_has_changed(fc, capabilities) && recreate_swapchain!(fc, capabilities)
+    fc.frames = get_frames_from_swapchain(fc.device, fc.swapchain, fc.frame_count)
     fc.frame_index = lastindex(fc.frames)
-    # XXX: Don't finalize semaphores eagerly, because
-    # this seems to trigger 
-    # finalize_semaphores(old_frames)
+    fc.next_image = -1
+    fc.outdated = false
+    fc
 end
 
-function next_frame!(fc::FrameCycle, idx)
-    fc.frame_index = idx
+function next_frame!(fc::FrameCycle)
+    fc.frame_index = fc.next_image
+    fc.next_image = -1
     fc.frame_count += 1
     current_frame(fc)
 end
@@ -92,58 +107,78 @@ end
 """
 Acquire the next image.
 """
-function acquire_next_image(fc::FrameCycle)
+function acquire_next_image!(fc::FrameCycle)
     (; image_acquired) = current_frame(fc)
-    # We pass in a semaphore to signal because the implementation
-    # may not be done reading from the image when this returns.
+    # When this returns, we may have the index of the next swapchain,
+    # but operations on the image may still be ongoing until the
+    # `image_acquired` semaphore has been signaled.
     status = Vk.acquire_next_image_khr(fc.device, fc.swapchain, 0; semaphore = image_acquired)
-    if !iserror(status)
-        idx, result = unwrap(status)
-        result in (Vk.SUCCESS, Vk.SUBOPTIMAL_KHR) && return idx + 1
-        result
-    else
+    !iserror(status) && ((idx, result) = unwrap(status))
+    if iserror(status)
         err = unwrap_error(status)
-        if err.code == Vk.ERROR_OUT_OF_DATE_KHR
-            recreate!(fc)
-            Vk.ERROR_OUT_OF_DATE_KHR
-        else
-            error("Could not acquire the next swapchain image ($(err.code))")
+        err.code == Vk.ERROR_OUT_OF_DATE_KHR && return err.code
+        error("Could not acquire the next swapchain image ($(err.code))")
+    end
+
+    in(result, (Vk.SUBOPTIMAL_KHR, Vk.SUCCESS)) && (fc.next_image = idx + 1)
+    fc.outdated |= result == Vk.SUBOPTIMAL_KHR && extent_has_changed(fc)
+    result
+end
+
+function free_pending_frames!(fc::FrameCycle)
+    for (swapchain, history) in pairs(fc.pending_frames)
+        swapchain_in_use = swapchain.handle === fc.swapchain.handle
+        for (frame, fences) in pairs(history)
+            filter!(fences) do fence
+                wait(fence, 0) || return true
+                recycle!(fence)
+                false
+            end
+            swapchain_in_use |= !isempty(fences)
         end
+        swapchain_in_use && continue
+        for frame in keys(history)
+            free!(frame)
+        end
+        finalize(swapchain.handle)
+        delete!(fc.pending_frames, swapchain)
     end
 end
 
 function cycle!(f, fc::FrameCycle)
+    is_outdated(fc) && recreate!(fc)
+
     idx = 0
     t0 = time()
     has_warned = false
 
-    @timeit to "Acquire next image" begin
-        while true
-            ret = acquire_next_image(fc)
-            if ret isa Int
-                idx = ret
-                break
-            end
-            if time() > t0 + 1 && ret === Vk.NOT_READY && !has_warned
-                @warn "No swapchain image has been acquired for 1 second, returning with the status code `NOT_READY`."
-                has_warned = true
-            end
-            yield()
-        end
+    if fc.next_image == -1
+        @timeit to "Acquire next image" ret = acquire_next_image!(fc)
+        ret === Vk.NOT_READY && return nothing
+        ret === Vk.ERROR_OUT_OF_DATE_KHR && return cycle!(f, recreate!(fc))
     end
-
-    cycle!(f, fc, idx)
+    next = fc.frames[fc.next_image]
+    if !isnothing(next.has_rendered)
+        wait(next.has_rendered, 0) || return nothing
+        reset(next.has_rendered)
+    end
+    state = render_and_present!(f, fc)
+    free_pending_frames!(fc)
+    state
 end
 
-function cycle!(f, fc::FrameCycle, idx::Integer)
+function render_and_present!(f, fc::FrameCycle)
     (; swapchain, device) = fc
     last_frame = current_frame(fc)
     (; image_acquired) = last_frame
-    frame = next_frame!(fc, idx)
+    frame = next_frame!(fc)
 
     # Submit rendering commands.
     @timeit to "Submit rendering commands" begin
-        @timeit to "User-specified cycle function" submission = f(frame.image)
+        # TODO: Pass in `image_acquired` to `f` such that typically only the last bit of the rendering
+        # waits for the image. It is indeed most likely that the user will perform rendering operations
+        # on another image, and only at the very end transfer the frame's contents to the swapchain image.
+        @timeit to "User-specified cycle function" submission = f(frame)
         isnothing(submission) && return nothing
         isa(submission, SubmissionInfo) || throw(ArgumentError("A `SubmissionInfo` must be returned to properly synchronize with frame presentation."))
         push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfo(image_acquired.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT))
@@ -154,25 +189,40 @@ function cycle!(f, fc::FrameCycle, idx::Integer)
 
     # Submit the presentation command.
     @timeit to "Submit presentation commands" begin
-        present_info = Vk.PresentInfoKHR([frame.may_present.handle], [swapchain.handle], [idx - 1])
+        # Fence to be signaled by the driver when the presentation queue
+        # is done with swapchain-related resources.
+        # These resources include the swapchain image, its bound memory, and
+        # the wait semaphore used when queuing the image for presentation.
+        has_presented = get_fence!(device)
+        Vk.set_debug_name(has_presented, Symbol(:has_presented_, fc.frame_index, :_, fc.frame_count))
+        present_fence_info = Vk.SwapchainPresentFenceInfoEXT([has_presented.handle])
+        present_info = Vk.PresentInfoKHR([frame.may_present.handle], [swapchain.handle], [fc.frame_index - 1]; next = present_fence_info)
+        pending_frames = get!(Dictionary{Frame, Vector{Fence}}, fc.pending_frames, swapchain)
+        push!(get!(Vector{Fence}, pending_frames, frame), has_presented)
         ret = Vk.queue_present_khr(swapchain.queue, present_info)
-        # Ignore out of date errors, but throw if others are encountered.
-        !iserror(ret) && return state
-        (; code) = unwrap_error(ret)
-        code ≠ Vk.ERROR_OUT_OF_DATE_KHR && unwrap(ret)
+        if iserror(ret)
+            (; code) = unwrap_error(ret)
+            # Allow out of date errors, but throw if others are encountered.
+            code ≠ Vk.ERROR_OUT_OF_DATE_KHR && unwrap(ret)
+        else
+            code = unwrap(ret)
+        end
+        code == Vk.ERROR_OUT_OF_DATE_KHR || code == Vk.SUBOPTIMAL_KHR && recreate!(fc)
     end
 
     state
 end
 
-function draw_and_prepare_for_presentation(device::Device, nodes, source::Resource, target::Resource)
-    transfer = transfer_command(source, target)
-    present = present_command(target)
+function draw_and_prepare_for_presentation(device::Device, nodes, attachment::Resource, frame::Frame)
+    image = Resource(frame.image)
+    transfer = transfer_command(attachment, image)
+    present = present_command(image)
     rg = RenderGraph(device, nodes)
     add_nodes!(rg, transfer, present)
     command_buffer = request_command_buffer(device)
     baked = render!(rg, command_buffer)
-    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], release_after_completion = [baked], queue_family = command_buffer.queue_family_index, signal_fence = fence(device))
+    has_rendered = get_fence!(device)
+    frame.has_rendered = has_rendered
+    Vk.set_debug_name(has_rendered, :has_rendered)
+    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], release_after_completion = [baked], queue_family = command_buffer.queue_family_index, signal_fence = has_rendered)
 end
-
-draw_and_prepare_for_presentation(device::Device, nodes, source::Resource, target::Image) = draw_and_prepare_for_presentation(device, nodes, source, Resource(target))
