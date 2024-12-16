@@ -148,14 +148,15 @@ end
 function cycle!(f, fc::FrameCycle)
     is_outdated(fc) && recreate!(fc)
 
-    idx = 0
-    t0 = time()
-    has_warned = false
-
     if fc.next_image == -1
         @timeit to "Acquire next image" ret = acquire_next_image!(fc)
         ret === Vk.NOT_READY && return nothing
-        ret === Vk.ERROR_OUT_OF_DATE_KHR && return cycle!(f, recreate!(fc))
+        while ret === Vk.ERROR_OUT_OF_DATE_KHR
+            recreate!(fc)
+            @timeit to "Acquire next image" ret = acquire_next_image!(fc)
+            ret === Vk.NOT_READY && return nothing
+            yield()
+        end
     end
     next = fc.frames[fc.next_image]
     if !isnothing(next.has_rendered)
