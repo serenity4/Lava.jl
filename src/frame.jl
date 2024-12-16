@@ -225,5 +225,5 @@ function draw_and_prepare_for_presentation(device::Device, nodes, attachment::Re
     has_rendered = get_fence!(device)
     frame.has_rendered = has_rendered
     Vk.set_debug_name(has_rendered, :has_rendered)
-    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], release_after_completion = [baked], queue_family = command_buffer.queue_family_index, signal_fence = has_rendered)
+    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], free_after_completion = [baked], queue_family = command_buffer.queue_family_index, signal_fence = has_rendered)
 end
