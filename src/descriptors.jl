@@ -60,10 +60,10 @@ function assert_type(descriptor::Descriptor, dtype::DescriptorType)
   descriptor
 end
 
-storage_image_descriptor(image::Resource, node = nothing) = Descriptor(DESCRIPTOR_TYPE_STORAGE_IMAGE, image, node)
+storage_image_descriptor(resource::Resource, node = nothing) = Descriptor(DESCRIPTOR_TYPE_STORAGE_IMAGE, resource, node)
 sampler_descriptor(sampler::Sampling, node = nothing) = Descriptor(DESCRIPTOR_TYPE_SAMPLER, sampler, node)
-sampled_image_descriptor(image::Resource, node = nothing) = Descriptor(DESCRIPTOR_TYPE_SAMPLED_IMAGE, image, node)
-texture_descriptor(tex::Texture, node = nothing) = Descriptor(DESCRIPTOR_TYPE_TEXTURE, tex, node)
+sampled_image_descriptor(resource::Resource, node = nothing) = Descriptor(DESCRIPTOR_TYPE_SAMPLED_IMAGE, resource, node)
+texture_descriptor(texture::Texture, node = nothing) = Descriptor(DESCRIPTOR_TYPE_TEXTURE, texture, node)
 
 struct DescriptorArray
   descriptors::Dictionary{UInt32,DescriptorID}

@@ -155,9 +155,9 @@ function match_subresource(f::F, map::SubresourceMap{T}, subresource::Subresourc
   elseif isused(map.value_per_aspect)
     match_subresource(f, map.value_per_aspect[subresource.aspect], subresource)
   elseif isused(map.value_per_layer)
-    match_subresource_layers(f, map, subresource)#::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}, Vector{Pair{LayerRange, Vector{<:Pair{MipRange, <:T}}}}}
+    match_subresource_layers(f, map, subresource)
   elseif isused(map.value_per_mip_level)
-    match_subresource_mip_levels(f, map, subresource)::Union{Pair{MipRange, <:T}, Vector{Pair{MipRange, <:T}}}
+    match_subresource_mip_levels(f, map, subresource)
   else
     error("$map is in an invalid state; please file an issue")
   end

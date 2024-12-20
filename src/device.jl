@@ -231,6 +231,32 @@ function image_resource(device::Device, data;
   Resource(image; name)
 end
 
+function image_view_resource(image::LogicalImage; name = nothing, kwargs...)
+  Resource(LogicalImageView(image; kwargs...); name)
+end
+
+function image_view_resource(image::Image; name = nothing, kwargs...)
+  Resource(ImageView(image; kwargs...); name)
+end
+
+function image_view_resource(resource::Resource; name = nothing, kwargs...)
+  isimage(resource) || error("Expected an image resource, got a resource of type ", resource_type(resource))
+  if islogical(resource)
+    image_view = LogicalImageView(resource.logical_image; kwargs...)
+    flags = RESOURCE_IS_LOGICAL
+  else
+    image_view = ImageView(resource.image; kwargs...)
+    flags = ResourceFlags()
+  end
+  type = RESOURCE_TYPE_IMAGE_VIEW
+  id = ResourceID(type, resource.id)
+  Resource(id, image_view, name, flags)
+end
+
+function image_view_resource(device::Device, data; name = nothing, kwargs...)
+  Resource(ImageView(device, data; kwargs...); name)
+end
+
 function attachment_resource(format::Union{Vk.Format, DataType}, dims = nothing; name = nothing, kwargs...)
   Resource(LogicalAttachment(format, dims; kwargs...); name)
 end

@@ -12,12 +12,12 @@
     TextureCoordinates(Vec2(0.5, 0.5), Vec2(1.0, 1.0)),
   ]
 
-  function draw(swapchain_image, t)
+  function draw(frame, t)
     uv_scale = Vec2(0.1 + t * 0.9, 0.5cos(t))
     nodes = [draw_texture(device, vdata, color; prog, uv_scale, image)]
-    draw_and_prepare_for_presentation(device, nodes, color, swapchain_image)
+    draw_and_prepare_for_presentation(device, nodes, color, frame)
   end
-  draw_and_present(cycle, t) = wait(cycle!(image -> draw(image, t), cycle))
+  draw_and_present(cycle, t) = wait(cycle!(frame -> draw(frame, t), cycle))
 
   test_validation_msg(x -> @test isempty(x)) do
     Δt = 0.1

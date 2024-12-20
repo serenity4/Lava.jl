@@ -124,7 +124,7 @@ export
   MipRange, mip_range,
 
   # images
-  LogicalImage, Image, ImageView,
+  LogicalImage, Image, LogicalImageView, ImageView,
 
   # textures
   Texture, Sampling, DEFAULT_SAMPLING,
@@ -145,8 +145,8 @@ export
   Shader,
 
   # resources
-  Resource, buffer_resource, image_resource, attachment_resource, assert_type,
-  RESOURCE_TYPE_BUFFER, RESOURCE_TYPE_IMAGE, RESOURCE_TYPE_ATTACHMENT,
+  Resource, buffer_resource, image_resource, image_view_resource, attachment_resource, assert_type,
+  RESOURCE_TYPE_BUFFER, RESOURCE_TYPE_IMAGE, RESOURCE_TYPE_IMAGE_VIEW, RESOURCE_TYPE_ATTACHMENT,
 
   # descriptors
   Descriptor, DescriptorID,

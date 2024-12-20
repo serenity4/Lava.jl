@@ -169,7 +169,11 @@ function transfer(
   submit!(submission, command_buffer)
 end
 
-buffer_regions_for_transfer(buffer, view_or_image) = layer_range(view_or_image) == 1:1 ? [whole_buffer_to_whole_image(buffer, view_or_image)] : buffer_regions_to_image_layers(buffer, view_or_image)
+function buffer_regions_for_transfer(buffer, view_or_image)
+  mip_range(view_or_image) == 1:1 || error("Images with mipmaps are not supported yet for buffer -> image transfers")
+  layer_range(view_or_image) == 1:1 && return [whole_buffer_to_whole_image(buffer, view_or_image)]
+  buffer_regions_to_image_layers(buffer, view_or_image)
+end
 
 function whole_buffer_to_whole_image(buffer::Buffer, view_or_image::Union{Image,ImageView})
   Vk.BufferImageCopy(buffer.offset, dimensions(view_or_image)..., Subresource(view_or_image), Vk.Offset3D(view_or_image), Vk.Extent3D(view_or_image))
@@ -226,9 +230,8 @@ function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, la
       transfer(device, image, dst; submission = sync_submission(device))
       collect(T, dst, device)
     else
-      view = ImageView(image; layer_range = layer:layer, mip_range = mip_level:mip_level)
-      transfer(device, view, dst; submission = sync_submission(device))
-      collect(T, dst, device)
+      view = ImageView(image; mip_range = mip_level:mip_level, layer_range = layer:layer)
+      collect(T, view, device)
     end
   end
 end
@@ -240,7 +243,6 @@ function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
   (; image) = view
   # Collect from the underlying image directly if the view is trivial.
   # Otherwise, we'll let the GPU apply component mappings and handle layer transfers through a view-to-buffer transfer.
-  view.component_mapping == COMPONENT_MAPPING_IDENTITY && layer_range(image) == 1:1 && return collect(T, image, device; mip_level = 1, layer = 1)
   isbitstype(T) || error("The image element type is not an `isbits` type.")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
   if image.is_linear
@@ -254,7 +256,7 @@ function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
   else
     # Transfer the data to an image backed by host-visible memory and collect the new image.
     usage_flags = image.usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-    dst = similar(image; dims = dimensions(view), layers = 1, mip_levels = 1, is_linear = true, usage_flags, flags = Vk.ImageCreateFlag())
+    dst = similar(image; dims = dimensions(view), layers = 1, mip_levels = 1, is_linear = true, usage_flags, memory_domain = MEMORY_DOMAIN_HOST, flags = Vk.ImageCreateFlag(), samples = 1)
     transfer(device, view, dst; submission = sync_submission(device))
     collect(T, similar(view, dst; layer_range = 1:1, mip_range = 1:1), device)
   end
@@ -264,17 +266,33 @@ Base.collect(view::ImageView, device::Device) = collect(format_type(view.format)
 Base.collect(::Type{T}, attachment::Attachment, device::Device) where {T} = collect(T, attachment.view.image, device)
 Base.collect(::Type{T}, resource::Resource, device::Device) where {T} = collect(T, resource.data, device)
 Base.collect(attachment::Attachment, device::Device) = collect(attachment.view, device)
-Base.collect(resource::Resource, device::Device) = collect(resource.data, device)
+Base.collect(resource::Resource, device::Device; kwargs...) = collect(resource.data, device; kwargs...)
 
-function Base.copyto!(view_or_image::Union{Image,ImageView}, data::AbstractArray, device::Device; submission = SubmissionInfo(signal_fence = get_fence!(device)), kwargs...)
-  b = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
-  transfer(device, b, view_or_image; submission, kwargs...)
-  view_or_image
+function Base.copyto!(view::ImageView, data::AbstractArray, device::Device; submission = SubmissionInfo(signal_fence = get_fence!(device)), kwargs...)
+  buffer = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
+  transfer(device, buffer, view; submission, kwargs...)
+  view
+end
+
+function Base.copyto!(image::Image, data::AbstractArray, device::Device; mip_range = nothing, layer_range = nothing, mip_level = nothing, layer = nothing, submission = SubmissionInfo(signal_fence = get_fence!(device)), kwargs...)
+  if !isnothing(mip_level)
+    isnothing(mip_range) || throw(ArgumentError("The mip range and mip level must not be provided at the same time"))
+    mip_range = mip_level:mip_level
+  end
+  if !isnothing(layer)
+    isnothing(layer_range) || throw(ArgumentError("The layer range and layer must not be provided at the same time"))
+    layer_range = layer:layer
+  end
+  mip_range = something(mip_range, Lava.mip_range(image))
+  layer_range = something(layer_range, Lava.layer_range(image))
+  view = ImageView(image; mip_range, layer_range)
+  copyto!(view, data, device; submission, kwargs...)
+  image
 end
 
 function Base.copyto!(data::AbstractArray, image::Image, device::Device; kwargs...)
-  b = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT, memory_domain = MEMORY_DOMAIN_HOST)
-  transfer(device, image, b; kwargs...)
+  buffer = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT, memory_domain = MEMORY_DOMAIN_HOST)
+  transfer(device, image, buffer; kwargs...)
   data
 end
 
@@ -330,12 +348,15 @@ function infer_dims_and_format(data, dims, format, layers)
   dims, format
 end
 
-# # Attachments
+# # Image views
 
-function Attachment(
+function ImageView(
   device::Device,
   data = nothing;
-  format = nothing,
+
+  # Image parameters.
+  image_flags = nothing,
+  image_format = nothing,
   memory_domain = MEMORY_DOMAIN_DEVICE,
   optimal_tiling = true,
   usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT,
@@ -343,28 +364,75 @@ function Attachment(
   samples = 1,
   queue_family_indices = queue_family_indices(device),
   sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
-  layers = 1,
   mip_levels = 1,
+  layers = 1,
   layout::Optional{Vk.ImageLayout} = nothing,
-  access::MemoryAccess = READ | WRITE,
+
+  # Image view parameters.
+  flags = nothing,
+  format = nothing,
+  component_mapping = COMPONENT_MAPPING_IDENTITY,
   aspect = nothing,
   layer_range = nothing,
   mip_range = nothing,
-  image_flags = nothing,
-  component_mapping = COMPONENT_MAPPING_IDENTITY,
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)),
-)
+  type = nothing,
 
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)))
+
+  isa(format, Type) && (format = Vk.Format(format))
   dims, format = infer_dims_and_format(data, dims, format, layers)
+  image_format = something(image_format, format, Some(nothing))
   !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
   usage_flags = minimal_image_view_flags(usage_flags)
-  img = Image(device; format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, layers, mip_levels, flags = image_flags)
-  aspect = img.format == Vk.FORMAT_UNDEFINED ? Vk.IMAGE_ASPECT_COLOR_BIT : aspect_flags(img.format)
-  layer_range = @something(layer_range, Lava.layer_range(img))
-  mip_range = @something(mip_range, Lava.mip_range(img))
-  view = ImageView(img; aspect, layer_range, mip_range, component_mapping)
+  image = Image(device; format = image_format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, layers, mip_levels, flags = image_flags)
+
+  flags = something(flags, Vk.ImageViewCreateFlag())
+  aspect = @something(aspect, format == Vk.FORMAT_UNDEFINED ? Vk.IMAGE_ASPECT_COLOR_BIT : aspect_flags(format))
+  layer_range = @something(layer_range, Lava.layer_range(image))
+  mip_range = @something(mip_range, Lava.mip_range(image))
+  type = @something(type, image_view_type(dimensions(image), layer_range))
+  view = ImageView(image; format, aspect, layer_range, mip_range, component_mapping, flags)
   !isnothing(data) && copyto!(view, data, device; submission)
   !isnothing(layout) && ensure_layout(device, view, layout)
+  view
+end
+
+# # Attachments
+
+function Attachment(
+  device::Device,
+  data = nothing;
+
+  # Image parameters.
+  image_flags = nothing,
+  image_format = nothing,
+  memory_domain = MEMORY_DOMAIN_DEVICE,
+  optimal_tiling = true,
+  usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT,
+  dims = nothing,
+  samples = 1,
+  queue_family_indices = queue_family_indices(device),
+  sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
+  mip_levels = 1,
+  layers = 1,
+  layout::Optional{Vk.ImageLayout} = nothing,
+
+  # Image view parameters.
+  flags = nothing,
+  format = nothing,
+  component_mapping = COMPONENT_MAPPING_IDENTITY,
+  aspect = nothing,
+  layer_range = nothing,
+  mip_range = nothing,
+  type = nothing,
+
+  # Attachment parameters.
+  access::MemoryAccess = READ | WRITE,
+
+  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)))
+
+  image_format = something(image_format, format, Some(nothing))
+  view = ImageView(device, data; image_flags, image_format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, layers, mip_levels, layout, flags, format, aspect, layer_range, mip_range, type, component_mapping, submission)
   Attachment(view, access)
 end
 

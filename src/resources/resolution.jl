@@ -23,17 +23,19 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
     type = descriptor_type(descriptor)
     dtype = Vk.DescriptorType(type)
 
-    # XXX: For image descriptors that require a view, we currently build a default one
-    # with `ImageView(image)`, but for more control we might want to allow users to pass
-    # in a view.
-
     @switch type begin
       @case &DESCRIPTOR_TYPE_SAMPLED_IMAGE
       resource = descriptor.data::Resource
       islogical(resource) && (resource = resources[resource.id])
-      usage = uses[descriptor.node_id::NodeID][resource.id].usage::ImageUsage
+      node_uses = uses[descriptor.node_id::NodeID]
+      usage = get_image_view_usage(resource, node_uses)
       layout = image_layout(usage.type, usage.access)
-      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), ImageView(resource.image), layout)
+      image_view = @match resource_type(resource) begin
+        &RESOURCE_TYPE_IMAGE_VIEW => resource.image_view
+        &RESOURCE_TYPE_IMAGE => ImageView(resource.image)
+        type => error("Expected image or image view, got resource of type ", type)
+      end
+      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), image_view, layout)
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
@@ -42,9 +44,15 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       @case &DESCRIPTOR_TYPE_STORAGE_IMAGE
       resource = descriptor.data::Resource
       islogical(resource) && (resource = resources[resource.id])
-      usage = uses[descriptor.node_id::NodeID][resource.id].usage::ImageUsage
+      node_uses = uses[descriptor.node_id::NodeID]
+      usage = get_image_view_usage(resource, node_uses)
       layout = image_layout(usage.type, usage.access)
-      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), ImageView(resource.image), layout)
+      image_view = @match resource_type(resource) begin
+        &RESOURCE_TYPE_IMAGE_VIEW => resource.image_view
+        &RESOURCE_TYPE_IMAGE => ImageView(resource.image)
+        type => error("Expected image or image view, got resource of type ", type)
+      end
+      info = Vk.DescriptorImageInfo(empty_handle(Vk.Sampler), image_view, layout)
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
@@ -62,11 +70,12 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       @case &DESCRIPTOR_TYPE_TEXTURE
       texture = descriptor.data::Texture
       sampler = Vk.Sampler(device, texture.sampling)
-      (; image) = texture
-      islogical(image) && (texture = @set texture.image = resources[image.id])
-      usage = uses[descriptor.node_id::NodeID][image.id].usage::ImageUsage
+      (; resource) = texture
+      islogical(resource) && (resource = resources[resource.id])
+      node_uses = uses[descriptor.node_id::NodeID]
+      usage = get_image_view_usage(resource, node_uses)
       layout = image_layout(usage.type, usage.access)
-      info = Vk.DescriptorImageInfo(sampler, ImageView(image.image), layout)
+      info = Vk.DescriptorImageInfo(sampler, resource.image_view, layout)
       new_descriptor = @set descriptor.written_state = info
       gdescs.descriptors[descriptor.id] = new_descriptor
       index = gdescs.arrays[dtype].indices[descriptor.id]
@@ -80,4 +89,16 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
   batch_index = (@atomic gdescs.counter += 1)
   insert!(gdescs.pending, batch_index, batch_ids)
   batch_index
+end
+
+function get_image_view_usage(resource::Resource, node_uses)
+  if isimage(resource)
+    resource_usage = node_uses[resource.id]
+  else
+    resource_usage = @something get(node_uses, resource.id, nothing) begin
+      image_id = ResourceID(RESOURCE_TYPE_IMAGE, resource.id)
+      node_uses[image_id]
+    end
+  end
+  resource_usage.usage::ImageUsage
 end

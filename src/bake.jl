@@ -52,9 +52,15 @@ function bake!(rg::RenderGraph)
 end
 
 function render!(rg::Union{RenderGraph,BakedRenderGraph})
+  submission = SubmissionInfo(; signal_fence = get_fence!(rg.device))
+  wait(render!(rg, submission))
+end
+
+function render!(rg::Union{RenderGraph,BakedRenderGraph}, submission::SubmissionInfo)
   command_buffer = request_command_buffer(rg.device)
   baked = render!(rg, command_buffer)
-  wait(submit!(SubmissionInfo(signal_fence = get_fence!(rg.device), free_after_completion = [baked]), command_buffer))
+  push!(submission.free_after_completion, baked)
+  submit!(submission, command_buffer)
 end
 
 render!(rg::RenderGraph, command_buffer::CommandBuffer) = render(command_buffer, bake!(rg))

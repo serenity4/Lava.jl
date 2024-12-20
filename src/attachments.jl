@@ -14,6 +14,7 @@ end
   layer_range
   mip_range
   aspect_flags
+  image_format
   image_layout
   samples
   dimensions

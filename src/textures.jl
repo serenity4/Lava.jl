@@ -42,10 +42,16 @@ Texture identified by UUID with sampling parameters.
 This texture is to be transformed into a texture index (to index into an array of sampled images or combined image-samplers depending on whether sampling parameters are provided) to be included in user-defined data storage to be accessible from a shader.
 """
 struct Texture
-  image::Resource
+  resource::Resource
   sampling::Union{Nothing,Sampling}
+  function Texture(resource::Resource, sampling = DEFAULT_SAMPLING)
+    resource = @match resource_type(resource) begin
+      &RESOURCE_TYPE_IMAGE_VIEW => resource
+      &RESOURCE_TYPE_IMAGE => image_view_resource(resource)
+      _ => error("Expected image or image view, got resource of type ", type)
+    end
+    new(resource, sampling)
+  end
 end
 
-Texture(image::Resource) = Texture(assert_type(image, RESOURCE_TYPE_IMAGE), DEFAULT_SAMPLING)
-
-@forward_methods Texture field = image dimensions image_format
+@forward_methods Texture field = resource dimensions image_format

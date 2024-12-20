@@ -72,12 +72,9 @@ function restrict_synchronization_scope(accesses, sync)
 end
 
 function synchronize_access!(info::Vk.DependencyInfo, state::SynchronizationState, node::RenderNode, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
-  image = @match usage begin
-    ::ImageUsage => resource.data::Image
-    ::AttachmentUsage => (resource.data::Attachment).view.image
-  end
+  image = get_image(resource)
   image_state = get!(() -> ImageResourceState(image), state.resources, resource.id)
-  subresource = Subresource(resource.data::Union{Image, Attachment})
+  subresource = Subresource(resource.data::Union{Image, ImageView, Attachment})
   subresource_state = image_state.map[subresource]
   sync = restrict_synchronization_scope(subresource_state.accesses, SyncRequirements(usage))
   to_layout = image_layout(usage.type, usage.access)

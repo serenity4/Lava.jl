@@ -21,6 +21,7 @@ vk_handle_type(::Type{Image}) = Vk.Image
 Base.ndims(image::Image) = length(image.dims)
 image_dimensions(image::Image) = image.dims
 dimensions(image::Image) = image_dimensions(image)
+image_format(image::Image) = image.format
 
 Vk.bind_image_memory(image::Image, memory::Memory) = Vk.bind_image_memory(device(image), image, memory, memory.offset)
 
@@ -94,6 +95,7 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
     """)
   end
   handle = unwrap(create(Image, device, info))
+  isa(dims, Tuple) && (dims = collect(Int64, dims))
   Image(
     handle,
     dims,
@@ -165,6 +167,8 @@ vk_handle_type(::Type{ImageView}) = Vk.ImageView
 @forward_methods ImageView field = :image Vk.Offset3D samples image_dimensions
 @forward_methods ImageView field = :subresource aspect_flags layer_range mip_range
 
+image_format(view::ImageView) = view.format
+
 Vk.Extent3D(view::ImageView) = Vk.Extent3D(dimensions(view)..., ntuple(Returns(1), 3 - length(image_dimensions(view)))...)
 
 function attachment_dimensions(base_dimensions, subresource::Subresource)
@@ -173,7 +177,16 @@ function attachment_dimensions(base_dimensions, subresource::Subresource)
   base_dimensions .>> (range[1] - 1)
 end
 attachment_dimensions(view::ImageView) = attachment_dimensions(image_dimensions(view), view.subresource)
-dimensions(view::ImageView) = attachment_dimensions(view)
+
+function dimensions(view::ImageView)
+  range = mip_range(view)
+  length(range) == 1 || error("Image dimensions are only defined for views that contain a single mip level")
+  mip_level = first(range)
+  dims = copy(dimensions(view.image))
+  dims[1] = max(1, fld(dims[1], 2^(mip_level - 1)))
+  dims[2] = max(1, fld(dims[2], 2^(mip_level - 1)))
+  dims
+end
 
 Subresource(view::ImageView) = view.subresource
 image_layout(view::ImageView) = image_layout(view.image, view.subresource)
@@ -201,6 +214,7 @@ function ImageView(
   layer_range = layer_range(image),
   mip_range = mip_range(image),
   type = image_view_type(dimensions(image), layer_range),
+  flags = Vk.ImageViewCreateFlag(),
 )
 
   issubset(layer_range, Lava.layer_range(image)) || error("Layer range $layer_range is not contained within the array layers defined for the image.")
@@ -211,7 +225,8 @@ function ImageView(
     type,
     format,
     component_mapping,
-    Vk.ImageSubresourceRange(subresource),
+    Vk.ImageSubresourceRange(subresource);
+    flags,
   )
   handle = unwrap(create(ImageView, device(image), info))
   ImageView(handle, image, type, format, component_mapping, subresource)
@@ -228,6 +243,12 @@ function aspect_flags(format::Vk.Format)
     &Vk.FORMAT_S8_UINT => Vk.IMAGE_ASPECT_STENCIL_BIT
     _ => Vk.IMAGE_ASPECT_COLOR_BIT
   end
+end
+
+function Base.similar(view::ImageView; type = view.type, format = view.format, component_mapping = view.component_mapping, aspect = view.subresource.aspect, mip_range = view.subresource.mip_range, layer_range = view.subresource.layer_range, memory_domain = nothing, image_flags = view.image.flags, usage_flags = view.image.usage_flags, is_linear = view.image.is_linear, samples = view.image.samples, dims = view.image.dims, image_format = view.image.format, layers = view.image.layers, mip_levels = view.image.mip_levels)
+  usage_flags = minimal_image_view_flags(usage_flags)
+  new_image = similar(view.image; format = image_format, memory_domain, flags = image_flags, usage_flags, is_linear, samples, dims, layers, mip_levels)
+  ImageView(new_image; type, format, component_mapping, aspect, mip_range, layer_range)
 end
 
 function Base.similar(view::ImageView, new_image::Image; type = view.type, format = view.format, component_mapping = view.component_mapping, aspect = view.subresource.aspect, mip_range = view.subresource.mip_range, layer_range = view.subresource.layer_range)

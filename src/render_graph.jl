@@ -47,7 +47,7 @@ function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDepend
   end
   usage = @match resource_type(resource) begin
     &RESOURCE_TYPE_BUFFER => BufferUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = buffer_usage_flags(dep.type, dep.access))
-    &RESOURCE_TYPE_IMAGE => ImageUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = image_usage_flags(dep.type, dep.access), samples = resolve_sample_count(resource, dep))
+    &RESOURCE_TYPE_IMAGE || &RESOURCE_TYPE_IMAGE_VIEW => ImageUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = image_usage_flags(dep.type, dep.access), samples = resolve_sample_count(resource, dep))
     &RESOURCE_TYPE_ATTACHMENT => AttachmentUsage(;
         dep.type,
         dep.access,
@@ -455,6 +455,13 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
       (; logical_image) = resource
       insert!(res, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.layers, logical_image.mip_levels, usage.samples)))
 
+      @case &RESOURCE_TYPE_IMAGE_VIEW
+      usage = use.usage::ImageUsage
+      (; logical_image_view) = resource
+      (; image, subresource) = logical_image_view
+      image_format = logical_image_view.image.format
+      insert!(res, resource.id, promote_to_physical(resource, ImageView(rg.device; image_format = image.format, image.dims, usage.usage_flags, image.layers, image.mip_levels, usage.samples, view_format = logical_image_view.format, subresource.layer_range, subresource.mip_range)))
+
       @case &RESOURCE_TYPE_ATTACHMENT
       usage = use.usage::AttachmentUsage
       (; logical_attachment) = resource
@@ -486,17 +493,22 @@ function check_physical_resources(rg::RenderGraph, uses)
     @switch resource_type(resource) begin
       @case &RESOURCE_TYPE_BUFFER
       usage = use.usage::BufferUsage
-      buffer = resource.data::Buffer
+      (; buffer) = resource
       usage.usage_flags in buffer.usage_flags || error("An existing buffer with usage $(buffer.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
 
       @case &RESOURCE_TYPE_IMAGE
       usage = use.usage::ImageUsage
-      image = resource.data::Image
+      (; image) = resource
       usage.usage_flags in image.usage_flags || error("An existing image with usage $(image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
+
+      @case &RESOURCE_TYPE_IMAGE_VIEW
+      usage = use.usage::ImageUsage
+      (; image) = resource.image_view
+      usage.usage_flags in image.usage_flags || error("An existing image view with usage $(image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
 
       @case &RESOURCE_TYPE_ATTACHMENT
       usage = use.usage::AttachmentUsage
-      attachment = resource.data::Attachment
+      (; attachment) = resource
       usage.usage_flags in attachment.view.image.usage_flags ||
         error("An existing attachment with usage $(attachment.view.image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
       usage.aspect in attachment.view.subresource.aspect ||
