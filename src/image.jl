@@ -42,6 +42,8 @@ Vk.Extent3D(image::Image) = Vk.Extent3D(image.dims..., ntuple(Returns(1), 3 - le
 Vk.Offset3D(::Image) = Vk.Offset3D(0, 0, 0)
 samples(img::Image) = img.samples
 
+maximum_mip_level((x, y)) = min(ceil(Int, log2(x)), ceil(Int, log2(y)))
+
 function vk_image_type(ndims)
   @match ndims begin
     1 => Vk.IMAGE_TYPE_1D
@@ -179,9 +181,7 @@ end
 attachment_dimensions(view::ImageView) = attachment_dimensions(image_dimensions(view), view.subresource)
 
 function dimensions(view::ImageView)
-  range = mip_range(view)
-  length(range) == 1 || error("Image dimensions are only defined for views that contain a single mip level")
-  mip_level = first(range)
+  mip_level = first(mip_range(view))
   dims = copy(dimensions(view.image))
   dims[1] = max(1, fld(dims[1], 2^(mip_level - 1)))
   dims[2] = max(1, fld(dims[2], 2^(mip_level - 1)))
@@ -215,11 +215,14 @@ function ImageView(
   mip_range = mip_range(image),
   type = image_view_type(dimensions(image), layer_range),
   flags = Vk.ImageViewCreateFlag(),
+  usage::Optional{Vk.ImageUsageFlag} = nothing,
+  next = C_NULL,
 )
 
   issubset(layer_range, Lava.layer_range(image)) || error("Layer range $layer_range is not contained within the array layers defined for the image.")
   issubset(mip_range, Lava.mip_range(image)) || error("Mip range $mip_range is not contained within the mip levels defined for the image.")
   subresource = Subresource(aspect, layer_range, mip_range)
+  !isnothing(usage) && (next = Vk.ImageViewUsageCreateInfo(next, usage))
   info = Vk.ImageViewCreateInfo(
     image.handle,
     type,
@@ -227,6 +230,7 @@ function ImageView(
     component_mapping,
     Vk.ImageSubresourceRange(subresource);
     flags,
+    next,
   )
   handle = unwrap(create(ImageView, device(image), info))
   ImageView(handle, image, type, format, component_mapping, subresource)

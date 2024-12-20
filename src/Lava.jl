@@ -147,6 +147,7 @@ export
   # resources
   Resource, buffer_resource, image_resource, image_view_resource, attachment_resource, assert_type,
   RESOURCE_TYPE_BUFFER, RESOURCE_TYPE_IMAGE, RESOURCE_TYPE_IMAGE_VIEW, RESOURCE_TYPE_ATTACHMENT,
+  image_format, maximum_mip_level,
 
   # descriptors
   Descriptor, DescriptorID,
