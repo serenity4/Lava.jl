@@ -163,25 +163,25 @@ function rendering_info(baked::BakedRenderGraph, node::RenderNode)
     resource_type(resource) == RESOURCE_TYPE_ATTACHMENT || continue
     attachment_usage = use.usage::AttachmentUsage
     # Resolve attachments are grouped with their destination attachment.
-    attachment = resource.data::Attachment
-    (; aspect) = attachment_usage
+    (; type) = attachment_usage
+    (; attachment) = resource
     info = if attachment_usage.samples > 1
       resolve_resource = baked.resolve_pairs[resource]
       push!(resolve_ids, resolve_resource.id)
-      rendering_info(attachment, attachment_usage, resolve_resource.data::Attachment, uses[resolve_resource.id].usage::AttachmentUsage)
+      rendering_info(attachment, attachment_usage, resolve_resource.attachment, uses[resolve_resource.id].usage::AttachmentUsage)
     else
       rendering_info(attachment, attachment_usage)
     end
-    if Vk.IMAGE_ASPECT_COLOR_BIT in aspect
+    if RESOURCE_USAGE_COLOR_ATTACHMENT in type
       push!(color_attachments, info)
-    elseif Vk.IMAGE_ASPECT_DEPTH_BIT in aspect
+    elseif RESOURCE_USAGE_DEPTH_ATTACHMENT in type
       depth_attachment == C_NULL || error("Multiple depth attachments detected (node: $(node.id))")
       depth_attachment = info
-    elseif Vk.IMAGE_ASPECT_STENCIL_BIT in aspect
+    elseif RESOURCE_USAGE_STENCIL_ATTACHMENT in type
       stencil_attachment == C_NULL || error("Multiple stencil attachments detected (node: $(node.id))")
       stencil_attachment = info
     else
-      error("Attachment is not a depth, color or stencil attachment as per its aspect value $aspect (node: $(node.id))")
+      error("Attachment is not a depth, color or stencil attachment as per its resource usage: $type (node: $(node.id))")
     end
   end
   info = Vk.RenderingInfo(

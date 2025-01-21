@@ -45,7 +45,7 @@ function store_op(access::MemoryAccess)
 end
 
 struct ClearValue
-  data::Union{Float32, UInt32, NTuple{4, Union{Float32, UInt32, Int32}}}
+  data::Union{Float32, UInt32, Tuple{Union{Float32, N0f8}, UInt32}, NTuple{4, Union{Float32, UInt32, Int32}}}
 end
 ClearValue(data::AbstractFloat) = ClearValue(convert(Float32, data))
 ClearValue(data::Integer) = ClearValue(convert(UInt32, data))
@@ -58,6 +58,7 @@ color_clear_value_eltype(::Type{T}) where {T<:AbstractFloat} = Float32
 function Vk.ClearValue(clear::ClearValue)
   isa(clear.data, Float32) && return Vk.ClearValue(Vk.ClearDepthStencilValue(clear.data, zero(UInt32)))
   isa(clear.data, UInt32) && return Vk.ClearValue(Vk.ClearDepthStencilValue(0f0, clear.data))
+  length(clear.data) == 2 && return Vk.ClearValue(Vk.ClearDepthStencilValue(clear.data...))
   Vk.ClearValue(Vk.ClearColorValue(clear.data))
 end
 
