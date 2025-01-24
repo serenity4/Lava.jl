@@ -82,8 +82,13 @@ function combine(x::ResourceUsage, y::ResourceUsage)
   ResourceUsage(x.id, x.type | y.type, combine(x.usage, y.usage))
 end
 
-function rendering_info(attachment::Attachment, usage::AttachmentUsage)
-  clear = !isnothing(usage.clear_value)
+function rendering_info(attachment::Attachment, usage::AttachmentUsage, kind::Symbol)
+  clear = @match usage.clear_value begin
+    ::Nothing || (::Nothing, ::Nothing) => false
+    (::Nothing, _) => kind === :depth
+    (_, ::Nothing) => kind === :stencil
+    _ => true
+  end
   Vk.RenderingAttachmentInfo(
     image_layout(usage.type, usage.access),
     Vk.IMAGE_LAYOUT_UNDEFINED,
@@ -94,8 +99,8 @@ function rendering_info(attachment::Attachment, usage::AttachmentUsage)
   )
 end
 
-function rendering_info(attachment::Attachment, usage::AttachmentUsage, resolve_attachment::Attachment, resolve_usage::AttachmentUsage)
-  info = rendering_info(attachment, usage)
+function rendering_info(attachment::Attachment, usage::AttachmentUsage, kind::Symbol, resolve_attachment::Attachment, resolve_usage::AttachmentUsage)
+  info = rendering_info(attachment, usage, kind)
   setproperties(info, (; resolve_image_layout = image_layout(resolve_usage.type, resolve_usage.access), usage.resolve_mode, resolve_image_view = resolve_attachment.view.handle))
 end
 

@@ -225,7 +225,6 @@ function query_subresource(map::SubresourceMap{T}, subresource::Subresource) whe
   ret
 end
 
-
 function Base.setindex!(map::SubresourceMap{T}, value::T, subresource::Subresource) where {T}
   check_subresource(map, subresource)
   if !isnothing(map.last_aspect) && !isnothing(subresource.aspect) && map.last_aspect !== subresource.aspect
@@ -366,19 +365,20 @@ function split_range(range::UnitRange, at::UnitRange)
   (range[begin:(i - 1)], range[(j + 1):end])
 end
 
-function find_aspect_map!(map::SubresourceMap, aspect::Vk.ImageAspectFlag)
+function find_aspect_map!(map::SubresourceMap{T}, aspect::Vk.ImageAspectFlag) where {T}
   if isnothing(map.value_per_aspect)
-    map.value_per_aspect = Dictionary{Vk.ImageAspectFlag, SubresourceMap}()
-    aspect_map = SubresourceMap(map.layer_range, map.mip_range)
-    insert!(map.value_per_aspect, map, aspect_map)
+    map.value_per_aspect = Dictionary{Vk.ImageAspectFlag, SubresourceMap{T}}()
+    aspect_map = SubresourceMap{T}(map.layer_range, map.mip_range, map.value)
+    insert!(map.value_per_aspect, aspect, aspect_map)
     return aspect_map
   end
 
-  for (known, aspect_map) in pairs(value_per_aspect)
+  for (known, aspect_map) in pairs(map.value_per_aspect)
     aspect in known && return aspect_map
+    @assert !any(in(known), enabled_flags(aspect))
   end
 
-  aspect_map = SubresourceMap(map.layer_range, map.mip_range)
-  insert!(map.value_per_aspect, map, aspect_map)
+  aspect_map = SubresourceMap{T}(map.layer_range, map.mip_range, map.value)
+  insert!(map.value_per_aspect, aspect, aspect_map)
   aspect_map
 end

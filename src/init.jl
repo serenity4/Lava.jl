@@ -80,7 +80,7 @@ function init(;
 
   union!(
     device_vulkan_features,
-    [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :variable_pointers, :variable_pointers_storage_buffer, :synchronization2, :dynamic_rendering, :timeline_semaphore, :maintenance4],
+    [:buffer_device_address, :descriptor_indexing, :descriptor_binding_partially_bound, :vulkan_memory_model, :variable_pointers, :variable_pointers_storage_buffer, :synchronization2, :dynamic_rendering, :timeline_semaphore, :maintenance4, :separate_depth_stencil_layouts],
   )
   vulkan_features = physical_device_features_core(device_vulkan_features)
   vulkan_features = Vk.PhysicalDeviceSwapchainMaintenance1FeaturesEXT(true; next = vulkan_features)

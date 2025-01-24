@@ -165,24 +165,29 @@ function rendering_info(baked::BakedRenderGraph, node::RenderNode)
     # Resolve attachments are grouped with their destination attachment.
     (; type) = attachment_usage
     (; attachment) = resource
-    info = if attachment_usage.samples > 1
-      resolve_resource = baked.resolve_pairs[resource]
-      push!(resolve_ids, resolve_resource.id)
-      rendering_info(attachment, attachment_usage, resolve_resource.attachment, uses[resolve_resource.id].usage::AttachmentUsage)
-    else
-      rendering_info(attachment, attachment_usage)
+    info = nothing
+    for (usage, kind) in ((RESOURCE_USAGE_COLOR_ATTACHMENT, :color), (RESOURCE_USAGE_DEPTH_ATTACHMENT, :depth), (RESOURCE_USAGE_STENCIL_ATTACHMENT, :stencil))
+      in(usage, type) || continue
+      info = if attachment_usage.samples > 1
+        resolve_resource = baked.resolve_pairs[resource]
+        push!(resolve_ids, resolve_resource.id)
+        rendering_info(attachment, attachment_usage, kind, resolve_resource.attachment, uses[resolve_resource.id].usage::AttachmentUsage)
+      else
+        rendering_info(attachment, attachment_usage, kind)
+      end
+      @match kind begin
+        :color => push!(color_attachments, info)
+        :depth => begin
+          depth_attachment == C_NULL || error("Multiple depth attachments detected (node: $(node.id))")
+          depth_attachment = info
+        end
+        :stencil => begin
+          stencil_attachment == C_NULL || error("Multiple stencil attachments detected (node: $(node.id))")
+          stencil_attachment = info
+        end
+      end
     end
-    if RESOURCE_USAGE_COLOR_ATTACHMENT in type
-      push!(color_attachments, info)
-    elseif RESOURCE_USAGE_DEPTH_ATTACHMENT in type
-      depth_attachment == C_NULL || error("Multiple depth attachments detected (node: $(node.id))")
-      depth_attachment = info
-    elseif RESOURCE_USAGE_STENCIL_ATTACHMENT in type
-      stencil_attachment == C_NULL || error("Multiple stencil attachments detected (node: $(node.id))")
-      stencil_attachment = info
-    else
-      error("Attachment is not a depth, color or stencil attachment as per its resource usage: $type (node: $(node.id))")
-    end
+    isnothing(info) && error("Attachment is not a depth, color or stencil attachment as per its resource usage: $type (node: $(node.id))")
   end
   info = Vk.RenderingInfo(
     node.render_area.rect,
