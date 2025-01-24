@@ -38,7 +38,8 @@ layer_range(image::Image) = 1:image.layers
 mip_range(image::Image) = 1:image.mip_levels
 Subresource(image::Image) = Subresource(aspect_flags(image), layer_range(image), mip_range(image))
 
-Vk.Extent3D(image::Image) = Vk.Extent3D(image.dims..., ntuple(Returns(1), 3 - length(image.dims))...)
+extent3d(dims) = Vk.Extent3D(dims..., ntuple(Returns(1), 3 - length(dims))...)
+Vk.Extent3D(image::Image) = extent3d(dimensions(image))
 Vk.Offset3D(::Image) = Vk.Offset3D(0, 0, 0)
 samples(img::Image) = img.samples
 
@@ -181,7 +182,7 @@ vk_handle_type(::Type{ImageView}) = Vk.ImageView
 
 image_format(view::ImageView) = view.format
 
-Vk.Extent3D(view::ImageView) = Vk.Extent3D(dimensions(view)..., ntuple(Returns(1), 3 - length(image_dimensions(view)))...)
+Vk.Extent3D(view::ImageView) = extent3d(dimensions(view))
 
 function attachment_dimensions(base_dimensions, subresource::Subresource)
   range = mip_range(subresource)
@@ -190,12 +191,11 @@ function attachment_dimensions(base_dimensions, subresource::Subresource)
 end
 attachment_dimensions(view::ImageView) = attachment_dimensions(image_dimensions(view), view.subresource)
 
+mip_dimensions(dimensions, mip_level) = max.(1, fld.(dimensions, 2^(mip_level - 1)))
+
 function dimensions(view::ImageView)
   mip_level = first(mip_range(view))
-  dims = copy(dimensions(view.image))
-  dims[1] = max(1, fld(dims[1], 2^(mip_level - 1)))
-  dims[2] = max(1, fld(dims[2], 2^(mip_level - 1)))
-  dims
+  mip_dimensions(dimensions(view.image), mip_level)
 end
 
 Subresource(view::ImageView) = view.subresource
@@ -259,7 +259,7 @@ function aspect_flags(format::Vk.Format)
   end
 end
 
-function Base.similar(view::ImageView; type = view.type, format = view.format, component_mapping = view.component_mapping, aspect = view.subresource.aspect, mip_range = view.subresource.mip_range, layer_range = view.subresource.layer_range, memory_domain = nothing, image_flags = view.image.flags, usage_flags = view.image.usage_flags, is_linear = view.image.is_linear, samples = view.image.samples, dims = view.image.dims, image_format = view.image.format, layers = view.image.layers, mip_levels = view.image.mip_levels)
+function Base.similar(view::ImageView; type = view.type, component_mapping = view.component_mapping, aspect = view.subresource.aspect, mip_range = view.subresource.mip_range, layer_range = view.subresource.layer_range, memory_domain = nothing, image_flags = view.image.flags, usage_flags = view.image.usage_flags, is_linear = view.image.is_linear, samples = view.image.samples, dims = view.image.dims, image_format = view.image.format, format = image_format, layers = view.image.layers, mip_levels = view.image.mip_levels)
   usage_flags = minimal_image_view_flags(usage_flags)
   new_image = similar(view.image; format = image_format, memory_domain, flags = image_flags, usage_flags, is_linear, samples, dims, layers, mip_levels)
   ImageView(new_image; type, format, component_mapping, aspect, mip_range, layer_range)
@@ -271,3 +271,20 @@ end
 
 match_subresource(f, image::Image) = match_subresource(f, image.layout, Subresource(image))
 match_subresource(f, view::ImageView) = match_subresource(f, view.image.layout, Subresource(view))
+
+function Vk.format_type(view::ImageView)
+  @match (view.format, view.subresource.aspect) begin
+    (&Vk.FORMAT_D16_UNORM, _) ||
+    (&Vk.FORMAT_D16_UNORM_S8_UINT, &Vk.IMAGE_ASPECT_DEPTH_BIT) => UInt16
+
+    (&Vk.FORMAT_D32_SFLOAT, _) ||
+    (&Vk.FORMAT_D32_SFLOAT_S8_UINT, &Vk.IMAGE_ASPECT_DEPTH_BIT) => Float32
+
+    (&Vk.FORMAT_S8_UINT, _) ||
+    (&Vk.FORMAT_D16_UNORM_S8_UINT, &Vk.IMAGE_ASPECT_STENCIL_BIT) ||
+    (&Vk.FORMAT_D24_UNORM_S8_UINT, &Vk.IMAGE_ASPECT_STENCIL_BIT) ||
+    (&Vk.FORMAT_D32_SFLOAT_S8_UINT, &Vk.IMAGE_ASPECT_STENCIL_BIT) => UInt8
+
+    _ => format_type(view.format)
+  end
+end

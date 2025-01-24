@@ -14,6 +14,8 @@ end
 
 SimpleCommandBuffer(handle, queue_family_index, queues) = SimpleCommandBuffer(handle, queue_family_index, queues, [], [])
 
+queue_family_indices(command_buffer::SimpleCommandBuffer) = queue_family_indices(command_buffer.queues)
+
 function Vk.CommandBufferSubmitInfo(cb::CommandBuffer)
   Vk.CommandBufferSubmitInfo(C_NULL, cb, 1)
 end

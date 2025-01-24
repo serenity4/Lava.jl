@@ -90,8 +90,6 @@ get_image_handle(image::Image) = image.handle
 get_image(view::ImageView) = view.image
 get_image(image::Image) = image
 
-# From Nicol Bolas: You cannot directly copy depth data into a color image. You can copy the depth data to a buffer via vkCmdCopyImageToBuffer, then copy that data into an image with vkCmdCopyBufferToImage.
-# XXX: Implement that logic for such transfers.
 function transfer(
   command_buffer::CommandBuffer,
   src::Union{Image,ImageView},
@@ -106,16 +104,19 @@ function transfer(
   dst_image = get_image(dst)
 
   if src_image.samples ≠ dst_image.samples
-    # Resolve the source image into a temporary one, and transfer this one to `dst`.
-    aux = similar(src; samples = 1)
-    ensure_layout(command_buffer, aux, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    Vk.cmd_resolve_image_2(command_buffer, Vk.ResolveImageInfo2(C_NULL,
-      src_image, image_layout(src),
-      get_image(aux), image_layout(aux),
-      [Vk.ImageResolve2(C_NULL, Subresource(src), Vk.Offset3D(src_image), Subresource(aux), Vk.Offset3D(aux), Vk.Extent3D(src))]
-    ))
-    return transfer(command_buffer, aux, dst; submission, free_src = true)
+    samples(src) > 1 && samples(dst) == 1 || error("If sample counts differ between images, the destination image must have a sample count of one")
+    tmp = similar(src; samples = 1)
+    resolve_multisampled_image(command_buffer, src, tmp)
+    return transfer(command_buffer, tmp, dst; submission, free_src = true)
   else
+    if aspect_flags(src) ≠ aspect_flags(dst)
+      # Copy to a buffer first, direct image copy is not possible.
+      size = sizeof(format_type(image_format(src))) * prod(dimensions(src))
+      buffer = Buffer(Vk.device(src), size; usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT | Vk.BUFFER_USAGE_TRANSFER_DST_BIT, queue_family_indices = queue_family_indices(command_buffer))
+      allocate!(buffer, MEMORY_DOMAIN_DEVICE)
+      transfer(command_buffer, src, buffer)
+      return transfer(command_buffer, buffer, dst; submission, free_src = true)
+    end
     match_subresource(src_image.layout, Subresource(src)) do src_matched_layers, src_matched_mip_levels, src_layout
       match_subresource(dst_image.layout, Subresource(dst)) do dst_matched_layers, dst_matched_mip_levels, dst_layout
         src_subresource = Subresource(aspect_flags(src), src_matched_layers, src_matched_mip_levels)
@@ -135,6 +136,16 @@ function transfer(
   submit!(submission, command_buffer)
 end
 
+function resolve_multisampled_image(command_buffer, image::Union{Image, ImageView}, to::Union{Image, ImageView})
+  ensure_layout(command_buffer, image, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+  ensure_layout(command_buffer, to, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+  Vk.cmd_resolve_image_2(command_buffer, Vk.ResolveImageInfo2(C_NULL,
+    get_image(image), image_layout(image),
+    get_image(to), image_layout(to),
+    [Vk.ImageResolve2(C_NULL, Subresource(image), Vk.Offset3D(image), Subresource(to), Vk.Offset3D(to), Vk.Extent3D(image))]
+  ))
+end
+
 function transfer(
   command_buffer::CommandBuffer,
   buffer::Buffer,
@@ -143,7 +154,8 @@ function transfer(
   free_src = false,
 )
   ensure_layout(command_buffer, view_or_image, Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-  regions = buffer_regions_for_transfer(buffer, view_or_image)
+  regions = buffer_regions_for_image_transfer(buffer, view_or_image)
+
   Vk.cmd_copy_buffer_to_image(command_buffer, buffer, get_image_handle(view_or_image), Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regions)
 
   push!(command_buffer.to_preserve, view_or_image)
@@ -159,8 +171,14 @@ function transfer(
   submission::Optional{SubmissionInfo} = nothing,
   free_src = false,
 )
+  if samples(view_or_image) > 1
+    tmp = similar(view_or_image; samples = 1)
+    resolve_multisampled_image(command_buffer, view_or_image, tmp)
+    return transfer(command_buffer, tmp, buffer; submission, free_src = true)
+  end
+
   ensure_layout(command_buffer, view_or_image, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-  regions = buffer_regions_for_transfer(buffer, view_or_image)
+  regions = buffer_regions_for_image_transfer(buffer, view_or_image)
   Vk.cmd_copy_image_to_buffer(command_buffer, get_image_handle(view_or_image), Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, regions)
 
   push!(command_buffer.to_preserve, buffer)
@@ -169,43 +187,45 @@ function transfer(
   submit!(submission, command_buffer)
 end
 
-function buffer_regions_for_transfer(buffer, view_or_image)
-  mip_range(view_or_image) == 1:1 || error("Images with mipmaps are not supported yet for buffer -> image transfers")
-  layer_range(view_or_image) == 1:1 && return [whole_buffer_to_whole_image(buffer, view_or_image)]
-  buffer_regions_to_image_layers(buffer, view_or_image)
+function image_datasize(buffer::Buffer, (width, height), format, aspect)
+  T = specialized_format_type(format, aspect)
+  datasize(buffer.layout, Matrix{T}, (width, height))::Int
 end
 
-function whole_buffer_to_whole_image(buffer::Buffer, view_or_image::Union{Image,ImageView})
-  Vk.BufferImageCopy(buffer.offset, dimensions(view_or_image)..., Subresource(view_or_image), Vk.Offset3D(view_or_image), Vk.Extent3D(view_or_image))
+function specialized_format_type(format::Vk.Format, aspect::Vk.ImageAspectFlag)
+  @match (format, aspect) begin
+    (&Vk.FORMAT_D16_UNORM_S8_UINT, &Vk.IMAGE_ASPECT_DEPTH_BIT) => N0f16
+    (&Vk.FORMAT_D24_UNORM_S8_UINT, &Vk.IMAGE_ASPECT_DEPTH_BIT) => NTuple{3, UInt8}
+    (&Vk.FORMAT_D32_SFLOAT_S8_UINT, &Vk.IMAGE_ASPECT_DEPTH_BIT) => Float32
+    (&Vk.FORMAT_D16_UNORM_S8_UINT || &Vk.FORMAT_D24_UNORM_S8_UINT || &Vk.FORMAT_D32_SFLOAT_S8_UINT, &Vk.IMAGE_ASPECT_STENCIL_BIT) => UInt8
+    (_, _) => format_type(format)
+  end
 end
 
-function buffer_regions_to_image_layers(buffer::Buffer, view_or_image::Union{Image,ImageView})
+function buffer_regions_for_image_transfer(buffer::Buffer, view_or_image::Union{Image,ImageView})
   image = get_image(view_or_image)
   regions = Vk.BufferImageCopy[]
-  buffer_offset = buffer.offset
+  (; offset) = buffer
   image_offset = Vk.Offset3D(view_or_image)
-  extent = Vk.Extent3D(view_or_image)
-  width, height = dimensions(view_or_image)
-  (layer_size, layer_offset) = @match layout = buffer.layout begin
-    ::NoPadding || ::NativeLayout => begin
-        T = Vk.format_type(image.format)
-        ls = datasize(layout, Matrix{T}, (width, height))
-        lo = stride(layout, Vector{Matrix{T}}, (width, height))
-        (ls, lo)
-      end
-    _ => error("Buffer layouts other than `NoPadding` or `NativeLayout` are not supported for copying to multiple image layers, got layout of type $(typeof(layout))")
-  end
-  @assert layer_offset ≥ layer_size "The computed layer offset should be bigger than the computed layer size, otherwise contents will alias each other from one layer to the next"
-  for i in layer_range(view_or_image)
-    buffer_offset + layer_size ≤ buffer.size || error("Buffer overflow detected while copying buffer data to multiple image layers")
-    subresource = Subresource(view_or_image)
-    region = Vk.BufferImageCopy(buffer_offset, width, height, (@set subresource.layer_range = i:i), image_offset, extent)
-    push!(regions, region)
-    buffer_offset += layer_offset
+  width, height = image_dimensions(view_or_image)
+  aspect = aspect_flags(view_or_image)
+  format = image_format(view_or_image)
+  for layer in layer_range(view_or_image)
+    for mip_level in mip_range(view_or_image)
+      nx, ny = mip_dimensions((width, height), mip_level)
+      size = image_datasize(buffer, (nx, ny), format, aspect)
+      subresource = Subresource(aspect, layer:layer, mip_level:mip_level)
+      offset + size ≤ buffer.size || error("Buffer overflow detected while copying buffer data to image (offset $offset + mip size $size exceeds buffer size $(buffer.size))")
+      region = Vk.BufferImageCopy(offset, nx, ny, subresource, image_offset, extent3d((nx, ny)))
+      push!(regions, region)
+      offset += size
+    end
   end
   regions
 end
 
+# TODO: Use a staging buffer instead of linear images.
+# Linear images are too restricted in terms of features and for virtually no performance benefit.
 function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, layer = 1) where {T}
   isbitstype(T) || error("The image element type is not an `isbits` type")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
@@ -238,30 +258,32 @@ end
 Base.collect(image::Image, device::Device; mip_level = 1, layer = 1) = collect(format_type(image.format), image, device; mip_level, layer)
 
 function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
-  length(mip_range(view)) == 1 || error("Only one mip level may be collected")
-  length(layer_range(view)) == 1 || error("Only one image layer may be collected")
+  (; layer_range, mip_range, aspect) = view.subresource
+  length(layer_range) == 1 || error("Only one image layer may be collected")
   (; image) = view
-  # Collect from the underlying image directly if the view is trivial.
-  # Otherwise, we'll let the GPU apply component mappings and handle layer transfers through a view-to-buffer transfer.
   isbitstype(T) || error("The image element type is not an `isbits` type.")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
-  if image.is_linear
-    # Transfer the relevant image region into a buffer.
-    layout = NoPadding()
-    buffer_size = stride(layout, Matrix{T}) * prod(image.dims)
-    buffer = Buffer(device; size = buffer_size, memory_domain = MEMORY_DOMAIN_HOST_CACHED, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
-    transfer(device, view, buffer; submission = sync_submission(device))
-    bytes = collect(buffer.memory[], buffer_size, device)
-    deserialize(Matrix{T}, bytes, layout, image.dims)
-  else
-    # Transfer the data to an image backed by host-visible memory and collect the new image.
-    usage_flags = image.usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
-    dst = similar(image; dims = dimensions(view), layers = 1, mip_levels = 1, is_linear = true, usage_flags, memory_domain = MEMORY_DOMAIN_HOST, flags = Vk.ImageCreateFlag(), samples = 1)
-    transfer(device, view, dst; submission = sync_submission(device))
-    collect(T, similar(view, dst; layer_range = 1:1, mip_range = 1:1), device)
+  # Transfer the relevant image region into a buffer.
+  layout = NoPadding()
+  s = stride(layout, Matrix{T})
+  width, height = dimensions(image)
+  size = length(layer_range) * s * sum(i -> prod(mip_dimensions((width, height), i)), mip_range)
+  buffer = Buffer(device; size, memory_domain = MEMORY_DOMAIN_HOST_CACHED, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
+  transfer(device, view, buffer; submission = sync_submission(device))
+  bytes = collect(buffer, device)
+  length(mip_range) == 1 && return deserialize(Matrix{T}, bytes, layout, mip_dimensions((width, height), mip_range[1]))
+  results = Matrix{T}[]
+  offset = 0
+  for i in mip_range
+    nx, ny = mip_dimensions((width, height), i)
+    size = image_datasize(buffer, (nx, ny), view.format, aspect)
+    region = @view bytes[(offset + 1):(offset + size)]
+    push!(results, deserialize(Matrix{T}, region, layout, (nx, ny)))
+    offset += size
   end
+  results
 end
-Base.collect(view::ImageView, device::Device) = collect(format_type(view.format), view, device)
+Base.collect(view::ImageView, device::Device) = collect(format_type(view), view, device)
 
 Base.collect(::Type{T}, attachment::Attachment, device::Device) where {T} = collect(T, attachment.view.image, device)
 Base.collect(::Type{T}, resource::Resource, device::Device) where {T} = collect(T, resource.data, device)

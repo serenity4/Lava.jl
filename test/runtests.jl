@@ -160,14 +160,20 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       image = Image(device; format = RGBA{Float16}, dims = [256, 256], layers = 6, mip_levels = 4, usage_flags = usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
       for layer in 1:6
         for mip_level in 1:4
-          layer = 1
-          mip_level = 1
           let view = ImageView(image; layer_range = layer:layer, mip_range = mip_level:mip_level)
             n = 256 >> (mip_level - 1)
             data = rand(RGBA{Float16}, n, n)
             copyto!(view, data, device)
-            @test collect(view, device) == data
+            @test (@inferred Matrix{RGBA{Float16}} collect(RGBA{Float16}, view, device)) == data
           end
+        end
+        let view = ImageView(image; layer_range = layer:layer, mip_range = 2:3)
+          data = @inferred Vector{Matrix{RGBA{Float16}}} collect(RGBA{Float16}, view, device)
+          @test length(data) == 2
+          @test size(data[1]) == ntuple(_ -> 128, 2)
+          @test size(data[2]) == ntuple(_ -> 64, 2)
+          @test data[1] == collect(similar(view, image; mip_range = 2:2), device)
+          @test data[2] == collect(similar(view, image; mip_range = 3:3), device)
         end
       end
     end
