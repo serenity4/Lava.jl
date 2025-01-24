@@ -105,5 +105,5 @@ end
   uv_scale = Vec2(1.0, 1.0)
   command = blur_image(device, vdata, color, blur, uv_scale)
   data = render_graphics(device, command)
-  save_test_render("blurred_normal_map.png", data, 0x5114a2d55a9aff00)
+  save_test_render("blurred_normal_map.png", data, 0xb14786434151377a)
 end;

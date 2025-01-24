@@ -29,6 +29,6 @@ end
   for samples in (4, :four, nothing)
     draw = draw_triangle_multisampled(device, vdata, color_ms; samples)
     data = render_graphics(device, draw)
-    save_test_render("triangle_multisampled.png", data, 0x4b29f98dcdacc431)
+    save_test_render("triangle_multisampled.png", data, 0x48ec4de6d479aae0)
   end
 end;

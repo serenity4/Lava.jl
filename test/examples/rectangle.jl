@@ -48,5 +48,5 @@ end
   ]
   draw = draw_rectangle(device, vdata, color)
   data = render_graphics(device, draw)
-  save_test_render("colored_rectangle.png", data, 0xc92df9461d3cc743)
+  save_test_render("colored_rectangle.png", data, 0xb8febe88b5b80d75)
 end;

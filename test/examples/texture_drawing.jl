@@ -69,5 +69,5 @@ end
   ]
   draw = draw_texture(device, vdata, color)
   data = render_graphics(device, draw)
-  save_test_render("distorted_normal_map.png", data, 0x7c14e3ffe5603da5)
+  save_test_render("distorted_normal_map.png", data, 0x24e6e7b2597ac825)
 end;

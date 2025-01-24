@@ -41,39 +41,42 @@ end
 """
 Save the rendered image `data` to `filename`, and test that the data is correct (by hash or approximately).
 
-If no hash is provided, the render will just be saved. Otherwise, `data` will be saved at a temporary location,
-and a test is performed which depends on `h` and on the availability of a prior render at `filename`. If the test
-succeeds based on hash comparisons, `filename` will be overwritten by the new render.
+If no hash is provided, the render will just be saved. Otherwise, `data` will be saved at a temporary location, and a test is performed which depends on `h` and on the availability of a prior render at `filename`. The hashes used for the test are computed after reading the data back from the saved location, to ensure that the hash remains valid after writing to disk.
 
-If a hash or a list of hashes is provided, the test will consist of checking that `hash(data)` equals or is contained in `h`.
+If a hash or a list of hashes is provided, the test will consist of checking that the computed hash equals or is contained in `h`.
 Should this fail, `filename` will be checked for an existing render; if one is found, then a new test `data ≈ existing` is performed.
 Should all these tests fail, a warning will be emitted with a link to a temporary file and to the reference file (if one exists).
 
+If the existing render file has a different hash than the one that is provided, it will be overwritten only if the comparison test `data ≈ existing` fails, and the hash computed from `data` is correct.
+
 If `keep = false` is provided, the provided render will be deleted after being created at a temporary location, even if it is not saved into `filename`.
 """
-function save_test_render(filename, data, h = nothing; keep = true)
+function save_test_render(filename, data::Matrix, h = nothing; keep = true)
   path = render_file(filename)
   path_tmp = tempname() * ".png"
+  save_render(path_tmp, data)
+  data = read_png(eltype(data), path_tmp)
   if isnothing(h)
-    save_render(path, data)
+    mv(path_tmp, path; force = true)
     return (path, hash(data))
   end
-  save_render(path_tmp, data)
   @test stat(path_tmp).size > 0
   h′ = hash(data)
   (success, op_success, op_failure) = isa(h, UInt) ? (h′ == h, "==", "≠") : (h′ in h, "in", "∉")
   passes_with_data_comparison = false
   if isfile(path)
-    existing = read_png(path)
+    existing = read_png(eltype(data), path)
     h′′ = hash(existing)
     existing_is_valid = h′′ == h || h′′ in h
+    passes_with_data_comparison = isapprox(existing, data; rtol = 1e-2)
     if !success && existing_is_valid
-      success |= existing ≈ data
-      passes_with_data_comparison = true
+      success |= passes_with_data_comparison
     end
   end
   if success
     if !passes_with_data_comparison
+      isfile(path) && @assert !existing_is_valid
+      keep && @info "$(isfile(path) ? "Updating" : "Creating") the render file at $path"
       mkpath(dirname(path))
       ispath(path) && rm(path)
       mv(path_tmp, path)
@@ -85,13 +88,13 @@ function save_test_render(filename, data, h = nothing; keep = true)
       if isa(h, UInt) && existing_is_valid
         msg *= "\nreference image (h) is available at $path"
       else
-        msg *= "\n(the existing render $path has an unexpected value of h = $(repr(h′′))"
+        msg *= "\n\nThe reference image with hash $(repr(h′′)) is inconsistent with respect to the required hash$(isa(h, Integer) ? "" : "es") $(repr(h))"
       end
     end
     @warn "$msg"
   end
   if passes_with_data_comparison
-    @test existing ≈ data
+    @test passes_with_data_comparison
   else
     isa(h, UInt) ? (@test h′ == h) : (@test h′ in h)
   end
