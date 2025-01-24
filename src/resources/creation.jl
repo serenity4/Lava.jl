@@ -224,8 +224,6 @@ function buffer_regions_for_image_transfer(buffer::Buffer, view_or_image::Union{
   regions
 end
 
-# TODO: Use a staging buffer instead of linear images.
-# Linear images are too restricted in terms of features and for virtually no performance benefit.
 function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, layer = 1) where {T}
   isbitstype(T) || error("The image element type is not an `isbits` type")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
@@ -241,18 +239,28 @@ function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, la
     @assert column_padding ≥ 0
     deserialize(Matrix{T}, bytes, layout, image.dims, column_padding)
   else
-    # Transfer the data to an image backed by host-visible memory and collect the new image.
+    # Transfer the image into a buffer, then collect it.
+    layout = NoPadding()
+    s = stride(layout, Matrix{T})
+    width, height = dimensions(image)
     usage_flags = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-    dst = Image(device, image.dims, T, usage_flags; is_linear = true, layers = 1, mip_levels = 1, flags = Vk.ImageCreateFlag())
-    allocate!(dst, MEMORY_DOMAIN_HOST)
-    ensure_layout(device, image, Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-    if image.mip_levels == 1 && image.layers == 1
-      transfer(device, image, dst; submission = sync_submission(device))
-      collect(T, dst, device)
-    else
-      view = ImageView(image; mip_range = mip_level:mip_level, layer_range = layer:layer)
-      collect(T, view, device)
+    mip_range = @__MODULE__().mip_range(image)
+    layer_range = @__MODULE__().layer_range(image)
+    size = length(layer_range) * s * sum(i -> prod(mip_dimensions((width, height), i)), mip_range)
+    buffer = Buffer(device; size, memory_domain = MEMORY_DOMAIN_HOST_CACHED, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
+    transfer(device, image, buffer; submission = sync_submission(device))
+    bytes = collect(buffer, device)
+    length(mip_range) == 1 && return deserialize(Matrix{T}, bytes, layout, mip_dimensions((width, height), mip_range[1]))
+    mipmaps = Matrix{T}[]
+    offset = 0
+    for i in mip_range
+      nx, ny = mip_dimensions((width, height), i)
+      size = image_datasize(buffer, (nx, ny), view.format, aspect)
+      region = @view bytes[(offset + 1):(offset + size)]
+      push!(mipmaps, deserialize(Matrix{T}, region, layout, (nx, ny)))
+      offset += size
     end
+    mipmaps
   end
 end
 Base.collect(image::Image, device::Device; mip_level = 1, layer = 1) = collect(format_type(image.format), image, device; mip_level, layer)
@@ -272,16 +280,16 @@ function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
   transfer(device, view, buffer; submission = sync_submission(device))
   bytes = collect(buffer, device)
   length(mip_range) == 1 && return deserialize(Matrix{T}, bytes, layout, mip_dimensions((width, height), mip_range[1]))
-  results = Matrix{T}[]
+  mipmaps = Matrix{T}[]
   offset = 0
   for i in mip_range
     nx, ny = mip_dimensions((width, height), i)
     size = image_datasize(buffer, (nx, ny), view.format, aspect)
     region = @view bytes[(offset + 1):(offset + size)]
-    push!(results, deserialize(Matrix{T}, region, layout, (nx, ny)))
+    push!(mipmaps, deserialize(Matrix{T}, region, layout, (nx, ny)))
     offset += size
   end
-  results
+  mipmaps
 end
 Base.collect(view::ImageView, device::Device) = collect(format_type(view), view, device)
 
