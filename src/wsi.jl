@@ -100,7 +100,7 @@ function Swapchain(device::Device, surface::Surface, usage_flags::Vk.ImageUsageF
   )
   handle = unwrap(Vk.create_swapchain_khr(device, info))
   swapchain = Swapchain(handle, info, surface, find_presentation_queue(device.queues, [surface]))
-  depends_on(swapchain, surface)
+  depends_on(handle, surface)
   swapchain
 end
 

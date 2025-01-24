@@ -62,6 +62,7 @@ function recreate_swapchain!(fc::FrameCycle, capabilities::Vk.SurfaceCapabilitie
     (; swapchain) = fc
     info = setproperties(swapchain.info; old_swapchain = swapchain.handle, image_extent = capabilities.current_extent)
     handle = unwrap(Vk.create_swapchain_khr(fc.device, info))
+    depends_on(handle, swapchain.surface)
     fc.swapchain = setproperties(swapchain, (; info, handle))
 end
 
