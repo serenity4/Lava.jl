@@ -18,7 +18,7 @@ function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRender
       for (command, targets) in commands
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht_graphics[hash]
-        reqs = BindRequirements(pipeline, data, device.descriptors.gset)
+        reqs = BindRequirements(pipeline, data, device.descriptors.gset, state.render_state)
         bind_state = bind(cb, reqs, bind_state)
         command.type == COMMAND_TYPE_DRAW_INDEXED ? apply(cb, command.graphics.draw::DrawIndexed, baked.index_data) : apply(cb, command.graphics.draw::Union{DrawIndirect, DrawIndexedIndirect}, baked.resources)
       end

@@ -182,8 +182,8 @@ using Graphs: nv, ne
       Lava.initialize_index_buffer(command_buffer, device, baked.index_data)
       flush(command_buffer, baked, records, pipeline_hashes)
       @test !isempty(command_buffer)
-      @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_draw_indexed, :cmd_end_rendering]
-      _cmd_bind_index_buffer, _cmd_pipeline_barrier_2, _cmd_begin_rendering, _cmd_bind_pipeline, _cmd_bind_descriptor_sets, _cmd_push_constants, _cmd_draw_indexed, _cmd_end_rendering = command_buffer
+      @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_set_depth_test_enable, :cmd_set_depth_write_enable, :cmd_set_depth_compare_op, :cmd_set_stencil_test_enable, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_draw_indexed, :cmd_end_rendering]
+      _cmd_bind_index_buffer, _cmd_pipeline_barrier_2, _cmd_begin_rendering, _cmd_bind_pipeline, _cmd_bind_descriptor_sets, _cmd_push_constants, _cmd_set_depth_test_enable, _cmd_set_depth_write_enable, _cmd_set_depth_compare_op, _cmd_set_stencil_test_enable, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_draw_indexed, _cmd_end_rendering = command_buffer
 
       @test isallocated(_cmd_bind_index_buffer.args[1])
       @test _cmd_bind_index_buffer.args == [baked.index_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]

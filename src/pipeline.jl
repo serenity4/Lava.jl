@@ -113,6 +113,7 @@ function pipeline_info_graphics(
   multisample_state = Vk.PipelineMultisampleStateCreateInfo(Vk.SampleCountFlag(nsamples), state.enable_fragment_supersampling, state.fragment_supersampling_rate, false, false)
   color_blend_state = Vk.PipelineColorBlendStateCreateInfo(false, Vk.LOGIC_OP_AND, attachments, ntuple(Returns(1.0f0), 4))
   depth_stencil_state = !isnothing(targets.depth) || !isnothing(targets.stencil) ? Vk.PipelineDepthStencilStateCreateInfo(state) : C_NULL
+  dynamic_state = Vk.PipelineDynamicStateCreateInfo([Vk.DYNAMIC_STATE_DEPTH_TEST_ENABLE, Vk.DYNAMIC_STATE_DEPTH_WRITE_ENABLE, Vk.DYNAMIC_STATE_DEPTH_COMPARE_OP, Vk.DYNAMIC_STATE_STENCIL_TEST_ENABLE, Vk.DYNAMIC_STATE_STENCIL_OP, Vk.DYNAMIC_STATE_STENCIL_COMPARE_MASK, Vk.DYNAMIC_STATE_STENCIL_WRITE_MASK, Vk.DYNAMIC_STATE_STENCIL_REFERENCE])
   Vk.GraphicsPipelineCreateInfo(
     shader_stages,
     rasterizer,
@@ -126,6 +127,7 @@ function pipeline_info_graphics(
     multisample_state,
     color_blend_state,
     depth_stencil_state,
+    dynamic_state,
   )
 end
 
