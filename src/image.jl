@@ -57,6 +57,24 @@ function default_image_flags(layers, dims)
   Vk.ImageCreateFlag()
 end
 
+function query_image_format_support(device, format, nd, tiling, usage, flags)::Result{Nothing, ErrorException}
+  type = vk_image_type(nd)
+  ret = Vk.get_physical_device_image_format_properties(physical_device(device), format, type, tiling, usage; flags)
+  !iserror(ret) && return nothing
+  (; code) = unwrap_error(ret)
+  ErrorException(styled"""
+  Format {yellow:$format} not supported ($code) in combination with:
+    ⚫ {cyan:$type}
+    ⚫ {cyan:$flags}
+    ⚫ {cyan:$tiling}
+    ⚫ {cyan:$usage}
+  """)
+end
+
+function check_format_is_supported(device, format, nd, tiling, usage, flags)
+  unwrap(query_image_format_support(device, format, nd, tiling, usage, flags))
+end
+
 function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
   queue_family_indices = queue_family_indices(device),
   sharing_mode = Vk.SHARING_MODE_EXCLUSIVE,
@@ -87,15 +105,7 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
     initial_layout;
     flags,
   )
-  code = Vk.get_physical_device_image_format_properties(physical_device(device), info.format, info.image_type, info.tiling, info.usage; info.flags)
-  if iserror(code) && unwrap_error(code).code == Vk.ERROR_FORMAT_NOT_SUPPORTED
-    error(styled"""
-    Format {yellow:$format} not supported for images with:
-      ⚫ {cyan:$(info.flags)}
-      ⚫ {cyan:$(info.tiling)}
-      ⚫ {cyan:$(info.usage)}
-    """)
-  end
+  check_format_is_supported(device, info.format, n, info.tiling, info.usage, info.flags)
   handle = unwrap(create(Image, device, info))
   isa(dims, Tuple) && (dims = collect(Int64, dims))
   Image(
