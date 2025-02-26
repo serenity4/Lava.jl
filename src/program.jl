@@ -10,16 +10,32 @@ Computation unit that uses shaders as part of a graphics or compute pipeline.
 
 It exposes a program interface through its shader interfaces and its shader resources.
 """
-@struct_hash_equal struct Program
+struct Program
   type::ProgramType
   data::Any
   layout::VulkanLayout
+end
+
+function Base.getproperty(prog::Program, name::Symbol)
+  name === :graphics && return prog.data::GraphicsProgram
+  name === :compute && return prog.data::Shader
+  getfield(prog, name)
 end
 
 struct GraphicsProgram
   vertex_shader::Shader
   fragment_shader::Shader
   # ... other fields to be defined, such as geometry/tessellation and/or mesh shaders.
+end
+
+Base.:(==)(x::Program, y::Program) = x.type == y.type && x.data == y.data
+
+function Base.hash(prog::Program, h::UInt)
+  h = hash(prog.type, h)
+  @match prog.type begin
+    &PROGRAM_TYPE_GRAPHICS => hash(prog.graphics, h)
+    &PROGRAM_TYPE_COMPUTE => hash(prog.compute, h)
+  end
 end
 
 function Program(compute::Shader)
