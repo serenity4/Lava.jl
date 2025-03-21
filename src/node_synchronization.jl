@@ -103,11 +103,11 @@ function log_synchronization(node::RenderNode, resource::Resource, usage)
   @debug "Synchronization: $(sprint(print_name, node)) ⇒ $(sprint(print_name, resource)) ($(usage.access == WRITE ? "write" : usage.access == READ ? "read" : usage.access))"
 end
 
-function dependency_info!(state::SynchronizationState, node_uses, resources, node::RenderNode)
+function dependency_info!(state::SynchronizationState, rg::RenderGraph, node::RenderNode)
   info = Vk.DependencyInfo([], [], [])
-  uses = node_uses[node.id]
+  uses = rg.combined_node_uses[node.id]
   for use in uses
-    resource = resources[use.id]
+    resource = get_physical_resource(rg, use.id)
     synchronize_access!(info, state, node, resource, use.usage)
   end
   info

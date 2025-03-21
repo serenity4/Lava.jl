@@ -62,8 +62,8 @@ struct DrawIndirect <: DrawCommand
   count::Int64
 end
 
-function apply(cb::CommandBuffer, draw::DrawIndirect, resources)
-  (; buffer) = get_physical_resource(resources, draw.parameters)
+function apply(cb::CommandBuffer, draw::DrawIndirect, materialized_resources)
+  (; buffer) = get_physical_resource(materialized_resources, draw.parameters)
   Vk.cmd_draw_indirect(cb, buffer, buffer.offset, draw.count, buffer.stride)
 end
 
@@ -90,7 +90,7 @@ end
 
 IndexData() = IndexData(UInt32[], Ref{Buffer}(), IdDict())
 
-"Append new indices to `idata`, returning the corresponding range of indices to be used for indexed draw calls."
+"Append new indices to `id`, returning the corresponding range of indices to be used for indexed draw calls."
 function Base.append!(id::IndexData, command::DrawIndexed)
   start = lastindex(id.index_list) + 1
   stop = lastindex(id.index_list) + length(command.indices)
@@ -116,7 +116,7 @@ struct DrawIndexedIndirect <: DrawCommand
   count::Int64
 end
 
-function apply(cb::CommandBuffer, draw::DrawIndexedIndirect, resources)
+function apply(cb::CommandBuffer, draw::DrawIndexedIndirect, materialized_resources)
   (; buffer) = get_physical_resource(draw.parameters)
   Vk.cmd_draw_indexed_indirect(cb, buffer, buffer.offset, draw.count, buffer.stride)
 end

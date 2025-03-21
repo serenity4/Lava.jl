@@ -169,6 +169,7 @@ function free_descriptor_batch!(gdescs::GlobalDescriptors, batch::Int64)
     run_finalizers(descriptor)
   end
   delete!(gdescs.pending, batch)
+  nothing
 end
 
 """

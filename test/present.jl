@@ -17,7 +17,13 @@
     nodes = [draw_texture(device, vdata, color; prog, uv_scale, image)]
     draw_and_prepare_for_presentation(device, nodes, color, frame)
   end
-  draw_and_present(cycle, t) = wait(cycle!(frame -> draw(frame, t), cycle))
+  function draw_and_present(cycle, t)
+    ret = nothing
+    while isnothing(ret)
+      ret = cycle!(frame -> draw(frame, t), cycle)
+    end
+    wait(ret)
+  end
 
   test_validation_msg(x -> @test isempty(x)) do
     Δt = 0.1

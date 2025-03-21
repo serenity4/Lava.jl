@@ -1,86 +1,77 @@
-# Mutability is to allow finalizers.
-mutable struct BakedRenderGraph
-  device::Device
-  allocator::LinearAllocator
-  index_data::IndexData
-  nodes::Vector{RenderNode}
-  resources::Dictionary{ResourceID, Resource}
-  node_uses::Dictionary{NodeID,Dictionary{ResourceID, ResourceUsage}}
-  combined_uses::Dictionary{ResourceID, ResourceUsage}
-  # Pairs att1 => att2 where att1 is a multisampled attachment resolved on att2.
-  resolve_pairs::Dictionary{Resource, Resource}
-end
-
-function combine_resource_uses(uses)
-  combined_uses = Dictionary{ResourceID,ResourceUsage}()
-  for node_uses in uses
+function combine_resource_uses!(rg::RenderGraph)
+  for node_uses in rg.combined_node_uses
     for (rid, resource_usage) in pairs(node_uses)
-      existing = get(combined_uses, rid, nothing)
+      existing = get(rg.combined_resource_uses, rid, nothing)
       if !isnothing(existing)
-        combined_uses[rid] = combine(existing, resource_usage)
+        rg.combined_resource_uses[rid] = combine(existing, resource_usage)
       else
-        insert!(combined_uses, rid, resource_usage)
+        insert!(rg.combined_resource_uses, rid, resource_usage)
       end
     end
   end
-  combined_uses
 end
 
-combine_resource_uses_per_node(uses) = dictionary(nid => dictionary(rid => reduce(merge, ruses) for (rid, ruses) in pairs(nuses)) for (nid, nuses) in pairs(uses))
+function combine_resource_uses_per_node!(rg::RenderGraph)
+  for (nid, nuses) in pairs(rg.uses)
+    uses = dictionary(rid => reduce(merge, ruses) for (rid, ruses) in pairs(nuses))
+    insert!(rg.combined_node_uses, nid, uses)
+  end
+end
 
 function bake!(rg::RenderGraph)
   add_resource_dependencies!(rg)
-  resolve_pairs = resolve_attachment_pairs(rg)
-  add_resolve_attachments!(rg, resolve_pairs)
-
-  node_uses = combine_resource_uses_per_node(rg.uses)
+  resolve_attachment_pairs!(rg)
+  add_resolve_attachments!(rg)
+  combine_resource_uses_per_node!(rg)
 
   # Materialize logical resources with properties derived from usage patterns.
-  combined_uses = combine_resource_uses(node_uses)
-  check_physical_resources(rg, combined_uses)
-  materialized_resources = materialize_logical_resources(rg, combined_uses)
-  allocate_blocks!(rg, materialized_resources)
-  resources = dictionary(r.id => islogical(r) ? materialized_resources[r.id] : r for r in rg.resources)
-  resolve_pairs = dictionary(resources[r.id] => resources[resolve_r.id] for (r, resolve_r) in pairs(resolve_pairs))
+  combine_resource_uses!(rg)
+  check_physical_resources!(rg)
+  materialize_logical_resources!(rg)
+  allocate_blocks!(rg)
 
   # Allocate descriptors and get the batch index to free them when execution has finished.
   descriptors = descriptors_for_cycle(rg)
-  descriptor_batch = write_descriptors!(rg.device.descriptors, descriptors, node_uses, resources)
-
-  baked = BakedRenderGraph(rg.device, rg.allocator, IndexData(), sort_nodes(rg, node_uses), resources, node_uses, combined_uses, resolve_pairs)
-  finalizer(x -> free_descriptor_batch!(rg.device.descriptors, descriptor_batch), baked)
+  write_descriptors!(rg, descriptors)
+  rg
 end
 
-function render!(rg::Union{RenderGraph,BakedRenderGraph})
-  submission = SubmissionInfo(; signal_fence = get_fence!(rg.device))
-  wait(render!(rg, submission))
-end
-
-function render!(rg::Union{RenderGraph,BakedRenderGraph}, submission::SubmissionInfo)
+function render!(rg::RenderGraph; submission::Optional{SubmissionInfo} = nothing, wait = true)
+  submission = @something(submission, sync_submission(rg.device))
   command_buffer = request_command_buffer(rg.device)
-  baked = render!(rg, command_buffer)
-  push!(submission.free_after_completion, baked)
-  submit!(submission, command_buffer)
+  render!(rg, command_buffer)
+  push!(submission.free_after_completion)
+  execution = submit!(submission, command_buffer)
+  !wait && return execution
+  @__MODULE__().wait(execution)
 end
 
-render!(rg::RenderGraph, command_buffer::CommandBuffer) = render(command_buffer, bake!(rg))
+function render!(rg::RenderGraph, command_buffer::CommandBuffer)
+  bake!(rg)
+  render(command_buffer, rg)
+end
 
 render(device::Device, node::Union{RenderNode,Command}) = render(device, [node])
-render(device::Device, nodes) = render!(RenderGraph(device, nodes))
+function render(device::Device, nodes)
+  rg = RenderGraph(device, nodes)
+  ret = render!(rg)
+  finish!(rg)
+  ret
+end
 
-function render(command_buffer::CommandBuffer, baked::BakedRenderGraph)
-  records, pipeline_hashes = record_commands!(baked)
-  create_pipelines!(baked.device)
+function render(command_buffer::CommandBuffer, rg::RenderGraph)
+  records, pipeline_hashes = record_commands!(rg)
+  create_pipelines!(rg.device)
 
   if any(!isempty(record.draws) for record in records)
     # Allocate index buffer.
-    fill_indices!(baked.index_data, records)
-    initialize_index_buffer(command_buffer, baked.device, baked.index_data)
+    fill_indices!(rg.index_data, records)
+    initialize_index_buffer(command_buffer, rg.device, rg.index_data)
   end
   # Fill command buffer with synchronization commands & recorded commands.
-  flush(command_buffer, baked, records, pipeline_hashes)
-  isa(command_buffer, SimpleCommandBuffer) && push!(command_buffer.to_free, baked)
-  baked
+  flush(command_buffer, rg, records, pipeline_hashes)
+  isa(command_buffer, SimpleCommandBuffer) && push!(command_buffer.to_free, rg)
+  rg
 end
 
 function fill_indices!(index_data::IndexData, records)
@@ -106,21 +97,21 @@ Program to be compiled into a pipeline with a specific state.
   targets::Optional{RenderTargets}
 end
 
-function record_commands!(baked::BakedRenderGraph)
+function record_commands!(rg::RenderGraph)
   records = CompactRecord[]
   pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
 
   # Record commands and submit pipelines for creation.
-  for node in baked.nodes
-    record = CompactRecord(baked, node)
+  for node in rg.nodes
+    record = CompactRecord(rg, node)
     push!(records, record)
-    merge!(pipeline_hashes, request_pipelines(baked, record))
+    merge!(pipeline_hashes, request_pipelines(rg, record))
   end
 
   records, pipeline_hashes
 end
 
-function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
+function CompactRecord(rg::RenderGraph, node::RenderNode)
   rec = CompactRecord(node, Dictionary(), Dictionary(), Command[], Command[])
   for command in node.commands
     record!(rec, command)
@@ -128,14 +119,14 @@ function CompactRecord(baked::BakedRenderGraph, node::RenderNode)
   rec
 end
 
-function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
-  (; device) = baked
+function request_pipelines(rg::RenderGraph, record::CompactRecord)
+  (; device) = rg
   pipeline_hashes = Dictionary{ProgramInstance,UInt64}()
   layout = pipeline_layout(device)
   for (program, calls) in pairs(record.draws)
     for ((data, state), draws) in pairs(calls)
       for targets in unique!(last.(draws))
-        info = pipeline_info_graphics(record.node.render_area::RenderArea, program, state.render_state, state.invocation_state, targets, layout, baked.resources)
+        info = pipeline_info_graphics(record.node.render_area::RenderArea, program, state.render_state, state.invocation_state, targets, layout, rg.materialized_resources)
         hash = request_pipeline(device, info)
         set!(pipeline_hashes, ProgramInstance(program, state, targets), hash)
       end
@@ -149,17 +140,17 @@ function request_pipelines(baked::BakedRenderGraph, record::CompactRecord)
   pipeline_hashes
 end
 
-function rendering_info(baked::BakedRenderGraph, node::RenderNode)
+function rendering_info(rg::RenderGraph, node::RenderNode)
   color_attachments = Vk.RenderingAttachmentInfo[]
   depth_attachment = C_NULL
   stencil_attachment = C_NULL
   resolve_ids = Set{ResourceID}()
-  uses = baked.node_uses[node.id]
+  uses = rg.combined_node_uses[node.id]
 
   for use in uses
     (; id) = use
     in(id, resolve_ids) && continue
-    resource = baked.resources[id]
+    resource = get_physical_resource(rg, id)
     resource_type(resource) == RESOURCE_TYPE_ATTACHMENT || continue
     attachment_usage = use.usage::AttachmentUsage
     # Resolve attachments are grouped with their destination attachment.
@@ -169,7 +160,7 @@ function rendering_info(baked::BakedRenderGraph, node::RenderNode)
     for (usage, kind) in ((RESOURCE_USAGE_COLOR_ATTACHMENT, :color), (RESOURCE_USAGE_DEPTH_ATTACHMENT, :depth), (RESOURCE_USAGE_STENCIL_ATTACHMENT, :stencil))
       in(usage, type) || continue
       info = if attachment_usage.samples > 1
-        resolve_resource = baked.resolve_pairs[resource]
+        resolve_resource = get_physical_resource(rg, rg.resolve_pairs[resource])
         push!(resolve_ids, resolve_resource.id)
         rendering_info(attachment, attachment_usage, kind, resolve_resource.attachment, uses[resolve_resource.id].usage::AttachmentUsage)
       else

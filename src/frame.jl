@@ -222,9 +222,10 @@ function draw_and_prepare_for_presentation(device::Device, nodes, attachment::Re
     rg = RenderGraph(device, nodes)
     add_nodes!(rg, transfer, present)
     command_buffer = request_command_buffer(device)
-    baked = render!(rg, command_buffer)
+    render!(rg, command_buffer)
+    finalizer(finish!, rg)
     has_rendered = get_fence!(device)
     frame.has_rendered = has_rendered
     Vk.set_debug_name(has_rendered, :has_rendered)
-    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], free_after_completion = [baked], queue_family = command_buffer.queue_family_index, signal_fence = has_rendered)
+    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], free_after_completion = [rg], queue_family = command_buffer.queue_family_index, signal_fence = has_rendered)
 end

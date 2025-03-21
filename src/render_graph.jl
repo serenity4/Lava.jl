@@ -129,24 +129,31 @@ A topological sort of this graph represents a possible sequential execution orde
 
 This graph is generated just-in-time and is used to convert the resource graph into a linear sequence of passes.
 """
-struct RenderGraph
-  device::Device
+mutable struct RenderGraph
+  const device::Device
   "Used to allocate lots of tiny objects."
-  allocator::LinearAllocator
-  resource_graph::SimpleDiGraph{Int64}
-  nodes::Dictionary{NodeID,RenderNode}
-  node_indices::Dictionary{NodeID,Int64}
-  node_indices_inv::Dictionary{Int64,NodeID}
-  resource_indices::Dictionary{ResourceID,Int64}
+  const allocator::LinearAllocator
+  const resource_graph::SimpleDiGraph{Int64}
+  const nodes::Dictionary{NodeID,RenderNode}
+  const node_indices::Dictionary{NodeID,Int64}
+  const node_indices_inv::Dictionary{Int64,NodeID}
+  const resource_indices::Dictionary{ResourceID,Int64}
   "Resource uses per node. One resource may be used several times by a single node."
-  uses::Dictionary{NodeID,Dictionary{ResourceID, Vector{ResourceUsage}}}
-  resources::Dictionary{ResourceID, Resource}
-  "Temporary resources meant to be thrown away after execution."
-  temporary::Vector{ResourceID}
+  const uses::Dictionary{NodeID,Dictionary{ResourceID, Vector{ResourceUsage}}}
+  const resources::Dictionary{ResourceID, Resource}
+
+  # State for execution.
+  "Pairs att1 => att2 where att1 is a multisampled attachment resolved on att2."
+  const resolve_pairs::Dictionary{Resource, Resource}
+  const combined_resource_uses::Dictionary{ResourceID, ResourceUsage}
+  const combined_node_uses::Dictionary{NodeID,Dictionary{ResourceID, ResourceUsage}}
+  const materialized_resources::Dictionary{ResourceID, Resource}
+  descriptor_batch_index::Int64
+  const index_data::IndexData
 end
 
 function RenderGraph(device::Device, nodes = nothing; linear_allocator_size = 2^20 #= 1_000_000 KiB =#)
-  rg = RenderGraph(device, LinearAllocator(device, linear_allocator_size), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), [])
+  rg = RenderGraph(device, LinearAllocator(device, linear_allocator_size), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), -1, IndexData())
   !isnothing(nodes) && add_nodes!(rg, nodes)
   rg
 end
@@ -178,8 +185,6 @@ function add_nodes!(rg::RenderGraph, nodes)
 end
 
 function add_resource!(rg::RenderGraph, resource::Resource)
-  islogical(resource) && push!(rg.temporary, resource.id)
-
   # Add to list of resources.
   existing = get!(rg.resources, resource.id, resource)
   if !isnothing(existing)
@@ -375,10 +380,6 @@ function extract_resource_spec(ex::Expr)
   end
 end
 
-function sort_nodes(rg::RenderGraph, node_uses::Dictionary{NodeID, Dictionary{ResourceID, ResourceUsage}})
-  collect(rg.nodes)
-end
-
 function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)
   get!(Dictionary{ResourceID, Vector{ResourceUsage}}, rg.uses, node.id)
   for command in node.commands
@@ -395,10 +396,10 @@ function add_resource_dependencies!(rg::RenderGraph)
   end
 end
 
-function resolve_attachment_pairs(rg::RenderGraph)
-  resolve_pairs = Dictionary{Resource, Resource}()
+function resolve_attachment_pairs!(rg::RenderGraph)
   for resource in rg.resources
     resource_type(resource) == RESOURCE_TYPE_ATTACHMENT || continue
+    haskey(rg.resolve_pairs, resource) && continue
     if islogical(resource)
       resolve_attachment = nothing
       for uses in rg.uses
@@ -415,15 +416,14 @@ function resolve_attachment_pairs(rg::RenderGraph)
       is_multisampled(attachment) || continue
       resolve_attachment = Resource(LogicalAttachment(attachment.view.format, attachment.view.image.dims, attachment.view.subresource, 1); name = resolve_attachment_name(resource))
     end
-    !isnothing(resolve_attachment) && insert!(resolve_pairs, resource, resolve_attachment)
+    !isnothing(resolve_attachment) && insert!(rg.resolve_pairs, resource, resolve_attachment)
   end
-  resolve_pairs
 end
 
 resolve_attachment_name(r::Resource) = isnamed(r) ? Symbol(:resolve_, r.name) : nothing
 
-function add_resolve_attachments!(rg::RenderGraph, resolve_pairs::Dictionary{Resource, Resource})
-  for (resource, resolve_resource) in pairs(resolve_pairs)
+function add_resolve_attachments!(rg::RenderGraph)
+  for (resource, resolve_resource) in pairs(rg.resolve_pairs)
     # Add resource in the render graph.
     add_resource!(rg, resolve_resource)
 
@@ -439,28 +439,27 @@ function add_resolve_attachments!(rg::RenderGraph, resolve_pairs::Dictionary{Res
   end
 end
 
-function materialize_logical_resources(rg::RenderGraph, combined_uses)
-  res = Dictionary{ResourceID, Resource}()
-  for use in combined_uses
+function materialize_logical_resources!(rg::RenderGraph)
+  for use in rg.combined_resource_uses
     resource = rg.resources[use.id]
     islogical(resource) || continue
     @switch resource_type(resource) begin
       @case &RESOURCE_TYPE_BUFFER
       usage = use.usage::BufferUsage
       (; logical_buffer) = resource
-      insert!(res, resource.id, promote_to_physical(resource, Buffer(rg.device; logical_buffer.size, usage.usage_flags)))
+      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, Buffer(rg.device; logical_buffer.size, usage.usage_flags)))
 
       @case &RESOURCE_TYPE_IMAGE
       usage = use.usage::ImageUsage
       (; logical_image) = resource
-      insert!(res, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.layers, logical_image.mip_levels, usage.samples)))
+      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.layers, logical_image.mip_levels, usage.samples)))
 
       @case &RESOURCE_TYPE_IMAGE_VIEW
       usage = use.usage::ImageUsage
       (; logical_image_view) = resource
       (; image, subresource) = logical_image_view
       image_format = logical_image_view.image.format
-      insert!(res, resource.id, promote_to_physical(resource, ImageView(rg.device; image_format = image.format, image.dims, usage.usage_flags, image.layers, image.mip_levels, usage.samples, view_format = logical_image_view.format, subresource.layer_range, subresource.mip_range)))
+      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, ImageView(rg.device; image_format = image.format, image.dims, usage.usage_flags, image.layers, image.mip_levels, usage.samples, view_format = logical_image_view.format, subresource.layer_range, subresource.mip_range)))
 
       @case &RESOURCE_TYPE_ATTACHMENT
       usage = use.usage::AttachmentUsage
@@ -480,14 +479,13 @@ function materialize_logical_resources(rg::RenderGraph, combined_uses)
           "Could not determine the dimensions of the attachment $(resource.id). You must either provide them or use the attachment with a node that has a render area.",
         )
       end
-      insert!(res, resource.id, promote_to_physical(resource, Attachment(rg.device; logical_attachment.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, logical_attachment.subresource.layer_range, logical_attachment.subresource.mip_range)))
+      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, Attachment(rg.device; logical_attachment.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, logical_attachment.subresource.layer_range, logical_attachment.subresource.mip_range)))
     end
   end
-  res
 end
 
-function check_physical_resources(rg::RenderGraph, uses)
-  for use in uses
+function check_physical_resources!(rg::RenderGraph)
+  for use in rg.combined_resource_uses
     resource = rg.resources[use.id]
     isphysical(resource) || continue
     @switch resource_type(resource) begin
@@ -526,16 +524,16 @@ function resolve_sample_count(resource, dependency::ResourceDependency)
   s
 end
 
-function allocate_blocks!(rg::RenderGraph, materialized_resources)
+function allocate_blocks!(rg::RenderGraph)
   for node in rg.nodes
-    allocate_blocks!(rg, node, materialized_resources)
+    allocate_blocks!(rg, node)
   end
 end
 
-function allocate_blocks!(rg::RenderGraph, node::RenderNode, materialized_resources)
+function allocate_blocks!(rg::RenderGraph, node::RenderNode)
   for command in node.commands
     is_graphics(command) || is_compute(command) || continue
-    allocate_block!(command.impl::Union{GraphicsCommand, ComputeCommand}, rg.allocator, rg.device, node.id, materialized_resources)
+    allocate_block!(command.impl::Union{GraphicsCommand, ComputeCommand}, rg.allocator, rg.device, node.id, rg.materialized_resources)
   end
 end
 
@@ -563,4 +561,20 @@ function descriptors_for_cycle(rg::RenderGraph)
     end
   end
   unique!(descriptors)
+end
+
+function get_physical_resource(rg::RenderGraph, id::ResourceID)
+  get_physical_resource(rg, rg.resources[id])
+end
+
+function get_physical_resource(rg::RenderGraph, resource::Resource)
+  isphysical(resource) && return resource
+  rg.materialized_resources[resource.id]
+end
+
+function finish!(rg::RenderGraph)
+  rg.descriptor_batch_index == -1 && return rg
+  free_descriptor_batch!(rg.device.descriptors, rg.descriptor_batch_index)
+  rg.descriptor_batch_index = -1
+  rg
 end

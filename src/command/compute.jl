@@ -27,7 +27,7 @@ struct DispatchIndirect <: DispatchCommand
   buffer::Resource
 end
 
-function apply(cb::CommandBuffer, dispatch::DispatchIndirect, resources)
-  (; buffer) = get_physical_resource(resources, dispatch.buffer)
+function apply(cb::CommandBuffer, dispatch::DispatchIndirect, materialized_resources)
+  (; buffer) = get_physical_resource(materialized_resources, dispatch.buffer)
   Vk.cmd_dispatch_indirect(cb, buffer, buffer.offset)
 end

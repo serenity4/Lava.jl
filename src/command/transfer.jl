@@ -38,18 +38,18 @@ is_blit(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transf
 is_resolve(transfer::TransferCommand) = !isbuffer(transfer.src) && !isbuffer(transfer.dst) && samples(transfer.src) ≠ samples(transfer.dst)
 is_copy(transfer::TransferCommand) = isbuffer(transfer.src) || isbuffer(transfer.dst) || (!is_blit(transfer) && !is_resolve(transfer))
 
-function apply(command_buffer::CommandBuffer, transfer::TransferCommand, resources)
-  src = get_physical_resource(resources, transfer.src)
-  dst = get_physical_resource(resources, transfer.dst)
+function apply(command_buffer::CommandBuffer, transfer::TransferCommand, materialized_resources)
+  src = get_physical_resource(materialized_resources, transfer.src)
+  dst = get_physical_resource(materialized_resources, transfer.dst)
 
   if !isnothing(transfer.multisample_resolve)
     # Perform a multisampling resolution step, then transfer again.
-    multisample_resolve = get_physical_resource(resources, transfer.multisample_resolve)
+    multisample_resolve = get_physical_resource(materialized_resources, transfer.multisample_resolve)
     src = isimage(src) ? src.image : src.attachment
     aux = multisample_resolve.image
     regions = [Vk.ImageResolve(Subresource(src), Vk.Offset3D(src), Subresource(aux), Vk.Offset3D(aux), Vk.Extent3D(src))]
     Vk.cmd_resolve_image(command_buffer, get_image(src), image_layout(src), get_image(aux), image_layout(aux), regions)
-    return apply(command_buffer, TransferCommand(multisample_resolve, transfer.dst, transfer.blit_filter, nothing), resources)
+    return apply(command_buffer, TransferCommand(multisample_resolve, transfer.dst, transfer.blit_filter, nothing), materialized_resources)
   end
 
   if isbuffer(src) && isbuffer(dst)

@@ -1,45 +1,45 @@
-function Base.flush(cb::CommandBuffer, baked::BakedRenderGraph, records, pipeline_hashes)
+function Base.flush(command_buffer::CommandBuffer, rg::RenderGraph, records, pipeline_hashes)
   bind_state = BindState()
   sync_state = SynchronizationState()
   for record in records
     @debug "Flushing node $(sprint(print_name, record.node))"
-    synchronize_before!(sync_state, cb, baked, record.node)
-    bind_state = flush(cb, record, baked, bind_state, pipeline_hashes)
-    synchronize_after!(sync_state, cb, baked, record.node)
+    synchronize_before!(sync_state, command_buffer, rg, record.node)
+    bind_state = flush(command_buffer, record, rg, bind_state, pipeline_hashes)
+    synchronize_after!(sync_state, command_buffer, rg, record.node)
   end
 end
 
-function Base.flush(cb::CommandBuffer, record::CompactRecord, baked::BakedRenderGraph, bind_state::BindState, pipeline_hashes)
-  (; device) = baked
-
-  begin_render_node(cb, baked, record.node)
+function Base.flush(command_buffer::CommandBuffer, record::CompactRecord, rg::RenderGraph, bind_state::BindState, pipeline_hashes)
+  
+  (; device) = rg
+  begin_render_node(command_buffer, rg, record.node)
   for (program, calls) in pairs(record.draws)
     for ((data, state), commands) in pairs(calls)
       for (command, targets) in commands
         hash = pipeline_hashes[ProgramInstance(program, state, targets)]
         pipeline = device.pipeline_ht_graphics[hash]
         reqs = BindRequirements(pipeline, data, device.descriptors.gset, state.render_state)
-        bind_state = bind(cb, reqs, bind_state)
-        command.type == COMMAND_TYPE_DRAW_INDEXED ? apply(cb, command.graphics.draw::DrawIndexed, baked.index_data) : apply(cb, command.graphics.draw::Union{DrawIndirect, DrawIndexedIndirect}, baked.resources)
+        bind_state = bind(command_buffer, reqs, bind_state)
+        command.type == COMMAND_TYPE_DRAW_INDEXED ? apply(command_buffer, command.graphics.draw::DrawIndexed, rg.index_data) : apply(command_buffer, command.graphics.draw::Union{DrawIndirect, DrawIndexedIndirect}, rg.materialized_resources)
       end
     end
   end
-  end_render_node(cb, baked, record.node)
+  end_render_node(command_buffer, rg, record.node)
 
   for (program, calls) in pairs(record.dispatches)
     hash = pipeline_hashes[ProgramInstance(program, nothing, nothing)]
     pipeline = device.pipeline_ht_compute[hash]
     for (data, commands) in pairs(calls)
       reqs = BindRequirements(pipeline, data, device.descriptors.gset)
-      bind_state = bind(cb, reqs, bind_state)
+      bind_state = bind(command_buffer, reqs, bind_state)
       for command in commands
-        command.type == COMMAND_TYPE_DISPATCH ? apply(cb, command.compute.dispatch::Dispatch) : apply(cb, command.compute.dispatch::DispatchIndirect, baked.resources)
+        command.type == COMMAND_TYPE_DISPATCH ? apply(command_buffer, command.compute.dispatch::Dispatch) : apply(command_buffer, command.compute.dispatch::DispatchIndirect, rg.materialized_resources)
       end
     end
   end
 
   for command in record.transfers
-    apply(cb, command.transfer, baked.resources)
+    apply(command_buffer, command.transfer, rg.materialized_resources)
   end
 
   bind_state
@@ -48,24 +48,24 @@ end
 """
 Build barriers for all resources that require it.
 """
-function synchronize_before!(state::SynchronizationState, cb, baked::BakedRenderGraph, node::RenderNode)
-  info = dependency_info!(state, baked.node_uses, baked.resources, node)
+function synchronize_before!(state::SynchronizationState, command_buffer::CommandBuffer, rg::RenderGraph, node::RenderNode)
+  info = dependency_info!(state, rg, node)
   if !isempty(info.image_memory_barriers) || !isempty(info.buffer_memory_barriers)
-    Vk.cmd_pipeline_barrier_2(cb, info)
+    Vk.cmd_pipeline_barrier_2(command_buffer, info)
   end
 end
 
-function begin_render_node(cb, baked::BakedRenderGraph, node::RenderNode)
+function begin_render_node(command_buffer::CommandBuffer, rg::RenderGraph, node::RenderNode)
   isnothing(node.render_area) && return
-  Vk.cmd_begin_rendering(cb, rendering_info(baked, node))
+  Vk.cmd_begin_rendering(command_buffer, rendering_info(rg, node))
 end
 
-function end_render_node(cb, baked::BakedRenderGraph, node::RenderNode)
+function end_render_node(command_buffer::CommandBuffer, rg::RenderGraph, node::RenderNode)
   if !isnothing(node.render_area)
-    Vk.cmd_end_rendering(cb)
+    Vk.cmd_end_rendering(command_buffer)
   end
 end
 
-function synchronize_after!(state::SynchronizationState, cb, baked::BakedRenderGraph, node::RenderNode)
+function synchronize_after!(state::SynchronizationState, command_buffer::CommandBuffer, rg::RenderGraph, node::RenderNode)
   nothing
 end

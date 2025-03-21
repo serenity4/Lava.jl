@@ -30,4 +30,23 @@
     end
     @test all(==(0x7c14e3ffe5603da5), hashes)
   end
+
+  @test_skip @testset "`RenderGraph` persistence" begin
+    vdata = [
+      PosColor(Vec2(-0.7, 0.7), Vec3(1.0, 0.0, 0.0)),
+      PosColor(Vec2(0.3, 0.7), Vec3(0.0, 1.0, 0.0)),
+      PosColor(Vec2(-0.7, -0.3), Vec3(1.0, 1.0, 1.0)),
+      PosColor(Vec2(0.3, -0.3), Vec3(0.0, 0.0, 1.0)),
+    ]
+    draw = draw_rectangle(device, vdata, color)
+    rg = RenderGraph(device, draw)
+    hashes = UInt64[]
+    for i in 1:5
+      render!(rg)
+      data = read_data(device, color)
+      push!(hashes, hash(data))
+    end
+    @test all(==(0xc92df9461d3cc743), hashes)
+    finish!(rg)
+  end
 end;

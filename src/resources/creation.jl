@@ -2,8 +2,9 @@
 
 function transfer(device::Device, args...; submission = nothing, kwargs...)
   command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
-  ret = transfer(command_buffer, args...; submission, kwargs...)
-  isnothing(submission) ? ret : wait(ret)
+  !isnothing(submission) && return transfer(command_buffer, args...; submission, kwargs...)
+  execution = transfer(command_buffer, args...; submission = sync_submission(device), kwargs...)
+  wait(execution)
 end
 
 # # Buffers
@@ -19,11 +20,10 @@ function Buffer(device::Device; data = nothing, memory_domain::MemoryDomain = ME
   buffer = Buffer(device, size; usage_flags, queue_family_indices, sharing_mode, layout)
   allocate!(buffer, memory_domain)
   isnothing(data) && return buffer
-  Vk.MEMORY_PROPERTY_DEVICE_LOCAL_BIT in buffer.memory[].property_flags && (submission = @something(submission, SubmissionInfo(signal_fence = get_fence!(device))))
   copyto!(buffer, data; device, submission)
 end
 
-function Base.copyto!(buffer::Buffer, data; device::Optional{Device} = nothing, submission = SubmissionInfo())
+function Base.copyto!(buffer::Buffer, data; device::Optional{Device} = nothing, submission = nothing)
   mem = buffer.memory[]
   if !in(Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT, mem.property_flags)
     device::Device
@@ -61,7 +61,7 @@ Base.collect(::Type{T}, buffer::Buffer, device::Device) where {T} = deserialize(
 function ensure_layout(device::Device, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
   command_buffer = request_command_buffer(device, Vk.QUEUE_TRANSFER_BIT)
   ensure_layout(command_buffer, view_or_image, layout)
-  wait(submit!(SubmissionInfo(signal_fence = get_fence!(device)), command_buffer))
+  wait(submit!(sync_submission(device), command_buffer))
 end
 
 function ensure_layout(command_buffer::CommandBuffer, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
@@ -224,7 +224,7 @@ function buffer_regions_for_image_transfer(buffer::Buffer, view_or_image::Union{
   regions
 end
 
-function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, layer = 1) where {T}
+function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, layer = 1, submission = nothing) where {T}
   isbitstype(T) || error("The image element type is not an `isbits` type")
   image.is_wsi || isallocated(image) || error("The image must be allocated to be collected")
   if image.is_linear && Vk.MEMORY_PROPERTY_HOST_VISIBLE_BIT in image.memory[].property_flags
@@ -242,25 +242,22 @@ function Base.collect(::Type{T}, image::Image, device::Device; mip_level = 1, la
     # Transfer the image into a buffer, then collect it.
     layout = NoPadding()
     s = stride(layout, Matrix{T})
-    width, height = dimensions(image)
-    usage_flags = Vk.IMAGE_USAGE_TRANSFER_DST_BIT
-    mip_range = @__MODULE__().mip_range(image)
-    layer_range = @__MODULE__().layer_range(image)
-    size = length(layer_range) * s * sum(i -> prod(mip_dimensions((width, height), i)), mip_range)
+    width, height = mip_dimensions(dimensions(image), mip_level)
+    size = s * width * height
     buffer = Buffer(device; size, memory_domain = MEMORY_DOMAIN_HOST_CACHED, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
-    transfer(device, image, buffer; submission = sync_submission(device))
-    bytes = collect(buffer, device)
-    length(mip_range) == 1 && return deserialize(Matrix{T}, bytes, layout, mip_dimensions((width, height), mip_range[1]))
-    mipmaps = Matrix{T}[]
-    offset = 0
-    for i in mip_range
-      nx, ny = mip_dimensions((width, height), i)
-      size = image_datasize(buffer, (nx, ny), view.format, aspect)
-      region = @view bytes[(offset + 1):(offset + size)]
-      push!(mipmaps, deserialize(Matrix{T}, region, layout, (nx, ny)))
-      offset += size
+    submission = @something(submission, sync_submission(device))
+    execution = if image.mip_levels == image.layers == mip_level == layer == 1
+      transfer(device, image, buffer; submission)
+    else
+      mip_range = mip_level:mip_level
+      layer_range = layer:layer
+      view = ImageView(image; mip_range, layer_range, skip_handle_creation = true)
+      transfer(device, view, buffer; submission)
     end
-    mipmaps
+    # XXX: use a Future-like API to avoid waiting here.
+    wait(execution)
+    bytes = collect(buffer, device)
+    deserialize(Matrix{T}, bytes, layout, (width, height))
   end
 end
 Base.collect(image::Image, device::Device; mip_level = 1, layer = 1) = collect(format_type(image.format), image, device; mip_level, layer)
@@ -277,7 +274,7 @@ function Base.collect(::Type{T}, view::ImageView, device::Device) where {T}
   width, height = dimensions(image)
   size = length(layer_range) * s * sum(i -> prod(mip_dimensions((width, height), i)), mip_range)
   buffer = Buffer(device; size, memory_domain = MEMORY_DOMAIN_HOST_CACHED, usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
-  transfer(device, view, buffer; submission = sync_submission(device))
+  transfer(device, view, buffer)
   bytes = collect(buffer, device)
   length(mip_range) == 1 && return deserialize(Matrix{T}, bytes, layout, mip_dimensions((width, height), mip_range[1]))
   mipmaps = Matrix{T}[]
@@ -298,13 +295,13 @@ Base.collect(::Type{T}, resource::Resource, device::Device) where {T} = collect(
 Base.collect(attachment::Attachment, device::Device) = collect(attachment.view, device)
 Base.collect(resource::Resource, device::Device; kwargs...) = collect(resource.data, device; kwargs...)
 
-function Base.copyto!(view::ImageView, data::AbstractArray, device::Device; submission = SubmissionInfo(signal_fence = get_fence!(device)), kwargs...)
+function Base.copyto!(view::ImageView, data::AbstractArray, device::Device; submission = nothing, kwargs...)
   buffer = Buffer(device; data, usage_flags = Vk.BUFFER_USAGE_TRANSFER_SRC_BIT, memory_domain = MEMORY_DOMAIN_HOST)
   transfer(device, buffer, view; submission, kwargs...)
   view
 end
 
-function Base.copyto!(image::Image, data::AbstractArray, device::Device; mip_range = nothing, layer_range = nothing, mip_level = nothing, layer = nothing, submission = SubmissionInfo(signal_fence = get_fence!(device)), kwargs...)
+function Base.copyto!(image::Image, data::AbstractArray, device::Device; mip_range = nothing, layer_range = nothing, mip_level = nothing, layer = nothing, submission = nothing, kwargs...)
   if !isnothing(mip_level)
     isnothing(mip_range) || throw(ArgumentError("The mip range and mip level must not be provided at the same time"))
     mip_range = mip_level:mip_level
@@ -341,7 +338,7 @@ function Image(
   mip_levels = 1,
   flags = nothing,
   layout::Optional{Vk.ImageLayout} = nothing,
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)),
+  submission = nothing,
 )
 
   check_data(data, layers)
@@ -407,7 +404,7 @@ function ImageView(
   mip_range = nothing,
   type = nothing,
 
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)))
+  submission = nothing)
 
   isa(format, Type) && (format = Vk.Format(format))
   dims, format = infer_dims_and_format(data, dims, format, layers)
@@ -459,7 +456,7 @@ function Attachment(
   # Attachment parameters.
   access::MemoryAccess = READ | WRITE,
 
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)))
+  submission = nothing)
 
   image_format = something(image_format, format, Some(nothing))
   view = ImageView(device, data; image_flags, image_format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, layers, mip_levels, layout, flags, format, aspect, layer_range, mip_range, type, component_mapping, submission)
@@ -500,7 +497,7 @@ function Base.collect(memory::Memory, size::Integer, device::Device)
   @assert reqs.size ≤ memory.size
   dst = Buffer(device, size; usage_flags = Vk.BUFFER_USAGE_TRANSFER_DST_BIT)
   allocate!(dst, MEMORY_DOMAIN_HOST)
-  transfer(device, src, dst; free_src = true, submission = sync_submission(device))
+  transfer(device, src, dst; free_src = true)
   collect(dst)
 end
 

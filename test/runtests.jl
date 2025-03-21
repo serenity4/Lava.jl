@@ -20,7 +20,7 @@ using Distances: Distances, PeriodicEuclidean
 using OpenType: curves, Text, Line
 using OpenType
 
-using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, get_descriptor_index!, delete_descriptor!, NodeID, free_descriptor_batch!, request_command_buffer, ShaderCache, combine_resource_uses_per_node, combine_resource_uses, isbuffer, isimage, isattachment, SynchronizationState, bake!, dependency_info!, rendering_info, PROGRAM_TYPE_GRAPHICS, PROGRAM_TYPE_COMPUTE, COMMAND_TYPE_DRAW_INDEXED, COMMAND_TYPE_DRAW_INDEXED_INDIRECT, status, Fence, FencePool, recycle!, get_fence!, is_signaled
+using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, get_descriptor_index!, delete_descriptor!, NodeID, free_descriptor_batch!, request_command_buffer, ShaderCache, isbuffer, isimage, isattachment, SynchronizationState, bake!, dependency_info!, rendering_info, PROGRAM_TYPE_GRAPHICS, PROGRAM_TYPE_COMPUTE, COMMAND_TYPE_DRAW_INDEXED, COMMAND_TYPE_DRAW_INDEXED_INDIRECT, status, Fence, FencePool, recycle!, get_fence!, is_signaled, finish!
 
 include("utils.jl")
 instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR_xcb_surface"])
@@ -155,6 +155,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
       for i in 1:6
         face = ImageView(cubemap; layer_range = i:i)
         @test collect(face, device) == data[i]
+        @test collect(cubemap, device; layer = i) == data[i]
       end
 
       image = Image(device; format = RGBA{Float16}, dims = [256, 256], layers = 6, mip_levels = 4, usage_flags = usage_flags | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
@@ -165,6 +166,7 @@ instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR
             data = rand(RGBA{Float16}, n, n)
             copyto!(view, data, device)
             @test (@inferred Matrix{RGBA{Float16}} collect(RGBA{Float16}, view, device)) == data
+            @test (@inferred Matrix{RGBA{Float16}} collect(RGBA{Float16}, image, device; layer, mip_level)) == data
           end
         end
         let view = ImageView(image; layer_range = layer:layer, mip_range = 2:3)

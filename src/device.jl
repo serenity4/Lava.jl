@@ -225,7 +225,7 @@ function image_resource(device::Device, data;
   mip_levels = 1,
   layers = 1,
   layout::Optional{Vk.ImageLayout} = nothing,
-  submission = isnothing(data) ? nothing : SubmissionInfo(signal_fence = get_fence!(device)))
+  submission = nothing)
 
   image = Image(device; data, flags, format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, mip_levels, layers, layout, submission)
   Resource(image; name)

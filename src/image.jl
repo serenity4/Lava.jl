@@ -227,22 +227,27 @@ function ImageView(
   flags = Vk.ImageViewCreateFlag(),
   usage::Optional{Vk.ImageUsageFlag} = nothing,
   next = C_NULL,
+  skip_handle_creation = false,
 )
 
   issubset(layer_range, Lava.layer_range(image)) || error("Layer range $layer_range is not contained within the array layers defined for the image.")
   issubset(mip_range, Lava.mip_range(image)) || error("Mip range $mip_range is not contained within the mip levels defined for the image.")
   subresource = Subresource(aspect, layer_range, mip_range)
   !isnothing(usage) && (next = Vk.ImageViewUsageCreateInfo(next, usage))
-  info = Vk.ImageViewCreateInfo(
-    image.handle,
-    type,
-    format,
-    component_mapping,
-    Vk.ImageSubresourceRange(subresource);
-    flags,
-    next,
-  )
-  handle = unwrap(create(ImageView, device(image), info))
+  handle = if skip_handle_creation
+    empty_handle(Vk.ImageView)
+  else
+    info = Vk.ImageViewCreateInfo(
+      image.handle,
+      type,
+      format,
+      component_mapping,
+      Vk.ImageSubresourceRange(subresource);
+      flags,
+      next,
+    )
+    unwrap(create(ImageView, device(image), info))
+  end
   ImageView(handle, image, type, format, component_mapping, subresource)
 end
 

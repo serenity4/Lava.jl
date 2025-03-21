@@ -59,40 +59,29 @@ using Graphs: nv, ne
     (; usage) = only(rg.uses[gbuffer.id][emissive.id])
     @test usage.type == RESOURCE_USAGE_COLOR_ATTACHMENT
     @test usage.clear_value == ClearValue((0.0f0, 0.0f0, 1.0f0, 1.0f0))
+  end
+
+  @testset "Baking a render graph" begin
+    bake!(rg)
 
     # Combined resource usage.
-    uses = combine_resource_uses(combine_resource_uses_per_node(rg.uses))
-
-    (; usage) = uses[color.id]
+    (; usage) = rg.combined_resource_uses[color.id]
     @test usage.type == RESOURCE_USAGE_COLOR_ATTACHMENT
     @test usage.access == WRITE | READ
     @test usage.stages == Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
     @test usage.aspect == Vk.IMAGE_ASPECT_COLOR_BIT
     @test usage.samples == 1
-
-    (; usage) = uses[depth.id]
+    (; usage) = rg.combined_resource_uses[depth.id]
     @test usage.type == RESOURCE_USAGE_DEPTH_ATTACHMENT
     @test usage.aspect == Vk.IMAGE_ASPECT_DEPTH_BIT
     @test usage.stages == Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
 
-    @test isnothing(Lava.check_physical_resources(rg, uses))
+    @test length(rg.materialized_resources) == 10
+    @test rg.materialized_resources[color.id].attachment.view.image.usage_flags == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+    @test rg.materialized_resources[depth.id].attachment.view.image.usage_flags == Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+    @test rg.materialized_resources[emissive.id].attachment.view.image.usage_flags == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
 
-    uses2 = deepcopy(uses)
-    ibuffer_id = findfirst(x -> isbuffer(x) && isphysical(x) && Vk.BUFFER_USAGE_INDIRECT_BUFFER_BIT in x.data.usage_flags, rg.resources)
-    ibuffer_usage = uses2[ibuffer_id]
-    set!(uses2, ibuffer_id, @set ibuffer_usage.usage.usage_flags = Vk.BUFFER_USAGE_STORAGE_BUFFER_BIT)
-    @test_throws "usage of" Lava.check_physical_resources(rg, uses2)
-
-    resources = Lava.materialize_logical_resources(rg, uses)
-    @test length(resources) == 10
-    @test resources[color.id].data.view.image.usage_flags == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-    @test resources[depth.id].data.view.image.usage_flags == Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-    @test resources[emissive.id].data.view.image.usage_flags == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-  end
-
-  @testset "Baking a render graph" begin
-    baked = Lava.bake!(rg)
-    info = Lava.rendering_info(baked, postprocess)
+    info = Lava.rendering_info(rg, postprocess)
     @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(1920, 1080))
     color_info, postprocessed_info = info.color_attachments
     @test postprocessed_info.image_layout == Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
@@ -106,14 +95,16 @@ using Graphs: nv, ne
     @test convert(Ptr{Cvoid}, color_info.resolve_image_view) == C_NULL
 
     state = Lava.SynchronizationState()
-    info = Lava.dependency_info!(state, baked.node_uses, baked.resources, gbuffer)
+    info = Lava.dependency_info!(state, rg, gbuffer)
     @test length(info.buffer_memory_barriers) == 1
     @test length(info.image_memory_barriers) == 5
     @test all(barrier.old_layout ≠ barrier.new_layout for barrier in info.image_memory_barriers)
 
-    info = Lava.dependency_info!(state, baked.node_uses, baked.resources, lighting)
+    info = Lava.dependency_info!(state, rg, lighting)
     @test length(info.buffer_memory_barriers) == 0
     @test length(info.image_memory_barriers) == 7
+
+    finish!(rg)
   end
 
   include("node_synchronization.jl")
@@ -150,17 +141,20 @@ using Graphs: nv, ne
       (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = graphics(normal::Texture)
     end
 
-    baked = bake!(rg)
-    dependency_info = dependency_info!(SynchronizationState(), deepcopy(baked.node_uses), deepcopy(baked.resources), graphics)
-    rinfo = rendering_info(baked, graphics)
-    color_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[color.id].data.view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(ClearValue((0f0, 0f0, 0f0, 1f0))))
-    depth_info = Vk.RenderingAttachmentInfo(C_NULL, baked.resources[depth.id].data.view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(DEFAULT_CLEAR_VALUE))
+    bake!(rg)
+    dependency_info = nothing
+    let rg = @set rg.materialized_resources = deepcopy(rg.materialized_resources)
+      dependency_info = dependency_info!(SynchronizationState(), rg, graphics)
+    end
+    rinfo = rendering_info(rg, graphics)
+    color_info = Vk.RenderingAttachmentInfo(C_NULL, rg.materialized_resources[color.id].data.view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(ClearValue((0f0, 0f0, 0f0, 1f0))))
+    depth_info = Vk.RenderingAttachmentInfo(C_NULL, rg.materialized_resources[depth.id].data.view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(DEFAULT_CLEAR_VALUE))
     @test rinfo == Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL)
 
     @testset "Barriers for layout transitions" begin
-      normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, graphics.stages, Vk.ACCESS_2_SHADER_READ_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, baked.resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      color_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      depth_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, baked.resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
+      normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, graphics.stages, Vk.ACCESS_2_SHADER_READ_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, rg.materialized_resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      color_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      depth_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
       @test dependency_info.image_memory_barriers[1] == normal_barrier
       @test dependency_info.image_memory_barriers[2] == color_barrier
       @test dependency_info.image_memory_barriers[3] == depth_barrier
@@ -171,22 +165,22 @@ using Graphs: nv, ne
       empty!(device.pipeline_ht_graphics)
       empty!(device.pending_pipelines_graphics)
       @test isempty(device.pipeline_ht_graphics)
-      records, pipeline_hashes = Lava.record_commands!(baked)
+      records, pipeline_hashes = Lava.record_commands!(rg)
       @test isempty(device.pipeline_ht_graphics)
       Lava.create_pipelines!(device)
       @test !isempty(device.pipeline_ht_graphics)
       pipeline = device.pipeline_ht_graphics[only(pipeline_hashes)]
 
       command_buffer = Lava.SnoopCommandBuffer()
-      Lava.fill_indices!(baked.index_data, records)
-      Lava.initialize_index_buffer(command_buffer, device, baked.index_data)
-      flush(command_buffer, baked, records, pipeline_hashes)
+      Lava.fill_indices!(rg.index_data, records)
+      Lava.initialize_index_buffer(command_buffer, device, rg.index_data)
+      flush(command_buffer, rg, records, pipeline_hashes)
       @test !isempty(command_buffer)
       @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_set_depth_test_enable, :cmd_set_depth_write_enable, :cmd_set_depth_compare_op, :cmd_set_stencil_test_enable, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_draw_indexed, :cmd_end_rendering]
       _cmd_bind_index_buffer, _cmd_pipeline_barrier_2, _cmd_begin_rendering, _cmd_bind_pipeline, _cmd_bind_descriptor_sets, _cmd_push_constants, _cmd_set_depth_test_enable, _cmd_set_depth_write_enable, _cmd_set_depth_compare_op, _cmd_set_stencil_test_enable, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_draw_indexed, _cmd_end_rendering = command_buffer
 
       @test isallocated(_cmd_bind_index_buffer.args[1])
-      @test _cmd_bind_index_buffer.args == [baked.index_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]
+      @test _cmd_bind_index_buffer.args == [rg.index_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]
 
       @test _cmd_pipeline_barrier_2.args == [dependency_info]
       @test _cmd_begin_rendering.args == [rinfo]
@@ -199,10 +193,12 @@ using Graphs: nv, ne
 
       test_validation_msg(x -> @test isempty(x)) do
         command_buffer = Lava.request_command_buffer(device)
-        Lava.fill_indices!(baked.index_data, records)
-        Lava.initialize_index_buffer(command_buffer, device, baked.index_data)
-        flush(command_buffer, baked, records, pipeline_hashes)
+        Lava.fill_indices!(rg.index_data, records)
+        Lava.initialize_index_buffer(command_buffer, device, rg.index_data)
+        flush(command_buffer, rg, records, pipeline_hashes)
       end
+
+      finish!(rg)
     end
   end
 
@@ -222,9 +218,7 @@ using Graphs: nv, ne
     rg = RenderGraph(device)
     add_node!(rg, graphics)
     @test collect(rg.nodes) == [graphics]
-    baked = Lava.bake!(rg)
-    @test isa(baked, Lava.BakedRenderGraph)
-    @test length(baked.nodes) == 1
+    bake!(rg)
     @test command.graphics.data_address ≠ DeviceAddressBlock(0)
 
     # Make sure debug logging works correctly.
@@ -237,5 +231,6 @@ using Graphs: nv, ne
         @test !isempty(read(io, String))
       end
     end
+    finish!(rg)
   end
 end;

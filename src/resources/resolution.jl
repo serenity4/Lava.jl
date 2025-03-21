@@ -12,22 +12,22 @@ function request_index!(gdescs::GlobalDescriptors, descriptor::Descriptor)
 end
 request_index!(device::Device, descriptor::Descriptor) = request_index!(device.descriptors, descriptor)
 
-function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictionary{NodeID,Dictionary{ResourceID,ResourceUsage}}, resources::Dictionary{ResourceID, Resource})
+function write_descriptors!(rg::RenderGraph, descriptors)
+  gdescs = rg.device.descriptors
   (; gset) = gdescs
   device = Lava.device(gset)
   writes = Vk.WriteDescriptorSet[]
-  batch_ids = DescriptorID[]
+  descriptor_batch = DescriptorID[]
 
   for descriptor in descriptors
-    haskey(uses, descriptor.node_id::NodeID) || continue
+    haskey(rg.combined_node_uses, descriptor.node_id::NodeID) || continue
     type = descriptor_type(descriptor)
     dtype = Vk.DescriptorType(type)
 
     @switch type begin
       @case &DESCRIPTOR_TYPE_SAMPLED_IMAGE
-      resource = descriptor.data::Resource
-      islogical(resource) && (resource = resources[resource.id])
-      node_uses = uses[descriptor.node_id::NodeID]
+      resource = get_physical_resource(rg, descriptor.data::Resource)
+      node_uses = rg.combined_node_uses[descriptor.node_id::NodeID]
       usage = get_image_view_usage(resource, node_uses)
       layout = image_layout(usage.type, usage.access)
       image_view = @match resource_type(resource) begin
@@ -42,9 +42,8 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       push!(writes, Vk.WriteDescriptorSet(gset.handle, BINDING_SAMPLED_IMAGE, index - 1, dtype, [info], [], []))
 
       @case &DESCRIPTOR_TYPE_STORAGE_IMAGE
-      resource = descriptor.data::Resource
-      islogical(resource) && (resource = resources[resource.id])
-      node_uses = uses[descriptor.node_id::NodeID]
+      resource = get_physical_resource(rg, descriptor.data::Resource)
+      node_uses = rg.combined_node_uses[descriptor.node_id::NodeID]
       usage = get_image_view_usage(resource, node_uses)
       layout = image_layout(usage.type, usage.access)
       image_view = @match resource_type(resource) begin
@@ -70,9 +69,8 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       @case &DESCRIPTOR_TYPE_TEXTURE
       texture = descriptor.data::Texture
       sampler = Vk.Sampler(device, texture.sampling)
-      (; resource) = texture
-      islogical(resource) && (resource = resources[resource.id])
-      node_uses = uses[descriptor.node_id::NodeID]
+      resource = get_physical_resource(rg, texture.resource)
+      node_uses = rg.combined_node_uses[descriptor.node_id::NodeID]
       usage = get_image_view_usage(resource, node_uses)
       layout = image_layout(usage.type, usage.access)
       info = Vk.DescriptorImageInfo(sampler, resource.image_view, layout)
@@ -82,13 +80,14 @@ function write_descriptors!(gdescs::GlobalDescriptors, descriptors, uses::Dictio
       push!(writes, Vk.WriteDescriptorSet(gset.handle, BINDING_COMBINED_IMAGE_SAMPLER, index - 1, dtype, [info], [], []))
     end
 
-    push!(batch_ids, descriptor.id)
+    push!(descriptor_batch, descriptor.id)
   end
 
   Vk.update_descriptor_sets(device, writes, [])
   batch_index = (@atomic gdescs.counter += 1)
-  insert!(gdescs.pending, batch_index, batch_ids)
-  batch_index
+  insert!(gdescs.pending, batch_index, descriptor_batch)
+  @assert rg.descriptor_batch_index == -1 "The previous descriptor batch was not freed"
+  rg.descriptor_batch_index = batch_index
 end
 
 function get_image_view_usage(resource::Resource, node_uses)

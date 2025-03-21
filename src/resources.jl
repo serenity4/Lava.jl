@@ -37,6 +37,8 @@ struct Resource
   flags::ResourceFlags
 end
 
+Base.hash(r::Resource, h::UInt) = hash(r.id, h)
+
 isnamed(r::Resource) = !isnothing(r.name)
 
 color(r::Resource) = isattachment(r) ? 124 : isbuffer(r) ? :yellow : :cyan

@@ -1,6 +1,6 @@
-function get_dependency_infos!(baked, nodes)
+function get_dependency_infos!(rg, nodes)
   init = (Vk.DependencyInfo[], SynchronizationState())
-  foldl(((infos, state), node) -> (push!(infos, dependency_info!(state, baked.node_uses, baked.resources, node)), state), nodes; init)
+  foldl(((infos, state), node) -> (push!(infos, dependency_info!(state, rg, node)), state), nodes; init)
 end
 
 @testset "Node synchronization" begin
@@ -19,8 +19,8 @@ end
     (color => (0.0, 0.0, 0.0, 1.0))::Color, depth::Depth = nodes[1](normal::Texture)
     final::Color = nodes[2](color::Color, depth::Depth)
   end
-  baked = bake!(rg)
-  (dependency_infos, state) = get_dependency_infos!(baked, nodes)
+  bake!(rg)
+  (dependency_infos, state) = get_dependency_infos!(rg, nodes)
   info = dependency_infos[1]
   @test length(info.buffer_memory_barriers) == 0
   @test length(info.image_memory_barriers) == 3
@@ -56,4 +56,6 @@ end
   @test barriers[2].dst_access_mask == Int(Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)
   @test iszero(barriers[3].src_access_mask)
   @test iszero(barriers[3].src_stage_mask)
+
+  finish!(rg)
 end;
