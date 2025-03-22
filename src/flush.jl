@@ -51,7 +51,8 @@ Build barriers for all resources that require it.
 function synchronize_before!(state::SynchronizationState, command_buffer::CommandBuffer, rg::RenderGraph, node::RenderNode)
   info = dependency_info!(state, rg, node)
   if !isempty(info.image_memory_barriers) || !isempty(info.buffer_memory_barriers)
-    Vk.cmd_pipeline_barrier_2(command_buffer, info)
+    dependency = Vk._DependencyInfo(Vk._MemoryBarrier2[], info.buffer_memory_barriers, info.image_memory_barriers)
+    Vk._cmd_pipeline_barrier_2(command_buffer, dependency)
   end
 end
 

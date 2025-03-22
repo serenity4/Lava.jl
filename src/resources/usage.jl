@@ -71,7 +71,12 @@ end
 function Base.merge(x::ResourceUsage, y::ResourceUsage)
   x.id == y.id || error("Resource uses for different resource IDs cannot be merged.")
   x.type == y.type || error("Resource uses for different resource types cannot be merged.")
-  ResourceUsage(x.id, x.type, merge(x.usage, y.usage))
+  usage = @match x.usage begin
+    ::BufferUsage => merge(x.usage::BufferUsage, y.usage::BufferUsage)
+    ::ImageUsage => merge(x.usage::ImageUsage, y.usage::ImageUsage)
+    ::AttachmentUsage => merge(x.usage::AttachmentUsage, y.usage::AttachmentUsage)
+  end
+  ResourceUsage(x.id, x.type, usage)
 end
 
 function combine(x::ResourceUsage, y::ResourceUsage)

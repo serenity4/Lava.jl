@@ -15,6 +15,7 @@ function Vk.ImageSubresourceRange(subresource::Subresource)
   Vk.ImageSubresourceRange(aspect, mip_range[begin] - 1, 1 + mip_range[end] - mip_range[begin], layer_range[begin] - 1, 1 + layer_range[end] - layer_range[begin])
 end
 Base.convert(::Type{Vk.ImageSubresourceRange}, subresource::Subresource) = Vk.ImageSubresourceRange(subresource)
+Vk._ImageSubresourceRange(subresource::Subresource) = Vk._ImageSubresourceRange(Vk.ImageSubresourceRange(subresource))
 
 function Vk.ImageSubresourceLayers(subresource::Subresource)
   mip_range, layer_range, aspect = Lava.mip_range(subresource), Lava.layer_range(subresource), subresource.aspect::Vk.ImageAspectFlag

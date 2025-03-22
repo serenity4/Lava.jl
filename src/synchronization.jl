@@ -82,10 +82,10 @@ function submit(dispatch::QueueDispatch, info::SubmissionInfo)
     push!(command_buffers, cb_info.command_buffer)
   end
 
-  submit_info = Vk.SubmitInfo2(info.wait_semaphores, info.command_buffers, info.signal_semaphores)
+  submit_info = Vk._SubmitInfo2(info.wait_semaphores, info.command_buffers, info.signal_semaphores)
 
   fence = isnothing(info.signal_fence) ? C_NULL : info.signal_fence.handle
-  unwrap(Vk.queue_submit_2(q, [submit_info]; fence))
+  unwrap(Vk._queue_submit_2(q, [submit_info]; fence))
   fences = Fence[]
   !isnothing(info.signal_fence) && push!(fences, info.signal_fence)
   ExecutionState(q; command_buffers, fences, semaphores = timeline_semaphores(info.signal_semaphores), info.free_after_completion, info.release_after_completion)
