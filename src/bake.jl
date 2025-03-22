@@ -14,7 +14,7 @@ end
 function combine_resource_uses_per_node!(rg::RenderGraph)
   for (nid, nuses) in pairs(rg.uses)
     uses = dictionary(rid => reduce(merge, ruses) for (rid, ruses) in pairs(nuses))
-    insert!(rg.combined_node_uses, nid, uses)
+    set!(rg.combined_node_uses, nid, uses)
   end
 end
 
@@ -40,7 +40,6 @@ function render!(rg::RenderGraph; submission::Optional{SubmissionInfo} = nothing
   submission = @something(submission, sync_submission(rg.device))
   command_buffer = request_command_buffer(rg.device)
   render!(rg, command_buffer)
-  push!(submission.free_after_completion)
   execution = submit!(submission, command_buffer)
   !wait && return execution
   @__MODULE__().wait(execution)

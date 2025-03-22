@@ -31,7 +31,7 @@
     @test all(==(0x7c14e3ffe5603da5), hashes)
   end
 
-  @test_skip @testset "`RenderGraph` persistence" begin
+  @testset "`RenderGraph` persistence" begin
     vdata = [
       PosColor(Vec2(-0.7, 0.7), Vec3(1.0, 0.0, 0.0)),
       PosColor(Vec2(0.3, 0.7), Vec3(0.0, 1.0, 0.0)),
@@ -43,6 +43,21 @@
     hashes = UInt64[]
     for i in 1:5
       render!(rg)
+      data = read_data(device, color)
+      finish!(rg)
+      push!(hashes, hash(data))
+    end
+    @test all(==(0xc92df9461d3cc743), hashes)
+
+    rg = RenderGraph(device, draw)
+    hashes = UInt64[]
+    bake!(rg)
+    for i in 1:5
+      submission = sync_submission(device)
+      command_buffer = request_command_buffer(device)
+      render(command_buffer, rg)
+      execution = Lava.submit!(submission, command_buffer)
+      wait(execution)
       data = read_data(device, color)
       push!(hashes, hash(data))
     end

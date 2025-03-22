@@ -102,3 +102,19 @@ function save_test_render(filename, data::Matrix, h = nothing; keep = true)
   success && rm(path)
   h′
 end
+
+render_graphics(device, node::RenderNode) = render_graphics(device, node.commands[end])
+render_graphics(device, command::Command) = render_graphics(device, only(command.graphics.targets.color), [command])
+function render_graphics(device, color, nodes)
+  render(device, nodes) || error("The computation did not terminate.")
+  read_data(device, color)
+end
+read_data(device, color) = clamp01nan!(collect(color, device))
+video_frame(frame::Matrix) = transpose(convert(Matrix{RGB{N0f8}}, frame))
+
+"""
+Remap a value from `(low1, high1)` to `(low2, high2)`.
+"""
+function remap(value, low1, high1, low2, high2)
+  low2 + (value - low1) * (high2 - low2) / (high1 - low1)
+end

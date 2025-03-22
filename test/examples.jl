@@ -1,13 +1,3 @@
-render_graphics(device, node::RenderNode) = render_graphics(device, node.commands[end])
-render_graphics(device, command::Command) = render_graphics(device, only(command.graphics.targets.color), [command])
-function render_graphics(device, color, nodes)
-  render(device, nodes) || error("The computation did not terminate.")
-  read_data(device, color)
-end
-read_data(device, color) = clamp01nan!(collect(color, device))
-video_frame(frame::Matrix) = transpose(convert(Matrix{RGB{N0f8}}, frame))
-
-include("examples/utils.jl")
 include("examples/textures.jl")
 include("examples/transforms.jl")
 
