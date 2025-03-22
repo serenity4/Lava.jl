@@ -96,63 +96,13 @@ queue_family_indices(device::Device) = queue_family_indices(device.queues)
 
 submit(device::Device, args...; kwargs...) = submit(device.queues, args...; kwargs...)
 
-"Split a vector in `n` equivalent chunks."
-function split_vec(vec, n)
-  nv = length(vec)
-  tsize = cld(n, nv)
-  ranges = [(1 + tsize * i):(min(1 + tsize * (i + 1), nv)) for i in 0:(n - 1)]
-  [vec[range] for range in ranges]
-end
-
-function pmap(f, collection, init)
-  tasks = Task[]
-  # Initialize a per-thread storage for results.
-  res = fill(init, length(collection))
-  # Spawn all the tasks.
-  for (i, el) in enumerate(collection)
-    t = Threads.@spawn begin
-      res[i] = f(el)
-    end
-    push!(tasks, t)
-  end
-  # Wait for completion.
-  for t in tasks
-    wait(t)
-  end
-  res
-end
-
 function create_graphics_pipelines!(device::Device, infos)
-  # Assume that each available thread will be able to create a set of pipelines in batch mode.
-  # We don't create individual pipelines for performance reasons as the implementation is
-  # likely to setup internal mutexes for each batch which allow pipeline creation to be concurrent.
-
-  #FIXME: This segfaults at second try.
-  # infos_vec = split_vec(infos, Threads.nthreads())
-  # handles_vec = pmap(infos_vec, Vk.Pipeline[]) do infos
-  #   isempty(infos) && return Vk.Pipeline[]
-  #   first(unwrap(Vk.create_graphics_pipelines(device, infos)))
-  # end
-  # handles = reduce(vcat, handles_vec)
-  handles = first(unwrap(Vk.create_graphics_pipelines(device, infos)))
-
+  handles, status = unwrap(Vk.create_graphics_pipelines(device, infos))
   map((x, y) -> graphics_pipeline(device, x, y), handles, infos)
 end
 
 function create_compute_pipelines!(device::Device, infos)
-  # Assume that each available thread will be able to create a set of pipelines in batch mode.
-  # We don't create individual pipelines for performance reasons as the implementation is
-  # likely to setup internal mutexes for each batch which allow pipeline creation to be concurrent.
-
-  #FIXME: This segfaults at second try.
-  # infos_vec = split_vec(infos, Threads.nthreads())
-  # handles_vec = pmap(infos_vec, Vk.Pipeline[]) do infos
-  #   isempty(infos) && return Vk.Pipeline[]
-  #   first(unwrap(Vk.create_compute_pipelines(device, infos)))
-  # end
-  # handles = reduce(vcat, handles_vec)
-  handles = first(unwrap(Vk.create_compute_pipelines(device, infos)))
-
+  handles, status = unwrap(Vk.create_compute_pipelines(device, infos))
   map((x, y) -> compute_pipeline(device, x, y), handles, infos)
 end
 
