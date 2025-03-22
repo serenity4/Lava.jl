@@ -9,6 +9,7 @@ state has been waited on (see [`wait`](@ref)), or when an inherited execution st
 been completed execution.
 """
 struct ExecutionState
+  done::RefValue{Bool}
   queue::Queue
   fences::Vector{Fence}
   semaphores::Vector{TimelineSemaphore}
@@ -18,7 +19,7 @@ struct ExecutionState
 end
 
 function ExecutionState(queue::Queue; command_buffers = Vk.CommandBuffer[], fences = Fence[], semaphores = TimelineSemaphore[], free_after_completion = [], release_after_completion = [])
-  ExecutionState(queue, fences, semaphores, command_buffers, free_after_completion, release_after_completion)
+  ExecutionState(Ref(false), queue, fences, semaphores, command_buffers, free_after_completion, release_after_completion)
 end
 
 function finalize!(exec::ExecutionState)
@@ -37,8 +38,10 @@ function finalize!(exec::ExecutionState)
 end
 
 function Base.wait(exec::ExecutionState, timeout = typemax(UInt32); finalize = true)
+  exec.done[] && return true
   (!wait(exec.fences, timeout) || !wait(exec.semaphores, timeout)) && return false
   finalize && finalize!(exec)
+  exec.done[] = true
   true
 end
 
@@ -53,7 +56,7 @@ function Base.wait((x, exec)::Tuple{<:Any,ExecutionState}, args...; kwargs...)
   x
 end
 
-isdone(exec) = wait(exec, 0; finalize = false)
+isdone(exec) = exec.done[]
 
 Base.@kwdef mutable struct SubmissionInfo
   const wait_semaphores::Vector{Vk.SemaphoreSubmitInfo} = []
@@ -81,7 +84,8 @@ function submit(dispatch::QueueDispatch, info::SubmissionInfo)
 
   submit_info = Vk.SubmitInfo2(info.wait_semaphores, info.command_buffers, info.signal_semaphores)
 
-  unwrap(Vk.queue_submit_2(q, [submit_info]; fence = something(info.signal_fence.handle, C_NULL)))
+  fence = isnothing(info.signal_fence) ? C_NULL : info.signal_fence.handle
+  unwrap(Vk.queue_submit_2(q, [submit_info]; fence))
   fences = Fence[]
   !isnothing(info.signal_fence) && push!(fences, info.signal_fence)
   ExecutionState(q; command_buffers, fences, semaphores = timeline_semaphores(info.signal_semaphores), info.free_after_completion, info.release_after_completion)
@@ -92,7 +96,7 @@ function Base.show(io::IO, exec::ExecutionState)
   if isdone(exec)
     print(io, "completed execution")
   else
-    print(io, "in progress")
+    print(io, "may not have completed execution")
   end
   print(io, " on queue ", exec.queue, ')')
 end
