@@ -20,7 +20,7 @@ using Distances: Distances, PeriodicEuclidean
 using OpenType: curves, Text, Line
 using OpenType
 
-using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, get_descriptor_index!, delete_descriptor!, NodeID, free_descriptor_batch!, request_command_buffer, ShaderCache, isbuffer, isimage, isattachment, SynchronizationState, bake!, dependency_info!, rendering_info, PROGRAM_TYPE_GRAPHICS, PROGRAM_TYPE_COMPUTE, COMMAND_TYPE_DRAW_INDEXED, COMMAND_TYPE_DRAW_INDEXED_INDIRECT, status, Fence, FencePool, recycle!, get_fence!, is_signaled, finish!
+using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, get_descriptor_index!, delete_descriptor!, NodeID, free_descriptor_batch!, request_command_buffer, ShaderCache, isbuffer, isimage, isattachment, aspect_flags, SynchronizationState, bake!, dependency_info!, rendering_info, PROGRAM_TYPE_GRAPHICS, PROGRAM_TYPE_COMPUTE, COMMAND_TYPE_DRAW_INDEXED, COMMAND_TYPE_DRAW_INDEXED_INDIRECT, status, Fence, FencePool, recycle!, get_fence!, is_signaled, finish!
 
 include("utils.jl")
 instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR_xcb_surface"])

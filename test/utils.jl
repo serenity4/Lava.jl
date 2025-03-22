@@ -15,8 +15,8 @@ function test_validation_msg(f, test)
   val[]
 end
 
-function fake_graphics_command(;
-  targets::Union{RenderTargets,Nothing} = nothing,
+function fake_graphics_command(
+  targets::RenderTargets = RenderTargets();
   draw_state::DrawState = DrawState(),
   draw = DrawIndexed([1, 2, 3, 4]),
 )

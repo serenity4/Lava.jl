@@ -56,5 +56,13 @@
     @test isa(attachment.data, Attachment)
     @test isallocated(attachment.data.view.image)
     @test isa(sprint(show, MIME"text/plain"(), attachment), String)
+
+    attachment = attachment_resource(device, nothing; format = Float32, dims = [1920, 1080])
+    @test aspect_flags(attachment.data.view) == Vk.IMAGE_ASPECT_COLOR_BIT
+    @test image_format(attachment) == Vk.FORMAT_R32_SFLOAT
+
+    attachment = attachment_resource(device, nothing; format = Float32, dims = [1920, 1080], aspect = Vk.IMAGE_ASPECT_DEPTH_BIT)
+    @test aspect_flags(attachment.data.view) == Vk.IMAGE_ASPECT_DEPTH_BIT
+    @test image_format(attachment) == Vk.FORMAT_D32_SFLOAT
   end
 end;

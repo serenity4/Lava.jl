@@ -55,7 +55,7 @@ function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDepend
         samples = resolve_sample_count(resource, dep),
         stages = stage_flags(node, resource),
         usage_flags = image_usage_flags(dep.type, dep.access),
-        aspect = aspect_flags(resource.data::Union{LogicalAttachment,Attachment}),
+        aspect = @something(aspect_flags(dep), aspect_flags(resource.data::Union{LogicalAttachment, Attachment})),
       )
   end
   ResourceUsage(resource.id, dep.type, usage)
@@ -100,6 +100,15 @@ function stage_flags(command::Command, resource::Resource, node::RenderNode)
     stages |= stage_flags(graphics.targets, graphics.state.render_state, resource)
   end
   ifelse(iszero(stages), node.stages, stages)
+end
+
+function aspect_flags(dependency::ResourceDependency)
+  flags = Vk.ImageAspectFlag()
+  (; type) = dependency
+  in(RESOURCE_USAGE_COLOR_ATTACHMENT, type) && (flags |= Vk.IMAGE_ASPECT_COLOR_BIT)
+  in(RESOURCE_USAGE_DEPTH_ATTACHMENT, type) && (flags |= Vk.IMAGE_ASPECT_DEPTH_BIT)
+  in(RESOURCE_USAGE_STENCIL_ATTACHMENT, type) && (flags |= Vk.IMAGE_ASPECT_STENCIL_BIT)
+  iszero(flags) ? nothing : flags
 end
 
 """
@@ -443,6 +452,14 @@ function materialize_logical_resources!(rg::RenderGraph)
   for use in rg.combined_resource_uses
     resource = rg.resources[use.id]
     islogical(resource) || continue
+    existing = get(rg.materialized_resources, resource.id, nothing)
+    if !isnothing(existing)
+      ret = verify_physical_resource_compatibility_for_use(existing, use)
+      !iserror(ret) && continue # we can reuse the resource that has already been materialized
+      delete!(rg.materialized_resources, resource.id)
+      free(existing)
+    end
+
     @switch resource_type(resource) begin
       @case &RESOURCE_TYPE_BUFFER
       usage = use.usage::BufferUsage
@@ -484,35 +501,56 @@ function materialize_logical_resources!(rg::RenderGraph)
   end
 end
 
-function check_physical_resources!(rg::RenderGraph)
+function check_physical_resources(rg::RenderGraph)
   for use in rg.combined_resource_uses
     resource = rg.resources[use.id]
     isphysical(resource) || continue
-    @switch resource_type(resource) begin
+    ret = verify_physical_resource_compatibility_for_use(resource, use)
+    iserror(ret) && throw(unwrap_error(ret))
+  end
+end
+
+struct ResourceNotCompatibleForUse <: Exception
+  resource::Resource
+  usage_requirements::Optional{Any}
+  aspect_requirements::Optional{Any}
+end
+
+function Base.showerror(io::IO, exc::ResourceNotCompatibleForUse)
+  print(io, "Resource not compatible for use: physical ", exc.resource)
+  if !isnothing(exc.usage_requirements)
+    found, required = exc.usage_requirements::Tuple
+    print(io, " with usage ", found, " was provided, but a usage of ", required, " is required.")
+  else
+    found, required = exc.aspect_requirements::Tuple
+    print(io, " with aspect ", found, " was provided, but is used with an aspect of ", required, " is required.")
+  end
+end
+
+function verify_physical_resource_compatibility_for_use(resource::Resource, use)::Result{Nothing, ResourceNotCompatibleForUse}
+  @switch resource_type(resource) begin
       @case &RESOURCE_TYPE_BUFFER
       usage = use.usage::BufferUsage
       (; buffer) = resource
-      usage.usage_flags in buffer.usage_flags || error("An existing buffer with usage $(buffer.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
+      in(usage.usage_flags, buffer.usage_flags) || return ResourceNotCompatibleForUse(resource, (buffer.usage_flags, usage.usage_flags), nothing)
 
       @case &RESOURCE_TYPE_IMAGE
       usage = use.usage::ImageUsage
       (; image) = resource
-      usage.usage_flags in image.usage_flags || error("An existing image with usage $(image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
+      in(usage.usage_flags, image.usage_flags) || return ResourceNotCompatibleForUse(resource, (image.usage_flags, usage.usage_flags), nothing)
 
       @case &RESOURCE_TYPE_IMAGE_VIEW
       usage = use.usage::ImageUsage
       (; image) = resource.image_view
-      usage.usage_flags in image.usage_flags || error("An existing image view with usage $(image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
+      in(usage.usage_flags, image.usage_flags) || return ResourceNotCompatibleForUse(resource, (image.usage_flags, usage.usage_flags), nothing)
 
       @case &RESOURCE_TYPE_ATTACHMENT
       usage = use.usage::AttachmentUsage
       (; attachment) = resource
-      usage.usage_flags in attachment.view.image.usage_flags ||
-        error("An existing attachment with usage $(attachment.view.image.usage_flags) was provided, but a usage of $(usage.usage_flags) is required.")
-      usage.aspect in attachment.view.subresource.aspect ||
-        error("An existing attachment with aspect $(attachment.view.subresource.aspect) was provided, but is used with an aspect of $(usage.aspect).")
+      in(usage.aspect, attachment.view.subresource.aspect) || return ResourceNotCompatibleForUse(resource, nothing, (attachment.view.subresource.aspect, usage.aspect))
+      in(usage.usage_flags, attachment.view.image.usage_flags) || return ResourceNotCompatibleForUse(resource, (attachment.view.image.usage_flags, usage.usage_flags), nothing)
     end
-  end
+    nothing
 end
 
 function resolve_sample_count(resource, dependency::ResourceDependency)

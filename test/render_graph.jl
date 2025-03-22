@@ -21,24 +21,26 @@ using Graphs: nv, ne
   bloom_downsample = image_resource(RGBA{Float32}, [16, 16])
 
   @test_throws "negative value" RenderArea(-1, 0)
-  @test_throws "null value" RenderArea(0, 1080)
+  @test_throws "null value" RenderArea(0, 9)
   @test_throws "pipeline stage must be provided" RenderNode(stages = Vk.PIPELINE_STAGE_2_NONE)
-  @test_throws "fragment shader stage must be set" RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
+  @test_throws "fragment shader stage must be set" RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
   @test_throws "render area must be set" RenderNode(stages = stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+  @test_throws "color attachments must be present" RenderNode(fake_graphics_command())
+  @test_throws "color attachment must have explicit dimensions" RenderNode(fake_graphics_command(RenderTargets(color)))
 
   # No rendering done here, doesn't matter what function is passed. We pass in `identity`.
   gbuffer = RenderNode(
-    render_area = RenderArea(1920, 1080),
+    render_area = RenderArea(16, 9),
     stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
   )
   compute_luminance = RenderNode(stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
-  lighting = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
-  postprocess = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+  lighting = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+  postprocess = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
-  push!(gbuffer.commands, fake_graphics_command(targets = RenderTargets(emissive, albedo, normal, pbr; depth), draw = DrawIndexedIndirect(indirect, 10)))
+  push!(gbuffer.commands, fake_graphics_command(RenderTargets(emissive, albedo, normal, pbr; depth), draw = DrawIndexedIndirect(indirect, 10)))
   push!(compute_luminance.commands, fake_compute_command())
-  push!(lighting.commands, fake_graphics_command(targets = RenderTargets(color, emissive, albedo, normal, pbr; depth)))
-  push!(postprocess.commands, fake_graphics_command(targets = RenderTargets(postprocessed, color)))
+  push!(lighting.commands, fake_graphics_command(RenderTargets(color, emissive, albedo, normal, pbr; depth)))
+  push!(postprocess.commands, fake_graphics_command(RenderTargets(postprocessed, color)))
 
   @add_resource_dependencies rg begin
     (emissive => (0.0, 0.0, 1.0, 1.0))::Color, albedo::Color, normal::Color, pbr::Color, depth::Depth = gbuffer(indirect::Buffer::Indirect)
@@ -82,7 +84,7 @@ using Graphs: nv, ne
     @test rg.materialized_resources[emissive.id].attachment.view.image.usage_flags == Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT
 
     info = Lava.rendering_info(rg, postprocess)
-    @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(1920, 1080))
+    @test info.render_area == Vk.Rect2D(Vk.Offset2D(0, 0), Vk.Extent2D(16, 9))
     color_info, postprocessed_info = info.color_attachments
     @test postprocessed_info.image_layout == Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     @test postprocessed_info.load_op == Vk.ATTACHMENT_LOAD_OP_LOAD
@@ -105,6 +107,23 @@ using Graphs: nv, ne
     @test length(info.image_memory_barriers) == 7
 
     finish!(rg)
+
+    @testset "Incompatible physical resources" begin
+      function bake_with_color(color)
+        rg = RenderGraph(device)
+        gbuffer_command = fake_graphics_command(RenderTargets(color), draw = DrawIndexedIndirect(indirect, 10))
+        gbuffer = RenderNode(gbuffer_command)
+        @add_resource_dependencies rg begin
+          color::Color = gbuffer(indirect::Buffer::Indirect)
+          average_luminance::Image::Storage = compute_luminance(lights::Buffer::Physical)
+        end
+        bake!(rg)
+      end
+      color = attachment_resource(device, nothing; format = RGBA{Float32}, dims = [16, 9])
+      @test_throws "was provided, but a usage of" bake_with_color(color)
+      color = attachment_resource(device, nothing; format = Float32, dims = [16, 9], aspect = Vk.IMAGE_ASPECT_DEPTH_BIT)
+      @test_throws "was provided, but is used with an aspect of" bake_with_color(color)
+    end
   end
 
   include("node_synchronization.jl")
@@ -132,7 +151,7 @@ using Graphs: nv, ne
     color = attachment_resource(RGBA{Float32})
     normal = image_resource(RGBA{Float32}, [16, 16])
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
-    graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+    graphics = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
 
     data = @invocation_data prog @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Vec2)]
     push!(graphics.commands, graphics_command(DrawIndexed(collect(1:4)), prog, data, color; depth))
@@ -205,7 +224,7 @@ using Graphs: nv, ne
   @testset "Render graph from persistent data" begin
     color = attachment_resource(RGBA{Float32})
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
-    graphics = RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+    graphics = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
     draw = DrawIndexed(1:4)
     dependencies = @resource_dependencies begin
       @write

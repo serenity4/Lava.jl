@@ -53,8 +53,10 @@ resource_dependencies(command::GraphicsCommand) = command.resource_dependencies
 
 function deduce_render_area(command::GraphicsCommand)
   (; targets) = command
-  !isempty(targets.color) || error("Cannot deduce the render area for `GraphicsCommand` with no color attachments.")
-  RenderArea(attachment_dimensions(targets.color[1])...)
+  !isempty(targets.color) || error("One or more color attachments must be present to deduce the render area for `GraphicsCommand`.")
+  i = findfirst(x -> attachment_dimensions(x) !== nothing, targets.color)
+  isnothing(i) && error("At least one color attachment must have explicit dimensions to deduce the render area for `GraphicsCommand`.")
+  RenderArea(attachment_dimensions(targets.color[i])...)
 end
 
 struct DrawIndirect <: DrawCommand

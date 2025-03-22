@@ -342,7 +342,7 @@ function Image(
 )
 
   check_data(data, layers)
-  dims, format = infer_dims_and_format(data, dims, format, layers)
+  dims, format = infer_dims_and_format(data, dims, format, layers, nothing)
   flags = @something(flags, default_image_flags(layers, dims))
   !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
   # If optimal tiling is enabled, we'll need to transfer the image regardless.
@@ -362,14 +362,17 @@ function check_data(data, layers)
   true
 end
 
-function infer_dims_and_format(data, dims, format, layers)
+function infer_dims_and_format(data, dims, format, layers, aspect)
+  if isa(format, DataType)
+    format = infer_format(format, aspect)
+  end
   if isnothing(data)
     isnothing(dims) && error("Image dimensions must be specified when no data is provided.")
     isnothing(format) && error("An image format must be specified when no data is provided.")
   else
     layer = layers == 1 ? data : data[1]
     isnothing(dims) && (dims = collect(size(layer)))
-    isnothing(format) && (format = Vk.Format(eltype(layer)))
+    isnothing(format) && (format = infer_format(eltype(layer), aspect))
     isnothing(format) && error("No format could be determined from the data. Please provide an image format.")
   end
   dims, format
@@ -406,8 +409,7 @@ function ImageView(
 
   submission = nothing)
 
-  isa(format, Type) && (format = Vk.Format(format))
-  dims, format = infer_dims_and_format(data, dims, format, layers)
+  dims, format = infer_dims_and_format(data, dims, format, layers, aspect)
   image_format = something(image_format, format, Some(nothing))
   !isnothing(data) && (usage_flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
   usage_flags = minimal_image_view_flags(usage_flags)
@@ -458,7 +460,6 @@ function Attachment(
 
   submission = nothing)
 
-  image_format = something(image_format, format, Some(nothing))
   view = ImageView(device, data; image_flags, image_format, memory_domain, optimal_tiling, usage_flags, dims, samples, queue_family_indices, sharing_mode, layers, mip_levels, layout, flags, format, aspect, layer_range, mip_range, type, component_mapping, submission)
   Attachment(view, access)
 end

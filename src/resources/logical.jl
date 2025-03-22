@@ -38,11 +38,11 @@ function LogicalImageView(image::LogicalImage; format::Optional{Union{Vk.Format,
   format = @match format begin
     ::Nothing => image.format
     ::Vk.Format => format
-    ::DataType => Vk.Format(format)
+    ::DataType => infer_format(format, aspect)
   end
   subresource = Subresource(aspect, layer_range, mip_range)
   LogicalImageView(image, format, subresource)
-end 
+end
 
 struct LogicalAttachment <: LogicalResource
   format::Vk.Format
@@ -65,7 +65,7 @@ function LogicalAttachment(
   mip_range = 1:1,
   samples = nothing,
 )
-  isa(format, DataType) && (format = Vk.Format(format))
+  isa(format, DataType) && (format = infer_format(format, aspect))
   aspect = @something(aspect, aspect_flags(format))
   subresource = Subresource(aspect, layer_range, mip_range)
   LogicalAttachment(format, dims, subresource, samples)

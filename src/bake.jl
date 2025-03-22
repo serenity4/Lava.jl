@@ -26,7 +26,7 @@ function bake!(rg::RenderGraph)
 
   # Materialize logical resources with properties derived from usage patterns.
   combine_resource_uses!(rg)
-  check_physical_resources!(rg)
+  check_physical_resources(rg)
   materialize_logical_resources!(rg)
   allocate_blocks!(rg)
 

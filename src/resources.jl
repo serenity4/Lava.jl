@@ -43,7 +43,7 @@ isnamed(r::Resource) = !isnothing(r.name)
 
 color(r::Resource) = isattachment(r) ? 124 : isbuffer(r) ? :yellow : :cyan
 
-function Base.show(io::IO, ::MIME"text/plain", r::Resource)
+function Base.show(io::IO, r::Resource)
   print(io, Resource, '(')
   printstyled(io, isnamed(r) ? repr(r.name) : repr(UInt128(r.id)); color = :green)
   print(io, ",")
@@ -166,4 +166,9 @@ function Base.copyto!(to::Resource, from::Resource, device; kwargs...)
   to = to.data::Union{Buffer, Image, ImageView, Attachment}
   from = from.data::Union{Buffer, Image, ImageView, Attachment}
   copyto!(to, from, device; kwargs...)
+end
+
+function free(resource::Resource)
+  isphysical(resource) || error("Only physical resources can be freed")
+  finalize(handle(resource.data::Union{Buffer, Image, ImageView, Attachment}))
 end

@@ -127,6 +127,19 @@ function Image(device, dims, format::Union{Vk.Format, DataType}, usage_flags;
   )
 end
 
+function infer_format(type::DataType, aspect)
+  depth = Vk.IMAGE_ASPECT_DEPTH_BIT
+  stencil = Vk.IMAGE_ASPECT_STENCIL_BIT
+  @match (type, aspect) begin
+    (&Tuple{Float32, UInt8}, &(depth | stencil)) => Vk.FORMAT_D32_SFLOAT_S8_UINT
+    (&Tuple{N0f16, UInt8}, &(depth | stencil)) => Vk.FORMAT_D16_UNORM_S8_UINT
+    (&Float32, &depth) => Vk.FORMAT_D32_SFLOAT
+    (&N0f16, &depth) => Vk.FORMAT_D16_UNORM
+    (&UInt8, &stencil) => Vk.FORMAT_S8_UINT
+    _ => Vk.Format(type)
+  end
+end
+
 function Base.similar(image::Image; memory_domain = nothing, flags = image.flags, usage_flags = image.usage_flags, is_linear = image.is_linear, samples = image.samples, dims = image.dims, format = image.format, layers = image.layers, mip_levels = image.mip_levels)
   similar = Image(
     device(image),
