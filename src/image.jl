@@ -38,6 +38,14 @@ layer_range(image::Image) = 1:image.layers
 mip_range(image::Image) = 1:image.mip_levels
 Subresource(image::Image) = Subresource(aspect_flags(image), layer_range(image), mip_range(image))
 
+function extent3d(dims)
+  if length(dims) == 2
+    Vk.Extent3D(dims[1], dims[2], 1)
+  else
+    @assert length(dims) == 3
+    Vk.Extent3D(dims[1], dims[2], dims[3])
+  end
+end
 extent3d(dims) = Vk.Extent3D(dims..., ntuple(Returns(1), 3 - length(dims))...)
 Vk.Extent3D(image::Image) = extent3d(dimensions(image))
 Vk.Offset3D(::Image) = Vk.Offset3D(0, 0, 0)

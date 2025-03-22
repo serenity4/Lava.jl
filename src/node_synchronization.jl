@@ -39,7 +39,7 @@ SynchronizationState() = SynchronizationState(Dictionary{ResourceID,ResourceStat
 must_synchronize(sync::SyncRequirements) = !iszero(sync.stages)
 must_synchronize(sync::SyncRequirements, from_layout, to_layout) = must_synchronize(sync) || from_layout ≠ to_layout
 
-function synchronize_access!(info::Vk.DependencyInfo, state::SynchronizationState, node::RenderNode, resource::Resource, usage::BufferUsage)
+function synchronize_access!(info::NamedTuple, state::SynchronizationState, node::RenderNode, resource::Resource, usage::BufferUsage)
   buffer_state = get!(BufferResourceState, state.resources, resource.id)::BufferResourceState
   sync = restrict_synchronization_scope(buffer_state.accesses, SyncRequirements(usage))
   must_synchronize(sync) || return
@@ -71,9 +71,9 @@ function restrict_synchronization_scope(accesses, sync)
   @set sync.stages = remaining_sync_stages
 end
 
-function synchronize_access!(info::Vk.DependencyInfo, state::SynchronizationState, node::RenderNode, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
+function synchronize_access!(info::NamedTuple, state::SynchronizationState, node::RenderNode, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
   image = get_image(resource)
-  image_state = get!(() -> ImageResourceState(image), state.resources, resource.id)
+  image_state = get!(() -> ImageResourceState(image), state.resources, resource.id)::ImageResourceState
   subresource = Subresource(resource.data::Union{Image, ImageView, Attachment})
   subresource_state = image_state.map[subresource]
   sync = restrict_synchronization_scope(subresource_state.accesses, SyncRequirements(usage))
@@ -82,13 +82,13 @@ function synchronize_access!(info::Vk.DependencyInfo, state::SynchronizationStat
     must_synchronize(sync, from_layout, to_layout) || return
     image_state.map[subresource] = SubresourceState(usage)
     image.layout[subresource] = to_layout
-    barrier = Vk.ImageMemoryBarrier2(
+    barrier = Vk._ImageMemoryBarrier2(
       from_layout,
       to_layout,
       0,
       0,
       image.handle,
-      Vk.ImageSubresourceRange(Subresource(subresource.aspect, matched_layer_range, matched_mip_range));
+      Vk._ImageSubresourceRange(Subresource(subresource.aspect, matched_layer_range, matched_mip_range));
       src_access_mask = subresource_state.sync.access,
       dst_access_mask = sync.access,
       src_stage_mask = subresource_state.sync.stages,
@@ -104,7 +104,10 @@ function log_synchronization(node::RenderNode, resource::Resource, usage)
 end
 
 function dependency_info!(state::SynchronizationState, rg::RenderGraph, node::RenderNode)
-  info = Vk.DependencyInfo([], [], [])
+  info = (;
+    buffer_memory_barriers = Vk._BufferMemoryBarrier2[],
+    image_memory_barriers = Vk._ImageMemoryBarrier2[],
+  )
   uses = rg.combined_node_uses[node.id]
   for use in uses
     resource = get_physical_resource(rg, use.id)
