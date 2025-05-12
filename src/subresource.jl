@@ -84,6 +84,8 @@ SubresourceMap(layer_range, mip_range, default) = SubresourceMap{typeof(default)
 layer_range(map::SubresourceMap) = 1:map.layer_range
 mip_range(map::SubresourceMap) = 1:map.mip_range
 
+Base.similar(map::SubresourceMap{T}) where {T} = SubresourceMap{T}(map.layer_range, map.mip_range, map.value, nothing, nothing, deepcopy(map.value_per_layer), deepcopy(map.value_per_mip_level))
+
 struct InvalidMipRange <: Exception
   allowed_range::MipRange
   provided_range::MipRange
@@ -119,15 +121,17 @@ end
 
 function Base.getindex(map::SubresourceMap{T}, subresource::Subresource) where {T}
   check_subresource(map, subresource)
-  if !isnothing(map.value)
-    map.value
-  elseif isused(map.value_per_aspect)
-    map.value_per_aspect[subresource.aspect][subresource]
+  if isused(map.value_per_aspect)
+    aspect_map = find_aspect_map(map, subresource.aspect)
+    aspect_map === nothing && throw(KeyError(subresource))
+    aspect_map[subresource]
   elseif isused(map.value_per_layer)
     d = map.value_per_layer[layer_range(subresource)]
     d[mip_range(subresource)]
   elseif isused(map.value_per_mip_level)
     map.value_per_mip_level[mip_range(subresource)]
+  elseif !isnothing(map.value)
+    map.value
   else
     error_map_invalid_state(map)
   end::T
@@ -135,7 +139,7 @@ end
 
 function Base.getindex(map::SubresourceMap{T}) where {T}
   result = Ref{Optional{T}}(nothing)
-  match_subresource(map, Subresource(1:map.layer_range, 1:map.mip_range)) do matched_layer_range, matched_mip_range, value
+  match_subresource(map, Subresource(1:map.layer_range, 1:map.mip_range)) do _, matched_layer_range, matched_mip_range, value
     isnothing(result[]) || result[] == value || error("Different subresources have different values (found $(result[]) ≠ $value); use `match_subresource` or `query_subresource` instead.")
     result[] = value
   end
@@ -151,16 +155,30 @@ and call `f(matched_layer_range, matched_mip_range, value)` on each entry.
 """
 function match_subresource(f::F, map::SubresourceMap{T}, subresource::Subresource) where {F,T}
   check_subresource(map, subresource)
-  if !isnothing(map.value)
-    f(layer_range(subresource), mip_range(subresource), map.value::T)
-  elseif isused(map.value_per_aspect)
-    match_subresource(f, map.value_per_aspect[subresource.aspect], subresource)
+  (; aspect) = subresource
+
+  if aspect !== nothing && is_partial_match(map, aspect)
+    for part in enabled_flags(aspect)
+      match_subresource(f, map, @set subresource.aspect = part)
+    end
+    return nothing
+  end
+
+  if isused(map.value_per_aspect)
+    if aspect !== nothing
+      aspect_map = find_aspect_map(map, aspect)
+      aspect_map !== nothing && return match_subresource(f, aspect_map, subresource)
+    end
+    for (known, aspect_map) in pairs(map.value_per_aspect)
+      aspect === nothing || in(aspect, known) || continue
+      match_subresource(f, aspect_map, @set subresource.aspect = known)
+    end
   elseif isused(map.value_per_layer)
     match_subresource_layers(f, map, subresource)
   elseif isused(map.value_per_mip_level)
     match_subresource_mip_levels(f, map, subresource)
   else
-    error("$map is in an invalid state; please file an issue")
+    f(subresource.aspect, layer_range(subresource), mip_range(subresource), map.value::T)
   end
   nothing
 end
@@ -192,7 +210,7 @@ match_subresource_mip_levels(f::F, map::SubresourceMap, subresource::Subresource
 
 function match_subresource_mip_levels(f::F, d, subresource::Subresource, layer_range::LayerRange) where {F}
   value = get(d, mip_range(subresource), nothing)
-  !isnothing(value) && return f(layer_range, mip_range(subresource), value)
+  !isnothing(value) && return f(subresource.aspect, layer_range, mip_range(subresource), value)
   prev_range = 1:1
   prev_value = nothing
   for i in mip_range(subresource)
@@ -201,14 +219,14 @@ function match_subresource_mip_levels(f::F, d, subresource::Subresource, layer_r
       if !isnothing(prev_value) && prev_value === value
         prev_range = prev_range[begin]:i
       else
-        !isnothing(prev_value) && prev_value !== value && f(layer_range, prev_range, prev_value)
+        !isnothing(prev_value) && prev_value !== value && f(subresource.aspect, layer_range, prev_range, prev_value)
         prev_range = i:i
         prev_value = value
       end
       break
     end
   end
-  !isnothing(prev_value) && f(layer_range, prev_range, prev_value)
+  !isnothing(prev_value) && f(subresource.aspect, layer_range, prev_range, prev_value)
   nothing
 end
 
@@ -219,23 +237,45 @@ Collect all subresource entries in `map` that are contained in `subresource`, re
 a vector of `(matched_layer_range, matched_mip_range) => value` pairs.
 """
 function query_subresource(map::SubresourceMap{T}, subresource::Subresource) where {T}
-  ret = Pair{Tuple{LayerRange, MipRange}, T}[]
-  match_subresource(map, subresource) do matched_layer_range, matched_mip_range, value
-    push!(ret, (matched_layer_range, matched_mip_range) => value)
+  ret = Pair{Tuple{Optional{Vk.ImageAspectFlag}, LayerRange, MipRange}, T}[]
+  match_subresource(map, subresource) do matched_aspect, matched_layer_range, matched_mip_range, value
+    push!(ret, (matched_aspect, matched_layer_range, matched_mip_range) => value)
   end
   ret
 end
 
 function Base.setindex!(map::SubresourceMap{T}, value::T, subresource::Subresource) where {T}
   check_subresource(map, subresource)
-  if !isnothing(map.last_aspect) && !isnothing(subresource.aspect) && map.last_aspect !== subresource.aspect
-    aspect_map = find_aspect_map!(map, subresource.aspect)
-    aspect_map[subresource] = value
-    aspect_map.last_aspect = nothing
+  (; aspect) = subresource
+  if aspect !== nothing
+    if is_partial_match(map, aspect)
+      # E.g. `aspect = depth | stencil` matched a `depth` or `stencil` partition in `map`.
+      for part in enabled_flags(aspect)
+        map[@set subresource.aspect = part] = value
+      end
+      return map
+    end
+    if map.last_aspect === nothing && !isused(map.value_per_aspect)
+      map.last_aspect = aspect
+    elseif map.last_aspect !== aspect
+      if !isused(map.value_per_aspect)
+        @assert find_aspect_map(map, aspect) === nothing
+        aspect_map = split_map_on_aspect!(map, aspect)
+        aspect_map[subresource] = value
+      else
+        aspect_map = find_aspect_map!(map, aspect)
+        aspect_map[subresource] = value
+      end
+      return map
+    end
+  end
+
+  if aspect === nothing && isused(map.value_per_aspect)
+    # Set for all known aspects.
+    for (known, aspect_map) in pairs(map.value_per_aspect)
+      aspect_map[@set subresource.aspect = known] = value
+    end
     return map
-  else
-    map.value_per_aspect = nothing
-    map.last_aspect = subresource.aspect
   end
 
   if layer_range(subresource) == layer_range(map) && mip_range(subresource) == mip_range(map)
@@ -251,11 +291,21 @@ function Base.setindex!(map::SubresourceMap{T}, value::T, subresource::Subresour
   map
 end
 
+function split_map_on_aspect!(map::SubresourceMap{T}, aspect::Vk.ImageAspectFlag) where {T}
+  @assert map.value_per_aspect === nothing
+  aspect_map = find_aspect_map!(map, aspect)
+  previous = SubresourceMap{T}(map.layer_range, map.mip_range, map.value, map.last_aspect, nothing, map.value_per_layer, map.value_per_mip_level)
+  insert!(map.value_per_aspect, map.last_aspect, previous)
+  map.last_aspect = nothing
+  map.value_per_layer = nothing
+  map.value_per_mip_level = nothing
+  return aspect_map
+end
+
 function parametrize_by_layer!(map::SubresourceMap{T}) where {T}
   isused(map.value_per_layer) && return map
   map.value_per_layer = @something(map.value_per_layer, ValuePerLayer{T}())
   dict = @something(map.value_per_mip_level, ValuePerMipLevel{T}([mip_range(map)], [map.value::T]))
-  map.value = nothing
   map.value_per_mip_level = nothing
   insert!(map.value_per_layer, layer_range(map), dict)
   map
@@ -291,7 +341,6 @@ function parametrize_by_mip_level!(map::SubresourceMap{T}) where {T}
   isused(map.value_per_mip_level) && return map
   map.value_per_mip_level = @something(map.value_per_mip_level, ValuePerMipLevel{T}())
   insert!(map.value_per_mip_level, mip_range(map), map.value::T)
-  map.value = nothing
   map
 end
 
@@ -367,19 +416,31 @@ function split_range(range::UnitRange, at::UnitRange)
 end
 
 function find_aspect_map!(map::SubresourceMap{T}, aspect::Vk.ImageAspectFlag) where {T}
-  if isnothing(map.value_per_aspect)
+  if map.value_per_aspect === nothing
     map.value_per_aspect = Dictionary{Vk.ImageAspectFlag, SubresourceMap{T}}()
-    aspect_map = SubresourceMap{T}(map.layer_range, map.mip_range, map.value)
-    insert!(map.value_per_aspect, aspect, aspect_map)
-    return aspect_map
   end
 
-  for (known, aspect_map) in pairs(map.value_per_aspect)
-    aspect in known && return aspect_map
-    @assert !any(in(known), enabled_flags(aspect))
-  end
+  aspect_map = find_aspect_map(map, aspect)
+  aspect_map !== nothing && return aspect_map
 
-  aspect_map = SubresourceMap{T}(map.layer_range, map.mip_range, map.value)
+  aspect_map = similar(map)
   insert!(map.value_per_aspect, aspect, aspect_map)
   aspect_map
+end
+
+function find_aspect_map(map::SubresourceMap, aspect::Vk.ImageAspectFlag)
+  isused(map.value_per_aspect) || return nothing
+  for (known, aspect_map) in pairs(map.value_per_aspect)
+    in(aspect, known) && return aspect_map
+    any(in(known), enabled_flags(aspect)) && error("Partial match found for $aspect")
+  end
+end
+
+function is_partial_match(map::SubresourceMap, aspect::Vk.ImageAspectFlag)
+  isused(map.value_per_aspect) || return false
+  for (known, aspect_map) in pairs(map.value_per_aspect)
+    in(aspect, known) && return false
+    any(in(known), enabled_flags(aspect)) && return true
+  end
+  return false
 end

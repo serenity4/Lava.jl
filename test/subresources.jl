@@ -5,11 +5,8 @@ all_keys_disjoint(dict) = all(x -> all(y -> x == y || isdisjoint(x, y), keys(dic
 
 function validate_map(map::SubresourceMap)
   isused(d) = !isnothing(d) && !isempty(d)
-  if map.value !== nothing
-    @test !isused(map.value_per_aspect)
-    @test !isused(map.value_per_layer)
-    @test !isused(map.value_per_mip_level)
-  elseif isused(map.value_per_aspect)
+  @test map.value !== nothing
+  if isused(map.value_per_aspect)
     @test map.last_aspect !== nothing
     @test !isused(map.value_per_layer)
     @test !isused(map.value_per_mip_level)
@@ -110,11 +107,11 @@ end
   @test smap[sub4] == :e
   @test smap[sub5] == :f
   validate_map(smap)
-  @test query_subresource(smap, sub5) == [(5:6, 1:4) => :f]
-  @test query_subresource(smap, Subresource(2:3, 1:4)) == [(2:3, 1:2) => :d, (2:3, 3:4) => :e]
-  @test query_subresource(smap, Subresource(3:3, 1:4)) == [(3:3, 1:2) => :d, (3:3, 3:4) => :e]
-  @test query_subresource(smap, Subresource(1:3, 1:4)) == [(1:1, 1:4) => :b, (2:3, 1:2) => :d, (2:3, 3:4) => :e]
-  @test query_subresource(smap, Subresource(1:6, 1:4)) == [(1:1, 1:4) => :b, (2:3, 1:2) => :d, (2:3, 3:4) => :e, (4:4, 1:4) => :c, (5:6, 1:4) => :f]
+  @test query_subresource(smap, sub5) == [(nothing, 5:6, 1:4) => :f]
+  @test query_subresource(smap, Subresource(2:3, 1:4)) == [(nothing, 2:3, 1:2) => :d, (nothing, 2:3, 3:4) => :e]
+  @test query_subresource(smap, Subresource(3:3, 1:4)) == [(nothing, 3:3, 1:2) => :d, (nothing, 3:3, 3:4) => :e]
+  @test query_subresource(smap, Subresource(1:3, 1:4)) == [(nothing, 1:1, 1:4) => :b, (nothing, 2:3, 1:2) => :d, (nothing, 2:3, 3:4) => :e]
+  @test query_subresource(smap, Subresource(1:6, 1:4)) == [(nothing, 1:1, 1:4) => :b, (nothing, 2:3, 1:2) => :d, (nothing, 2:3, 3:4) => :e, (nothing, 4:4, 1:4) => :c, (nothing, 5:6, 1:4) => :f]
 
   # Avoid key splitting when the set value is identical to the one in the encompassing range.
   smap[Subresource(5:5, 1:4)] = :f
@@ -129,7 +126,8 @@ end
 
   # Limit matched ranges to only what is contained within the requested subresource.
   map = SubresourceMap(6, 4, :a)
-  match_subresource(map, Subresource(5:5, 2:3)) do matched_layer_range, matched_mip_range, value
+  match_subresource(map, Subresource(5:5, 2:3)) do matched_aspect, matched_layer_range, matched_mip_range, value
+    @test matched_aspect === nothing
     @test value == :a
     @test matched_layer_range == 5:5
     @test matched_mip_range == 2:3
@@ -166,11 +164,12 @@ end
       value = Symbol(:value_, i)
       smap[subresource] = value
       @test smap[subresource] == value
-      match_subresource(smap, subresource) do matched_layer_range, matched_mip_range, matched_value
+      match_subresource(smap, subresource) do matched_aspect, matched_layer_range, matched_mip_range, matched_value
+        @test matched_aspect === nothing
         @test matched_value == value
       end
       matched = query_subresource(smap, subresource)
-      @test matched == [(subresource.layer_range, subresource.mip_range) => value]
+      @test matched == [(nothing, subresource.layer_range, subresource.mip_range) => value]
       other = subresources[mod1(7i, length(subresources))]
       matched = query_subresource(smap, other)
       @test !isempty(matched)
@@ -179,5 +178,46 @@ end
 
   smap = SubresourceMap(6, 4, :a)
   smap[Subresource(1:1, 1:1)] = :b
-  @test query_subresource(smap, Subresource(1:1, 1:4)) == [(1:1, 1:1) => :b, (1:1, 2:4) => :a]
+  @test query_subresource(smap, Subresource(1:1, 1:4)) == [(nothing, 1:1, 1:1) => :b, (nothing, 1:1, 2:4) => :a]
+
+  @testset "Subresource with various aspect uses" begin
+    smap = SubresourceMap(6, 4, :a)
+    depth = Subresource(Vk.IMAGE_ASPECT_DEPTH_BIT, 1:1, 1:1)
+    stencil = Subresource(Vk.IMAGE_ASPECT_STENCIL_BIT, 1:1, 1:1)
+    depth_stencil = Subresource(depth.aspect | stencil.aspect, 1:1, 1:1)
+    color = Subresource(Vk.IMAGE_ASPECT_COLOR_BIT, 1:1, 1:1)
+    smap[depth] = :b
+    smap[stencil] = :c
+    @test smap[depth] === :b
+    @test smap[stencil] === :c
+    smap[color] = :d
+    @test smap[depth] === :b
+    @test smap[stencil] === :c
+    @test smap[color] === :d
+    smap[depth_stencil] = :e
+    @test smap[depth] === :e
+    @test smap[stencil] === :e
+    @test smap[color] === :d
+
+    matched = query_subresource(smap, depth)
+    @test length(matched) == 1 && last(matched[1]) === :e
+    matched = query_subresource(smap, stencil)
+    @test length(matched) == 1 && last(matched[1]) === :e
+    matched = query_subresource(smap, color)
+    @test length(matched) == 1 && last(matched[1]) === :d
+    matched = query_subresource(smap, depth_stencil)
+    @test length(matched) == 2
+    @test matched[1:1] == query_subresource(smap, depth)
+    @test matched[2:2] == query_subresource(smap, stencil)
+
+    smap = SubresourceMap(6, 4, :a)
+    smap[depth_stencil] = :b
+    @test smap[depth_stencil] === :b
+    @test smap[depth] === :b
+    smap[stencil] = :c
+    @test smap[stencil] === :c
+    @test smap[depth] === :b
+    @test_throws "Partial match" smap[depth_stencil] === :b
+    matched = query_subresource(smap, color)
+  end
 end;

@@ -78,17 +78,18 @@ function synchronize_access!(info::NamedTuple, state::SynchronizationState, node
   subresource_state = image_state.map[subresource]
   sync = restrict_synchronization_scope(subresource_state.accesses, SyncRequirements(usage))
   to_layout = image_layout(usage.type, usage.access)
-  match_subresource(image.layout, subresource) do matched_layer_range, matched_mip_range, from_layout
+  match_subresource(image.layout, subresource) do matched_aspect, matched_layer_range, matched_mip_range, from_layout
     must_synchronize(sync, from_layout, to_layout) || return
-    image_state.map[subresource] = SubresourceState(usage)
-    image.layout[subresource] = to_layout
+    matched = Subresource(matched_aspect, matched_layer_range, matched_mip_range)
+    image_state.map[matched] = SubresourceState(usage)
+    image.layout[matched] = to_layout
     barrier = Vk._ImageMemoryBarrier2(
       from_layout,
       to_layout,
       0,
       0,
       image.handle,
-      Vk._ImageSubresourceRange(Subresource(subresource.aspect, matched_layer_range, matched_mip_range));
+      Vk._ImageSubresourceRange(matched);
       src_access_mask = subresource_state.sync.access,
       dst_access_mask = sync.access,
       src_stage_mask = subresource_state.sync.stages,

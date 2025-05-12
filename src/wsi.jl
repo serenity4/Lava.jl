@@ -54,7 +54,7 @@ end
 
 function Swapchain(device::Device, surface::Surface, usage_flags::Vk.ImageUsageFlag;
                    n = 2,
-                   present_mode = Vk.PRESENT_MODE_IMMEDIATE_KHR,
+                   present_mode = Vk.PRESENT_MODE_IMMEDIATE_KHR, # VK_PRESENT_MODE_MAILBOX_KHR?
                    format = Vk.FORMAT_B8G8R8A8_SRGB,
                    color_space = Vk.COLOR_SPACE_SRGB_NONLINEAR_KHR,
                    composite_alpha = Vk.COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
@@ -63,11 +63,11 @@ function Swapchain(device::Device, surface::Surface, usage_flags::Vk.ImageUsageF
   (; physical_device) = device.handle
 
   surface_info = Vk.PhysicalDeviceSurfaceInfo2KHR(; surface, next = Vk.SurfacePresentModeEXT(present_mode))
-  capabilities = unwrap(Vk.get_physical_device_surface_capabilities_2_khr(physical_device, surface_info, Vk.SurfacePresentScalingCapabilitiesEXT))
+  info = unwrap(Vk.get_physical_device_surface_capabilities_khr(physical_device, surface))
+  additional_capabilities = unwrap(Vk.get_physical_device_surface_capabilities_2_khr(physical_device, surface_info, Vk.SurfacePresentScalingCapabilitiesEXT))
   flags = Vk.SWAPCHAIN_CREATE_DEFERRED_MEMORY_ALLOCATION_BIT_EXT
-  next = scaling_info(capabilities.next::Vk.SurfacePresentScalingCapabilitiesEXT, scaling)
+  next = scaling_info(additional_capabilities.next::Vk.SurfacePresentScalingCapabilitiesEXT, scaling)
 
-  info = capabilities.surface_capabilities
   info.min_image_count ≤ n ≤ info.max_image_count || error("The provided surface requires $(info.min_image_count) ≤ n ≤ $(info.max_image_count) (got $n)")
   usage_flags in info.supported_usage_flags || error("The surface does not support swapchain images with usage $usage_flags. Supported flags are $(info.supported_usage_flags)")
   composite_alpha in info.supported_composite_alpha || error("The surface does not support the provided composite alpha $composite_alpha. Supported flags are $(info.supported_composite_alpha)")

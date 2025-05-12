@@ -65,9 +65,9 @@ function ensure_layout(device::Device, view_or_image::Union{Image, ImageView}, l
 end
 
 function ensure_layout(command_buffer::CommandBuffer, view_or_image::Union{Image, ImageView}, layout::Vk.ImageLayout)
-  match_subresource(view_or_image) do matched_layer_range, matched_mip_range, matched_layout
+  match_subresource(view_or_image) do matched_aspect, matched_layer_range, matched_mip_range, matched_layout
     matched_layout == layout && return
-    subresource = Subresource(aspect_flags(view_or_image), matched_layer_range, matched_mip_range)
+    subresource = Subresource(matched_aspect, matched_layer_range, matched_mip_range)
     transition_layout(command_buffer, view_or_image, subresource, matched_layout, layout)
   end
 end
@@ -117,10 +117,10 @@ function transfer(
       transfer(command_buffer, src, buffer)
       return transfer(command_buffer, buffer, dst; submission, free_src = true)
     end
-    match_subresource(src_image.layout, Subresource(src)) do src_matched_layers, src_matched_mip_levels, src_layout
-      match_subresource(dst_image.layout, Subresource(dst)) do dst_matched_layers, dst_matched_mip_levels, dst_layout
-        src_subresource = Subresource(aspect_flags(src), src_matched_layers, src_matched_mip_levels)
-        dst_subresource = Subresource(aspect_flags(dst), dst_matched_layers, dst_matched_mip_levels)
+    match_subresource(src_image.layout, Subresource(src)) do src_matched_aspect, src_matched_layers, src_matched_mip_levels, src_layout
+      match_subresource(dst_image.layout, Subresource(dst)) do dst_matched_aspect, dst_matched_layers, dst_matched_mip_levels, dst_layout
+        src_subresource = Subresource(src_matched_aspect, src_matched_layers, src_matched_mip_levels)
+        dst_subresource = Subresource(src_matched_aspect, dst_matched_layers, dst_matched_mip_levels)
         Vk.cmd_copy_image(command_buffer,
         src_image, src_layout,
         dst_image, dst_layout,

@@ -25,6 +25,8 @@ using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptor
 include("utils.jl")
 instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR_xcb_surface"])
 
+ENV["VK_LAYER_MESSAGE_ID_FILTER"] = "VUID-VkSwapchainCreateInfoKHR-presentMode-02839"
+
 @testset "Lava.jl" begin
   include("subresources.jl")
 

@@ -100,7 +100,7 @@ using Graphs: nv, ne
     info = Lava.dependency_info!(state, rg, gbuffer)
     @test length(info.buffer_memory_barriers) == 1
     @test length(info.image_memory_barriers) == 5
-    @test all(barrier.old_layout ≠ barrier.new_layout for barrier in info.image_memory_barriers)
+    @test all(barrier.vks.oldLayout ≠ barrier.vks.newLayout for barrier in info.image_memory_barriers)
 
     info = Lava.dependency_info!(state, rg, lighting)
     @test length(info.buffer_memory_barriers) == 0

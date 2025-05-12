@@ -149,12 +149,12 @@ function rendering_info(rg::RenderGraph, node::RenderNode)
   for use in uses
     (; id) = use
     in(id, resolve_ids) && continue
-    resource = get_physical_resource(rg, id)
+    resource = rg.resources[id]
     resource_type(resource) == RESOURCE_TYPE_ATTACHMENT || continue
     attachment_usage = use.usage::AttachmentUsage
     # Resolve attachments are grouped with their destination attachment.
     (; type) = attachment_usage
-    (; attachment) = resource
+    (; attachment) = get_physical_resource(rg, resource)
     info = nothing
     for (usage, kind) in ((RESOURCE_USAGE_COLOR_ATTACHMENT, :color), (RESOURCE_USAGE_DEPTH_ATTACHMENT, :depth), (RESOURCE_USAGE_STENCIL_ATTACHMENT, :stencil))
       in(usage, type) || continue

@@ -139,10 +139,10 @@ function GlobalDescriptors(device, config::GlobalDescriptorsConfig = GlobalDescr
     device,
     1,
     [
-      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1),
-      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, 1),
-      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_SAMPLER, 1),
-      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1),
+      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_SAMPLED_IMAGE, config.sampled_images),
+      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_STORAGE_IMAGE, config.storage_images),
+      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_SAMPLER, config.samplers),
+      Vk.DescriptorPoolSize(Vk.DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, config.textures),
     ],
   )
 

@@ -1,7 +1,7 @@
 @testset "Presenting to XCB" begin
   wm = XWindowManager()
   window = XCBWindow(wm; x=0, y=1000, border_width=50, window_title="Test window", icon_title="Test", attributes=[XCB.XCB_CW_BACK_PIXEL], values=[zero(UInt32)])
-  cycle = test_validation_msg(() -> FrameCycle(device, Surface(instance, window)), x -> @test isempty(x))
+  cycle = test_validation_msg(() -> FrameCycle(device, Surface(instance, window); n = 3), x -> @test isempty(x))
   color = attachment_resource(RGBA{Float16}, [1920, 1080])
   image = read_normal_map(device)
   prog = texture_program(device)
