@@ -20,7 +20,7 @@
   function draw_and_present(cycle, t)
     ret = nothing
     while isnothing(ret)
-      ret = cycle!(frame -> draw(frame, t), cycle)
+      ret = cycle!(_ -> draw(current_frame(cycle), t), cycle)
     end
     wait(ret)
   end
@@ -41,7 +41,7 @@
   @test isa(collect(BGRA{N0f8}, cycle), Matrix{BGRA{N0f8}})
   draw_and_present(cycle, 0.5)
   @test any(!iszero, collect(BGRA{N0f8}, cycle))
-  resize(window, extent(window) .+ 50)
+  resize(window, window.extent .+ 50)
   # `ERROR_OUT_OF_DATE_KHR` is triggered on the second call.
   draw_and_present(cycle, 0.5)
   draw_and_present(cycle, 0.5)

@@ -20,12 +20,12 @@ using Distances: Distances, PeriodicEuclidean
 using OpenType: curves, Text, Line
 using OpenType
 
-using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, get_descriptor_index!, delete_descriptor!, NodeID, free_descriptor_batch!, request_command_buffer, ShaderCache, isbuffer, isimage, isattachment, aspect_flags, SynchronizationState, bake!, dependency_info!, rendering_info, PROGRAM_TYPE_GRAPHICS, PROGRAM_TYPE_COMPUTE, COMMAND_TYPE_DRAW_INDEXED, COMMAND_TYPE_DRAW_INDEXED_INDIRECT, status, Fence, FencePool, recycle!, get_fence!, is_signaled, finish!
+using Lava: request_index!, GlobalDescriptors, DescriptorArray, patch_descriptors!, patch_pointers!, device_address_block!, resource_type, descriptor_type, islogical, isphysical, DESCRIPTOR_TYPE_TEXTURE, get_descriptor_index!, delete_descriptor!, NodeID, free_descriptor_batch!, request_command_buffer, ShaderCache, isbuffer, isimage, isattachment, aspect_flags, SynchronizationState, bake!, dependency_info!, rendering_info, PROGRAM_TYPE_GRAPHICS, PROGRAM_TYPE_COMPUTE, COMMAND_TYPE_DRAW_INDEXED, COMMAND_TYPE_DRAW_INDEXED_INDIRECT, status, Fence, FencePool, recycle!, get_fence!, is_signaled, finish!, current_frame, barrier_info!
+
+ENV["VK_LAYER_MESSAGE_ID_FILTER"] = "VUID-VkSwapchainCreateInfoKHR-presentMode-02839"
 
 include("utils.jl")
 instance, device = init(; with_validation = true, instance_extensions = ["VK_KHR_xcb_surface"])
-
-ENV["VK_LAYER_MESSAGE_ID_FILTER"] = "VUID-VkSwapchainCreateInfoKHR-presentMode-02839"
 
 @testset "Lava.jl" begin
   include("subresources.jl")
@@ -192,7 +192,7 @@ ENV["VK_LAYER_MESSAGE_ID_FILTER"] = "VUID-VkSwapchainCreateInfoKHR-presentMode-0
   include("render_graph.jl")
   include("examples.jl")
   include("cycles.jl")
-  include("present.jl")
+  include("present.jl") # XXX: this hangs
 
   @test length(device.fence_pool.available) < 10
 end;

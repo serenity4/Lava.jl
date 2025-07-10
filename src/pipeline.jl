@@ -32,6 +32,13 @@ end
 
 struct RenderArea
   rect::Vk.Rect2D
+  RenderArea(rect::Vk.Rect2D) = new(rect)
+end
+
+function RenderArea(dims)
+  length(dims) == 2 || throw(ArgumentError("Two dimensions were expected, got $(length(dims)) dimensions"))
+  (width, height) = dims
+  RenderArea(width, height)
 end
 
 RenderArea(x, y) = RenderArea(x, y, 0, 0)

@@ -1,6 +1,10 @@
 function get_dependency_infos!(rg, nodes)
   init = (Vk.DependencyInfo[], SynchronizationState())
-  foldl(((infos, state), node) -> (push!(infos, dependency_info!(state, rg, node)), state), nodes; init)
+  foldl(nodes; init) do (dependencies, state), node
+    info = barrier_info!(state, rg, node)
+    dependency = Vk.DependencyInfo(Vk.MemoryBarrier2[], Vk.BufferMemoryBarrier2.(info.buffer_memory_barriers), Vk.ImageMemoryBarrier2.(info.image_memory_barriers))
+    push!(dependencies, (dependency, state))
+  end
 end
 
 @testset "Node synchronization" begin

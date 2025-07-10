@@ -104,7 +104,7 @@ function log_synchronization(node::RenderNode, resource::Resource, usage)
   @debug "Synchronization: $(sprint(print_name, node)) ⇒ $(sprint(print_name, resource)) ($(usage.access == WRITE ? "write" : usage.access == READ ? "read" : usage.access))"
 end
 
-function dependency_info!(state::SynchronizationState, rg::RenderGraph, node::RenderNode)
+function barrier_info!(state::SynchronizationState, rg::RenderGraph, node::RenderNode)
   info = (;
     buffer_memory_barriers = Vk._BufferMemoryBarrier2[],
     image_memory_barriers = Vk._ImageMemoryBarrier2[],
@@ -114,7 +114,14 @@ function dependency_info!(state::SynchronizationState, rg::RenderGraph, node::Re
     resource = get_physical_resource(rg, use.id)
     synchronize_access!(info, state, node, resource, use.usage)
   end
-  info
+  return info
+end
+
+function dependency_info!(state::SynchronizationState, rg::RenderGraph, node::RenderNode)
+  barriers = barrier_info!(state, rg, node)
+  !isempty(barriers.image_memory_barriers) || !isempty(barriers.buffer_memory_barriers) || return nothing
+  dependency = Vk._DependencyInfo(Vk._MemoryBarrier2[], barriers.buffer_memory_barriers, barriers.image_memory_barriers)
+  return dependency
 end
 
 """

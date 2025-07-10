@@ -85,12 +85,24 @@ macro snoopdef(ex)
   end
   @match ex begin
     :($cmd(command_buffer, $(_...))::$rtype) || :($cmd(command_buffer, $(_...); $(_...))::$rtype) => begin
+      _cmd = Symbol(:_, cmd)
+      _args = map(args) do arg
+        @match arg begin
+          :($x::Vk.$T) => begin
+              _T = Symbol(:_, T)
+              T = ifelse(isdefined(Vk, _T), _T, T)
+              :($x::Vk.$T)
+          end
+          x => x
+        end
+      end
       (rtype_annotation, last_stmt) = @match rtype begin
         :(Vk.ResultTypes.Result{Result,VulkanError}) => (:(Result{Vk.Result,Vk.VulkanError}), :(Vk.SUCCESS))
         :(Vk.Cvoid) => (:Cvoid, :nothing)
       end
       push_ex = :(push!(snoop.records, Instruction($(QuoteNode(cmd)), collect([$(name.(args)...)]), collect(kwargs))))
       esc(:(Vk.$cmd(snoop::SnoopCommandBuffer, $(args...); kwargs...)::$rtype_annotation = ($push_ex; $last_stmt)))
+      esc(:(Vk.$_cmd(snoop::SnoopCommandBuffer, $(_args...); kwargs...)::$rtype_annotation = ($push_ex; $last_stmt)))
     end
     _ => error("Malformed expression: $ex")
   end

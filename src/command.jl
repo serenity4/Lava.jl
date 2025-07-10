@@ -10,10 +10,13 @@ end
 
 abstract type CommandImplementation end
 
-struct Command
-  type::CommandType
-  impl::CommandImplementation
+mutable struct Command
+  const type::CommandType
+  const impl::CommandImplementation
 end
+
+Base.iterate(command::Command) = (command, nothing)
+Base.iterate(command::Command, state) = nothing
 
 get_physical_resource(resources, resource::Resource) = islogical(resource) ? resources[resource.id] : resource
 

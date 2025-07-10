@@ -40,7 +40,7 @@ end
 
 function FrameCycle(device::Device, swapchain::Swapchain)
     frames = get_frames_from_swapchain(device, swapchain, 0)
-    FrameCycle(device, swapchain, frames, lastindex(frames), 0, -1, false, Dictionary{Swapchain, Dictionary{Frame, Vector{Fence}}}())
+    FrameCycle(device, swapchain, frames, lastindex(frames), 0, -1, true, Dictionary{Swapchain, Dictionary{Frame, Vector{Fence}}}())
 end
 
 function FrameCycle(device::Device, surface::Surface; swapchain_kwargs...)
@@ -87,6 +87,12 @@ function extent_has_changed(fc::FrameCycle, capabilities = surface_capabilities(
     current_extent ≠ image_extent
 end
 
+@enum FrameCycleStatus begin
+    FRAME_CYCLE_FIRST_FRAME = 1
+    FRAME_CYCLE_SWAPCHAIN_RECREATED = 2
+    FRAME_CYCLE_RENDERING_FRAME = 3
+end
+
 function recreate!(fc::FrameCycle)
     @debug string("Recreating on frame ", fc.frame_count, " (last index: ", fc.frame_index, ", new index: ", lastindex(fc.frames), ')')
     capabilities = surface_capabilities(fc)
@@ -96,6 +102,11 @@ function recreate!(fc::FrameCycle)
     fc.next_image = -1
     fc.outdated = false
     fc
+end
+
+function recreate!(f::F, fc::FrameCycle) where {F}
+    recreate!(fc)
+    f(FRAME_CYCLE_SWAPCHAIN_RECREATED)
 end
 
 function next_frame!(fc::FrameCycle)
@@ -147,13 +158,13 @@ function free_pending_frames!(fc::FrameCycle)
 end
 
 function cycle!(f, fc::FrameCycle)
-    is_outdated(fc) && recreate!(fc)
+    is_outdated(fc) && recreate!(f, fc)
 
     if fc.next_image == -1
         @timeit to "Acquire next image" ret = acquire_next_image!(fc)
         ret === Vk.NOT_READY && return nothing
         while ret === Vk.ERROR_OUT_OF_DATE_KHR
-            recreate!(fc)
+            recreate!(f, fc)
             @timeit to "Acquire next image" ret = acquire_next_image!(fc)
             ret === Vk.NOT_READY && return nothing
             yield()
@@ -180,7 +191,8 @@ function render_and_present!(f, fc::FrameCycle)
         # TODO: Pass in `image_acquired` to `f` such that typically only the last bit of the rendering
         # waits for the image. It is indeed most likely that the user will perform rendering operations
         # on another image, and only at the very end transfer the frame's contents to the swapchain image.
-        @timeit to "User-specified cycle function" submission = f(frame)
+        fc.frame_count == 1 && f(FRAME_CYCLE_FIRST_FRAME)
+        @timeit to "User-specified cycle function" submission = f(FRAME_CYCLE_RENDERING_FRAME)
         isnothing(submission) && return nothing
         isa(submission, SubmissionInfo) || throw(ArgumentError("A `SubmissionInfo` must be returned to properly synchronize with frame presentation."))
         push!(submission.wait_semaphores, Vk.SemaphoreSubmitInfo(image_acquired.handle, 0, 0; stage_mask = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT))
@@ -199,8 +211,7 @@ function render_and_present!(f, fc::FrameCycle)
         Vk.set_debug_name(has_presented, Symbol(:has_presented_, fc.frame_index, :_, fc.frame_count))
         present_fence_info = Vk.SwapchainPresentFenceInfoEXT([has_presented.handle])
         present_info = Vk.PresentInfoKHR([frame.may_present.handle], [swapchain.handle], [fc.frame_index - 1]; next = present_fence_info)
-        pending_frames = get!(Dictionary{Frame, Vector{Fence}}, fc.pending_frames, swapchain)
-        push!(get!(Vector{Fence}, pending_frames, frame), has_presented)
+        record_pending!(fc, frame, has_presented)
         ret = Vk.queue_present_khr(swapchain.queue, present_info)
         if iserror(ret)
             (; code) = unwrap_error(ret)
@@ -209,23 +220,38 @@ function render_and_present!(f, fc::FrameCycle)
         else
             code = unwrap(ret)
         end
-        code == Vk.ERROR_OUT_OF_DATE_KHR || code == Vk.SUBOPTIMAL_KHR && recreate!(fc)
+        code == Vk.ERROR_OUT_OF_DATE_KHR || code == Vk.SUBOPTIMAL_KHR && recreate!(f, fc)
     end
 
     state
 end
 
-function draw_and_prepare_for_presentation(device::Device, nodes, attachment::Resource, frame::Frame)
+function record_pending!(fc::FrameCycle, frame::Frame, fence::Fence)
+    pending_frames = get!(Dictionary{Frame, Vector{Fence}}, fc.pending_frames, fc.swapchain)
+    fences = get!(Vector{Fence}, pending_frames, frame)
+    push!(fences, fence)
+end
+
+function initialize_for_presentation!(rg::RenderGraph, target::Resource, frame::Frame)
     image = Resource(frame.image)
-    transfer = transfer_command(attachment, image)
+    transfer = transfer_command(target, image)
     present = present_command(image)
-    rg = RenderGraph(device, nodes)
     add_nodes!(rg, transfer, present)
-    command_buffer = request_command_buffer(device)
+end
+
+function render!(rg::RenderGraph, frame::Frame)
+    # XXX: reuse command buffer(s) from RenderGraph.
+    command_buffer = request_command_buffer(rg.device)
     render!(rg, command_buffer)
-    finalizer(finish!, rg)
-    has_rendered = get_fence!(device)
+    isa(frame.has_rendered, Fence) && recycle!(frame.has_rendered)
+    has_rendered = get_fence!(rg.device)
     frame.has_rendered = has_rendered
     Vk.set_debug_name(has_rendered, :has_rendered)
-    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], free_after_completion = [rg], queue_family = command_buffer.queue_family_index, signal_fence = has_rendered)
+    SubmissionInfo(command_buffers = [Vk.CommandBufferSubmitInfo(command_buffer)], release_after_completion = [rg], queue_family = command_buffer.queue_family_index, signal_fence = has_rendered)
+end
+
+function draw_and_prepare_for_presentation(device::Device, nodes, target::Resource, frame::Frame)
+    rg = RenderGraph(device, nodes)
+    initialize_for_presentation!(rg, target, frame)
+    render!(rg, frame)
 end

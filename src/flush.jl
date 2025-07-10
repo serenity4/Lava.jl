@@ -10,7 +10,6 @@ function Base.flush(command_buffer::CommandBuffer, rg::RenderGraph, records, pip
 end
 
 function Base.flush(command_buffer::CommandBuffer, record::CompactRecord, rg::RenderGraph, bind_state::BindState, pipeline_hashes)
-  
   (; device) = rg
   begin_render_node(command_buffer, rg, record.node)
   for (program, calls) in pairs(record.draws)
@@ -49,11 +48,9 @@ end
 Build barriers for all resources that require it.
 """
 function synchronize_before!(state::SynchronizationState, command_buffer::CommandBuffer, rg::RenderGraph, node::RenderNode)
-  info = dependency_info!(state, rg, node)
-  if !isempty(info.image_memory_barriers) || !isempty(info.buffer_memory_barriers)
-    dependency = Vk._DependencyInfo(Vk._MemoryBarrier2[], info.buffer_memory_barriers, info.image_memory_barriers)
-    Vk._cmd_pipeline_barrier_2(command_buffer, dependency)
-  end
+  dependency = dependency_info!(state, rg, node)
+  dependency === nothing && return
+  Vk._cmd_pipeline_barrier_2(command_buffer, dependency)
 end
 
 function begin_render_node(command_buffer::CommandBuffer, rg::RenderGraph, node::RenderNode)

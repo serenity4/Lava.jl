@@ -75,8 +75,8 @@ include("device.jl")
 include("resources/creation.jl")
 include("bind_state.jl")
 include("wsi.jl")
-include("frame.jl")
 include("render_graph.jl")
+include("frame.jl")
 include("command_records.jl")
 include("bake.jl")
 include("node_synchronization.jl")
@@ -188,13 +188,17 @@ export
   RESOURCE_USAGE_SAMPLER,
   RenderGraph, render!, render,
   RenderArea, RenderNode, add_node!, add_nodes!,
+  update_commands!,
   ResourceDependency, add_resource_dependency!, add_resource_dependencies!, @add_resource_dependencies, @resource_dependencies, clear_attachments, ClearValue, DEFAULT_CLEAR_VALUE,
 
   # WSI
   Surface, Swapchain,
 
   # frame
-  Frame, FrameCycle, cycle!, recreate!, acquire_next_image, draw_and_prepare_for_presentation,
+  Frame, FrameCycle, cycle!, recreate!, acquire_next_image,
+  FrameCycleStatus, FRAME_CYCLE_FIRST_FRAME, FRAME_CYCLE_SWAPCHAIN_RECREATED, FRAME_CYCLE_RENDERING_FRAME,
+  initialize_for_presentation!,
+  draw_and_prepare_for_presentation,
 
   # SPIR-V reexports
   ShaderInterface, Decorations,

@@ -5,6 +5,7 @@ primitive type NodeID 128 end
 NodeID(id::UInt128) = reinterpret(NodeID, id)
 Base.UInt128(id::NodeID) = reinterpret(UInt128, id)
 NodeID(id::UUID) = NodeID(UInt128(id))
+NodeID(id::Integer) = NodeID(convert(UInt128, id))
 NodeID() = NodeID(uuid())
 
 primitive type ResourceID 128 end

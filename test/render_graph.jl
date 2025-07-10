@@ -97,12 +97,12 @@ using Graphs: nv, ne
     @test convert(Ptr{Cvoid}, color_info.resolve_image_view) == C_NULL
 
     state = Lava.SynchronizationState()
-    info = Lava.dependency_info!(state, rg, gbuffer)
+    info = Lava.barrier_info!(state, rg, gbuffer)
     @test length(info.buffer_memory_barriers) == 1
     @test length(info.image_memory_barriers) == 5
     @test all(barrier.vks.oldLayout ≠ barrier.vks.newLayout for barrier in info.image_memory_barriers)
 
-    info = Lava.dependency_info!(state, rg, lighting)
+    info = Lava.barrier_info!(state, rg, lighting)
     @test length(info.buffer_memory_barriers) == 0
     @test length(info.image_memory_barriers) == 7
 
@@ -171,9 +171,9 @@ using Graphs: nv, ne
     @test rinfo == Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL)
 
     @testset "Barriers for layout transitions" begin
-      normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, graphics.stages, Vk.ACCESS_2_SHADER_READ_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, rg.materialized_resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      color_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      depth_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
+      normal_barrier = Vk._ImageMemoryBarrier2(C_NULL, 0, 0, graphics.stages, Vk.ACCESS_2_SHADER_READ_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, rg.materialized_resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      color_barrier = Vk._ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      depth_barrier = Vk._ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
       @test dependency_info.image_memory_barriers[1] == normal_barrier
       @test dependency_info.image_memory_barriers[2] == color_barrier
       @test dependency_info.image_memory_barriers[3] == depth_barrier

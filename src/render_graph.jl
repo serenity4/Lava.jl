@@ -37,6 +37,12 @@ function RenderNode(commands, name = nothing)
 end
 Base.convert(::Type{RenderNode}, command::Command) = RenderNode(command)
 
+function update_commands!(node::RenderNode, added, deleted)
+  splice!(node.commands, findall(in(deleted), node.commands))
+  append!(node.commands, added)
+  node
+end
+
 print_name(io::IO, node::RenderNode) = printstyled(IOContext(io, :color => true), isnothing(node.name) ? node.id : node.name; color = 210)
 
 Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
@@ -164,7 +170,7 @@ end
 function RenderGraph(device::Device, nodes = nothing; linear_allocator_size = 2^20 #= 1_000_000 KiB =#)
   rg = RenderGraph(device, LinearAllocator(device, linear_allocator_size), SimpleDiGraph(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), Dictionary(), -1, IndexData())
   !isnothing(nodes) && add_nodes!(rg, nodes)
-  rg
+  finalizer(finish!, rg)
 end
 
 device(rg::RenderGraph) = rg.device
@@ -221,8 +227,10 @@ function add_resource_dependency!(rg::RenderGraph, node::RenderNode, resource::R
   add_edge!(g, v, w)
 
   # Add usage.
-  uses = get!(Dictionary{ResourceID,Vector{ResourceUsage}}, rg.uses, node.id)
-  push!(get!(Vector{ResourceUsage}, uses, resource.id), ResourceUsage(resource, node, dependency))
+  resource_uses = get!(Dictionary{ResourceID,Vector{ResourceUsage}}, rg.uses, node.id)
+  uses = get!(Vector{ResourceUsage}, resource_uses, resource.id)
+  usage = ResourceUsage(resource, node, dependency)
+  combine_with_existing!(uses, usage)
   nothing
 end
 
@@ -413,7 +421,7 @@ function resolve_attachment_pairs!(rg::RenderGraph)
       resolve_attachment = nothing
       for uses in rg.uses
         resource_uses = get(uses, resource.id, nothing)
-        isnothing(resource_uses) && break
+        isnothing(resource_uses) && continue
         combined_uses = reduce(merge, resource_uses)
         if combined_uses.usage.samples > 1
           attachment = resource.data::LogicalAttachment
@@ -442,10 +450,18 @@ function add_resolve_attachments!(rg::RenderGraph)
       for use in uses_by_node[resource.id]
         @reset use.id = resolve_resource.id
         @reset use.usage.samples = 1
-        push!(get!(Vector{ResourceUsage}, uses_by_node, resolve_resource.id), use)
+        uses = get!(Vector{ResourceUsage}, uses_by_node, resolve_resource.id)
+        combine_with_existing!(uses, use)
       end
     end
   end
+end
+
+function combine_with_existing!(uses, use::ResourceUsage)
+  @assert all(x -> x.id === use.id, uses)
+  i = findfirst(x -> x.type === use.type, uses)
+  i === nothing && return push!(uses, use)
+  uses[i] = combine(uses[i], use)
 end
 
 function materialize_logical_resources!(rg::RenderGraph)
@@ -483,7 +499,7 @@ function materialize_logical_resources!(rg::RenderGraph)
       (; logical_attachment) = resource
       (; dims) = logical_attachment
       if isnothing(dims)
-        # Try to inherit image dimensions from a render area in which the node is used.
+        # Try to inherit image dimensions from a render area used by a node that also uses this resource.
         for node in rg.nodes
           !isnothing(node.render_area) || continue
           if haskey(rg.uses[node.id], resource.id)
@@ -611,6 +627,7 @@ function get_physical_resource(rg::RenderGraph, resource::Resource)
 end
 
 function finish!(rg::RenderGraph)
+  reset!(rg.allocator)
   rg.descriptor_batch_index == -1 && return rg
   free_descriptor_batch!(rg.device.descriptors, rg.descriptor_batch_index)
   rg.descriptor_batch_index = -1
