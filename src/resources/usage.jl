@@ -34,7 +34,7 @@ Base.@kwdef struct ImageUsage
   access::MemoryAccess = MemoryAccess(0)
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
-  samples::Int64 = 1
+  samples::Optional{Int64} = nothing
 end
 
 combine(x::ImageUsage, y::ImageUsage) = ImageUsage(x.type | y.type, x.access | y.access, x.stages | y.stages, x.usage_flags | y.usage_flags, merge_sample_count(x.samples, y.samples))
@@ -45,7 +45,7 @@ Base.@kwdef struct AttachmentUsage
   stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_NONE
   usage_flags::Vk.ImageUsageFlag = Vk.ImageUsageFlag(0)
   aspect::Vk.ImageAspectFlag = Vk.ImageAspectFlag(0) # can be deduced
-  samples::Int64 = 1
+  samples::Optional{Int64} = nothing
   clear_value::Optional{ClearValue} = nothing
   resolve_mode::Vk.ResolveModeFlag = Vk.RESOLVE_MODE_AVERAGE_BIT
 end
@@ -86,6 +86,9 @@ function combine(x::ResourceUsage, y::ResourceUsage)
   end
   ResourceUsage(x.id, x.type | y.type, combine(x.usage, y.usage))
 end
+
+# XXX: this is wrong, we should set samples to get the same across all attachments in a render pass
+samples(resource::Resource, usage::Union{ImageUsage,AttachmentUsage}) = @something(usage.samples, samples(resource))
 
 function rendering_info(attachment::Attachment, usage::AttachmentUsage, kind::Symbol)
   clear = @match usage.clear_value begin
@@ -130,6 +133,7 @@ function image_layout(type::ResourceUsageType, access::MemoryAccess)
     (&RESOURCE_USAGE_PRESENT, _) => Vk.IMAGE_LAYOUT_PRESENT_SRC_KHR
     (&RESOURCE_USAGE_TRANSFER_SRC, _) => Vk.IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
     (&RESOURCE_USAGE_TRANSFER_DST, _) => Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    (&RESOURCE_USAGE_IMAGE, &WRITE) => Vk.IMAGE_LAYOUT_GENERAL
     _ => error("Unsupported combination of type $type and access $access")
   end
 end
@@ -152,7 +156,7 @@ function image_usage_flags(type::ResourceUsageType, access::MemoryAccess)
   (RESOURCE_USAGE_DEPTH_ATTACHMENT in type || RESOURCE_USAGE_STENCIL_ATTACHMENT in type) && (bits |= Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
   RESOURCE_USAGE_INPUT_ATTACHMENT in type && (bits |= Vk.IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
   RESOURCE_USAGE_TEXTURE in type && (bits |= Vk.IMAGE_USAGE_SAMPLED_BIT)
-  RESOURCE_USAGE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
+  # RESOURCE_USAGE_IMAGE in type && WRITE in access && (bits |= Vk.IMAGE_USAGE_STORAGE_BIT)
   RESOURCE_USAGE_TRANSFER_SRC in type && (bits |= Vk.IMAGE_USAGE_TRANSFER_SRC_BIT)
   RESOURCE_USAGE_TRANSFER_DST in type && (bits |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
 

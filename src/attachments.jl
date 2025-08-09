@@ -52,11 +52,16 @@ color_clear_value_eltype(::Type{T}) where {T<:Signed} = Int32
 color_clear_value_eltype(::Type{T}) where {T<:Unsigned} = UInt32
 color_clear_value_eltype(::Type{T}) where {T<:AbstractFloat} = Float32
 
+function Vk.ClearDepthStencilValue(clear::ClearValue)
+  isa(clear.data, Float32) && return Vk.ClearDepthStencilValue(clear.data, zero(UInt32))
+  isa(clear.data, UInt32) && return Vk.ClearDepthStencilValue(0f0, clear.data)
+  @assert length(clear.data) == 2
+  Vk.ClearDepthStencilValue(something.(clear.data, 0)...)
+end
+
 function Vk.ClearValue(clear::ClearValue)
-  isa(clear.data, Float32) && return Vk.ClearValue(Vk.ClearDepthStencilValue(clear.data, zero(UInt32)))
-  isa(clear.data, UInt32) && return Vk.ClearValue(Vk.ClearDepthStencilValue(0f0, clear.data))
-  length(clear.data) == 2 && return Vk.ClearValue(Vk.ClearDepthStencilValue(something.(clear.data, 0)...))
-  Vk.ClearValue(Vk.ClearColorValue(clear.data))
+  isa(clear.data, NTuple{4}) && return Vk.ClearValue(Vk.ClearColorValue(clear.data))
+  Vk.ClearValue(Vk.ClearDepthStencilValue(clear))
 end
 
 const DEFAULT_CLEAR_VALUE = ClearValue((0.0f0, 0.0f0, 0.0f0, 0.0f0))

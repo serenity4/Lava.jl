@@ -1,5 +1,5 @@
 function combine_resource_uses!(rg::RenderGraph)
-  for node_uses in rg.combined_node_uses
+  for (node, node_uses) in pairs(rg.combined_node_uses)
     for (rid, resource_usage) in pairs(node_uses)
       existing = get(rg.combined_resource_uses, rid, nothing)
       if !isnothing(existing)
@@ -53,9 +53,9 @@ end
 render(device::Device, node::Union{RenderNode,Command}) = render(device, [node])
 function render(device::Device, nodes)
   rg = RenderGraph(device, nodes)
-  ret = render!(rg)
+  done = render!(rg)
   finish!(rg)
-  ret
+  done
 end
 
 function render(command_buffer::CommandBuffer, rg::RenderGraph)
@@ -158,7 +158,8 @@ function rendering_info(rg::RenderGraph, node::RenderNode)
     info = nothing
     for (usage, kind) in ((RESOURCE_USAGE_COLOR_ATTACHMENT, :color), (RESOURCE_USAGE_DEPTH_ATTACHMENT, :depth), (RESOURCE_USAGE_STENCIL_ATTACHMENT, :stencil))
       in(usage, type) || continue
-      info = if attachment_usage.samples > 1
+      info = if samples(resource, attachment_usage) > 1
+        # XXX: this is wrong, we should set samples to get the same across all attachments
         resolve_resource = get_physical_resource(rg, rg.resolve_pairs[resource])
         push!(resolve_ids, resolve_resource.id)
         rendering_info(attachment, attachment_usage, kind, resolve_resource.attachment, uses[resolve_resource.id].usage::AttachmentUsage)

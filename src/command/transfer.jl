@@ -14,9 +14,8 @@ function multisample_resolve(src, dst)
   samples(src) == samples(dst) && return nothing
   samples(src) > 1 || error("Image transfers require a destination image with the same number of samples, or will perform a multisampling resolve operation requiring a single-sampled destination image.")
   samples(dst) == 1 || error("Multisampling resolution requires a single-sampled destination image.")
-  src_image = get_image(src)
   name = isnothing(name) ? nothing : Symbol(name, :_resolve_transient)
-  image_resource(src_image.format, src_image.dims; src_image.layers, src_image.mip_levels, samples = 1, name)
+  image_resource(image_format(src), dimensions(src); layers = last(layer_range(src)), mip_levels = last(mip_range(src)), samples = 1, name)
 end
 
 function resource_dependencies(transfer::TransferCommand)

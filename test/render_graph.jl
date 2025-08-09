@@ -22,20 +22,14 @@ using Graphs: nv, ne
 
   @test_throws "negative value" RenderArea(-1, 0)
   @test_throws "null value" RenderArea(0, 9)
-  @test_throws "pipeline stage must be provided" RenderNode(stages = Vk.PIPELINE_STAGE_2_NONE)
-  @test_throws "fragment shader stage must be set" RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT)
-  @test_throws "render area must be set" RenderNode(stages = stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
   @test_throws "color attachments must be present" RenderNode(fake_graphics_command())
   @test_throws "color attachment must have explicit dimensions" RenderNode(fake_graphics_command(RenderTargets(color)))
 
   # No rendering done here, doesn't matter what function is passed. We pass in `identity`.
-  gbuffer = RenderNode(
-    render_area = RenderArea(16, 9),
-    stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-  )
-  compute_luminance = RenderNode(stages = Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
-  lighting = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
-  postprocess = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+  gbuffer = RenderNode((16, 9))
+  compute_luminance = RenderNode()
+  lighting = RenderNode((16, 9))
+  postprocess = RenderNode((16, 9))
 
   push!(gbuffer.commands, fake_graphics_command(RenderTargets(emissive, albedo, normal, pbr; depth), draw = DrawIndexedIndirect(indirect, 10)))
   push!(compute_luminance.commands, fake_compute_command())
@@ -151,7 +145,10 @@ using Graphs: nv, ne
     color = attachment_resource(RGBA{Float32})
     normal = image_resource(RGBA{Float32}, [16, 16])
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
-    graphics = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+    graphics = RenderNode((16, 9))
+    insert!(graphics.clears, color, ClearValue((0f0, 0f0, 0f0, 1f0)))
+    insert!(graphics.clears, normal, ClearValue((0f0, 0f0, 0f0, 1f0)))
+    insert!(graphics.clears, depth, ClearValue(0f0))
 
     data = @invocation_data prog @block [Vec2(point...) for point in PointSet(HyperCube(1.0f0), Vec2)]
     push!(graphics.commands, graphics_command(DrawIndexed(collect(1:4)), prog, data, color; depth))
@@ -168,12 +165,12 @@ using Graphs: nv, ne
     rinfo = rendering_info(rg, graphics)
     color_info = Vk.RenderingAttachmentInfo(C_NULL, rg.materialized_resources[color.id].data.view, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_CLEAR, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(ClearValue((0f0, 0f0, 0f0, 1f0))))
     depth_info = Vk.RenderingAttachmentInfo(C_NULL, rg.materialized_resources[depth.id].data.view, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, Vk.RESOLVE_MODE_NONE, C_NULL, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.ATTACHMENT_LOAD_OP_LOAD, Vk.ATTACHMENT_STORE_OP_STORE, Vk.ClearValue(DEFAULT_CLEAR_VALUE))
-    @test rinfo == Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL)
+    @test rinfo == Vk._RenderingInfo(Vk.RenderingInfo(C_NULL, 0, graphics.render_area.rect, 1, 0, [color_info], depth_info, C_NULL))
 
     @testset "Barriers for layout transitions" begin
-      normal_barrier = Vk._ImageMemoryBarrier2(C_NULL, 0, 0, graphics.stages, Vk.ACCESS_2_SHADER_READ_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, rg.materialized_resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      color_barrier = Vk._ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
-      depth_barrier = Vk._ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
+      normal_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, graphics.stages, Vk.ACCESS_2_SHADER_READ_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, rg.materialized_resources[normal.id].data, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      color_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, Vk.ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[color.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1))
+      depth_barrier = Vk.ImageMemoryBarrier2(C_NULL, 0, 0, Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, Vk.ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, Vk.IMAGE_LAYOUT_UNDEFINED, Vk.IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 0, 0, rg.materialized_resources[depth.id].data.view.image, Vk.ImageSubresourceRange(Vk.IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1))
       @test dependency_info.image_memory_barriers[1] == normal_barrier
       @test dependency_info.image_memory_barriers[2] == color_barrier
       @test dependency_info.image_memory_barriers[3] == depth_barrier
@@ -195,8 +192,8 @@ using Graphs: nv, ne
       Lava.initialize_index_buffer(command_buffer, device, rg.index_data)
       flush(command_buffer, rg, records, pipeline_hashes)
       @test !isempty(command_buffer)
-      @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_begin_rendering, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_set_depth_test_enable, :cmd_set_depth_write_enable, :cmd_set_depth_compare_op, :cmd_set_stencil_test_enable, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_draw_indexed, :cmd_end_rendering]
-      _cmd_bind_index_buffer, _cmd_pipeline_barrier_2, _cmd_begin_rendering, _cmd_bind_pipeline, _cmd_bind_descriptor_sets, _cmd_push_constants, _cmd_set_depth_test_enable, _cmd_set_depth_write_enable, _cmd_set_depth_compare_op, _cmd_set_stencil_test_enable, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_draw_indexed, _cmd_end_rendering = command_buffer
+      @test getproperty.(command_buffer.records, :name) == [:cmd_bind_index_buffer, :cmd_pipeline_barrier_2, :cmd_pipeline_barrier_2, :cmd_clear_color_image, :cmd_begin_rendering, :cmd_clear_attachments, :cmd_bind_pipeline, :cmd_bind_descriptor_sets, :cmd_push_constants, :cmd_set_depth_test_enable, :cmd_set_depth_write_enable, :cmd_set_depth_compare_op, :cmd_set_stencil_test_enable, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_set_stencil_op, :cmd_set_stencil_compare_mask, :cmd_set_stencil_write_mask, :cmd_set_stencil_reference, :cmd_draw_indexed, :cmd_end_rendering]
+      _cmd_bind_index_buffer, _cmd_pipeline_barrier_2, _cmd_pipeline_barrier_2_2, _cmd_clear_color_image, _cmd_begin_rendering, _cmd_clear_attachments, _cmd_bind_pipeline, _cmd_bind_descriptor_sets, _cmd_push_constants, _cmd_set_depth_test_enable, _cmd_set_depth_write_enable, _cmd_set_depth_compare_op, _cmd_set_stencil_test_enable, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_set_stencil_op, _cmd_set_stencil_compare_mask, _cmd_set_stencil_write_mask, _cmd_set_stencil_reference, _cmd_draw_indexed, _cmd_end_rendering = command_buffer
 
       @test isallocated(_cmd_bind_index_buffer.args[1])
       @test _cmd_bind_index_buffer.args == [rg.index_data.index_buffer[], 0, Vk.INDEX_TYPE_UINT32]
@@ -224,7 +221,7 @@ using Graphs: nv, ne
   @testset "Render graph from persistent data" begin
     color = attachment_resource(RGBA{Float32})
     depth = attachment_resource(Vk.FORMAT_D32_SFLOAT)
-    graphics = RenderNode(render_area = RenderArea(16, 9), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT)
+    graphics = RenderNode((16, 9))
     draw = DrawIndexed(1:4)
     dependencies = @resource_dependencies begin
       @write
@@ -251,5 +248,70 @@ using Graphs: nv, ne
       end
     end
     finish!(rg)
+  end
+
+  @testset "Clearing" begin
+    @testset "Image clearing" begin
+      usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_SAMPLED_BIT
+      color = image_resource(device, fill(RGBA{Float32}(0, 0, 0, 1), 4, 4); usage_flags)
+      depth = image_resource(device, zeros(Float32, 4, 4); format = Vk.FORMAT_D32_SFLOAT, usage_flags)
+      node = RenderNode((4, 4))
+      color_clear = (0.5, 0.5, 0.0, 1.0)
+      depth_clear = 1f0
+      insert!(node.clears, color, ClearValue(color_clear))
+      insert!(node.clears, depth, ClearValue(depth_clear))
+      data = render_graphics(device, color, node)
+      @test all(==(RGBA(color_clear...)), data)
+      data = collect(depth, device)
+      @test all(==(depth_clear), data)
+    end
+
+    @testset "Attachment clearing" begin
+      @testset "Standard physical color & depth attachments" begin
+        usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT
+        color = attachment_resource(device, fill(RGBA{Float32}(0, 0, 0, 1), 4, 4); usage_flags = usage_flags | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        depth = attachment_resource(device, zeros(Float32, 4, 4); format = Vk.FORMAT_D32_SFLOAT, usage_flags = usage_flags | Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        node = RenderNode((4, 4))
+        color_clear = (0.5, 0.5, 0.0, 1.0)
+        depth_clear = 1f0
+        insert!(node.clears, color, ClearValue(color_clear))
+        insert!(node.clears, depth, ClearValue(depth_clear))
+        data = render_graphics(device, color, node)
+        @test all(==(RGBA(color_clear...)), data)
+        data = collect(depth, device)
+        @test all(==(depth_clear), data)
+      end
+
+      @testset "Multisampled color attachment" begin
+        color = attachment_resource(device, nothing; dims = [4, 4], format = RGBA{Float32}, usage_flags = Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT | Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT, samples = 8)
+        node = RenderNode((4, 4))
+        color_clear = (0.5, 0.5, 0.0, 1.0)
+        insert!(node.clears, color, ClearValue(color_clear))
+        data = render_graphics(device, color, node)
+        @test all(==(RGBA(color_clear...)), data)
+      end
+
+      @testset "Logical color attachment" begin
+        color = attachment_resource(RGBA{Float32}, [4, 4]; samples = 8)
+        node = RenderNode((4, 4))
+        color_clear = (0.5, 0.5, 0.0, 1.0)
+        insert!(node.clears, color, ClearValue(color_clear))
+        result = attachment_resource(device, nothing; dims = [4, 4], format = RGBA{Float32}, usage_flags = Vk.IMAGE_USAGE_SAMPLED_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+        transfer = transfer_command(color, result)
+        data = render_graphics(device, result, RenderNode[node, transfer])
+        @test all(==(RGBA(color_clear...)), data)
+      end
+
+      @testset "Logical depth attachment" begin
+        depth = attachment_resource(Float32, [4, 4]; aspect = Vk.IMAGE_ASPECT_DEPTH_BIT)
+        node = RenderNode((4, 4))
+        depth_clear = 0.2f0
+        insert!(node.clears, depth, ClearValue(depth_clear))
+        result = attachment_resource(device, nothing; dims = [4, 4], format = Float32, aspect = Vk.IMAGE_ASPECT_DEPTH_BIT, usage_flags = Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | Vk.IMAGE_USAGE_TRANSFER_SRC_BIT | Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+        transfer = transfer_command(depth, result)
+        data = render_graphics(device, result, RenderNode[node, transfer])
+        @test all(==(depth_clear), data)
+      end
+    end
   end
 end;

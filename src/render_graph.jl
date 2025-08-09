@@ -2,26 +2,22 @@ contains_fragment_stage(stages::Vk.PipelineStageFlag2) = in(Vk.PIPELINE_STAGE_2_
 
 Base.@kwdef struct RenderNode
   id::NodeID = NodeID()
-  stages::Vk.PipelineStageFlag2 = Vk.PIPELINE_STAGE_2_ALL_COMMANDS_BIT
   render_area::Optional{RenderArea} = nothing
   commands::Optional{Vector{Command}} = Command[]
+  clears::Dictionary{Resource, ClearValue} = Dictionary{Resource, ClearValue}()
   name::Optional{Symbol} = nothing
-  function RenderNode(id, stages, render_area, commands, name)
-    !iszero(stages) || throw(ArgumentError("At least one pipeline stage must be provided."))
-    !isnothing(render_area) && !contains_fragment_stage(stages) && throw(ArgumentError("The fragment shader stage must be set when a `RenderArea` is provided."))
-    isnothing(render_area) && contains_fragment_stage(stages) && throw(ArgumentError("The render area must be set when the fragment shader stage is included."))
-    new(id, stages, render_area, commands, name)
-  end
 end
 
+RenderNode(name::Symbol) = RenderNode(; name)
+RenderNode(render_area::RenderArea, name = nothing) = RenderNode(; render_area, name)
+RenderNode(render_area::Tuple, name = nothing) = RenderNode(RenderArea(render_area), name)
+
 function RenderNode(command::Command, name = nothing)
-  stages = stage_flags(command)
   render_area = nothing
   is_graphics(command) && (render_area = deduce_render_area(command.graphics))
-  RenderNode(; stages, render_area, commands = [command], name)
+  RenderNode(; render_area, commands = [command], name)
 end
 function RenderNode(commands, name = nothing)
-  stages = foldl((flags, command) -> flags | stage_flags(command), commands; init = Vk.PIPELINE_STAGE_2_NONE)
   render_area = nothing
   for command in commands
     if is_graphics(command)
@@ -33,7 +29,7 @@ function RenderNode(commands, name = nothing)
       end
     end
   end
-  RenderNode(; stages, render_area, commands, name)
+  RenderNode(; render_area, commands, name)
 end
 Base.convert(::Type{RenderNode}, command::Command) = RenderNode(command)
 
@@ -48,64 +44,112 @@ print_name(io::IO, node::RenderNode) = printstyled(IOContext(io, :color => true)
 Descriptor(type::DescriptorType, data, node::RenderNode; flags = DescriptorFlags(0)) = Descriptor(type, data, node.id; flags)
 
 function ResourceUsage(resource::Resource, node::RenderNode, dep::ResourceDependency)
-  if dep.type in (RESOURCE_USAGE_COLOR_ATTACHMENT, RESOURCE_USAGE_DEPTH_ATTACHMENT, RESOURCE_USAGE_STENCIL_ATTACHMENT)
-    contains_fragment_stage(node.stages) || throw(ArgumentError("Color, depth and stencil attachments are only allowed in render nodes which execute fragment shaders; for other uses, such as within compute shaders, use a generic texture or image type instead."))
-  end
+  usage_flags = resource_usage_flags(resource, node, dep)
+  stages = stage_flags(resource, node, dep)
   usage = @match resource_type(resource) begin
-    &RESOURCE_TYPE_BUFFER => BufferUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = buffer_usage_flags(dep.type, dep.access))
-    &RESOURCE_TYPE_IMAGE || &RESOURCE_TYPE_IMAGE_VIEW => ImageUsage(; dep.type, dep.access, stages = stage_flags(node, resource), usage_flags = image_usage_flags(dep.type, dep.access), samples = resolve_sample_count(resource, dep))
+    &RESOURCE_TYPE_BUFFER => BufferUsage(; dep.type, dep.access, stages, usage_flags)
+    &RESOURCE_TYPE_IMAGE || &RESOURCE_TYPE_IMAGE_VIEW => ImageUsage(; dep.type, dep.access, stages, usage_flags, dep.samples)
     &RESOURCE_TYPE_ATTACHMENT => AttachmentUsage(;
         dep.type,
         dep.access,
         dep.clear_value,
-        samples = resolve_sample_count(resource, dep),
-        stages = stage_flags(node, resource),
-        usage_flags = image_usage_flags(dep.type, dep.access),
+        dep.samples,
+        stages,
+        usage_flags,
         aspect = @something(aspect_flags(dep), aspect_flags(resource.data::Union{LogicalAttachment, Attachment})),
       )
   end
   ResourceUsage(resource.id, dep.type, usage)
 end
 
-function stage_flags(node::RenderNode, resource::Resource)
-  foldl(|, stage_flags(command, resource, node) for command in node.commands; init = Vk.PIPELINE_STAGE_2_NONE)
+function resource_usage_flags(resource::Resource, node::RenderNode, dep::ResourceDependency)
+  isbuffer(resource) && return buffer_usage_flags(dep.type, dep.access)
+  flags = image_usage_flags(dep.type, dep.access)
+  haskey(node.clears, resource) && (flags |= Vk.IMAGE_USAGE_TRANSFER_DST_BIT)
+  return flags
 end
 
-function stage_flags(command::Command, resource::Resource)
-  command.type == COMMAND_TYPE_DISPATCH_INDIRECT && (command.compute.dispatch::DispatchIndirect).buffer.id == resource.id && return Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT
-  command.type == COMMAND_TYPE_DRAW_INDIRECT && (command.graphics.draw::DrawIndirect).parameters.id == resource.id && return Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT
-  is_presentation(command) && return Vk.PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
-  if is_transfer(command)
-    (; transfer) = command
-    if any(r.id == resource.id for r in (transfer.src, transfer.dst))
-      is_copy(transfer) && return Vk.PIPELINE_STAGE_2_COPY_BIT
-      is_resolve(transfer) && return Vk.PIPELINE_STAGE_2_RESOLVE_BIT
-      is_blit(transfer) && return Vk.PIPELINE_STAGE_2_BLIT_BIT
-      @assert false
+function stage_flags(resource::Resource, node::RenderNode, dependency::ResourceDependency)
+  flags = command_stage_flags(node, resource)
+  return flags | clear_stage_flags(node, resource, dependency)
+end
+
+function command_stage_flags(node::RenderNode, resource::Resource)
+  flags = foldl(|, command_stage_flags(command, resource) for command in node.commands; init = Vk.PIPELINE_STAGE_2_NONE)
+  return flags
+end
+
+function clear_stage_flags(node::RenderNode, resource::Resource, dependency::ResourceDependency)
+  haskey(node.clears, resource) || return Vk.PIPELINE_STAGE_2_NONE
+  flags = Vk.PIPELINE_STAGE_2_NONE
+
+  dependency.type == RESOURCE_USAGE_COLOR_ATTACHMENT && (flags |= Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
+  dependency.type == RESOURCE_USAGE_IMAGE && (flags |= Vk.PIPELINE_STAGE_2_CLEAR_BIT)
+  dependency.type == RESOURCE_USAGE_TEXTURE && (flags |= Vk.PIPELINE_STAGE_2_CLEAR_BIT)
+
+  in(RESOURCE_USAGE_DEPTH_ATTACHMENT, dependency.type) && (flags |= Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
+  in(RESOURCE_USAGE_STENCIL_ATTACHMENT, dependency.type) && (flags |= Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
+
+  @assert !iszero(flags)
+  return flags
+end
+
+function command_stage_flags(command::Command, resource::Resource)
+  flags = Vk.PIPELINE_STAGE_2_NONE
+  @match command.impl begin
+    graphics::GraphicsCommand => begin
+      isattachment(resource) && (flags |= stage_flags(graphics.targets, graphics.state.render_state, resource))
+      @trymatch graphics.draw begin
+        draw::DrawIndirect => draw.parameters.id == resource.id && (flags |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
+      end
+      # XXX: refine further down from Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT
+      graphics.data !== nothing && is_resource_used_by_descriptors(resource, graphics.data) && (flags |= Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+      dependency = get(graphics.resource_dependencies, resource, nothing)
+      dependency !== nothing && (flags |= Vk.PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
     end
+    compute::ComputeCommand => begin
+      @trymatch compute.dispatch begin
+        dispatch::DispatchIndirect => dispatch.buffer.id == resource.id && (flags |= Vk.PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)
+      end
+      compute.data !== nothing && is_resource_used_by_descriptors(resource, compute.data) && (flags |= Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+      dependency = get(compute.resource_dependencies, resource, nothing)
+      dependency !== nothing && (flags |= Vk.PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+    end
+    transfer::TransferCommand => begin
+      if any(r.id == resource.id for r in (transfer.src, transfer.dst))
+        is_copy(transfer) && (flags |= Vk.PIPELINE_STAGE_2_COPY_BIT)
+        is_resolve(transfer) && (flags |= Vk.PIPELINE_STAGE_2_RESOLVE_BIT)
+        is_blit(transfer) && (flags |= Vk.PIPELINE_STAGE_2_BLIT_BIT)
+      end
+    end
+    present::PresentCommand => (flags |= Vk.PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT)
   end
-  Vk.PIPELINE_STAGE_2_NONE
+  return flags
 end
 
-stage_flags(command::Command) = stage_flags(command.any)
+function is_resource_used_by_descriptors(resource::Resource, data::ProgramInvocationData)
+  for descriptor in data.descriptors
+    is_resource_used_by_descriptor(resource.id, descriptor) && return true
+  end
+  return false
+end
+
+function is_resource_used_by_descriptor(id::ResourceID, descriptor::Descriptor)
+  return @match descriptor.data begin
+    resource::Resource => resource.id == id
+    sampling::Sampling => false
+    texture::Texture => texture.resource.id == id
+  end
+end
 
 function stage_flags(targets::RenderTargets, render_state::RenderState, resource::Resource)
   stages = Vk.PIPELINE_STAGE_2_NONE
   (; color, depth, stencil) = targets
   any(att.id == resource.id for att in color) && (stages |= Vk.PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT)
   depth_stencil_stages = Vk.PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | Vk.PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
-  !isnothing(depth) && resource.id == depth.id && render_state.enable_depth_testing && (stages |= depth_stencil_stages)
-  !isnothing(stencil) && resource.id == stencil.id && render_state.enable_stencil_testing && (stages |= depth_stencil_stages)
+  depth !== nothing && resource.id == depth.id && render_state.enable_depth_testing && (stages |= depth_stencil_stages)
+  stencil !== nothing && resource.id == stencil.id && render_state.enable_stencil_testing && (stages |= depth_stencil_stages)
   stages
-end
-
-function stage_flags(command::Command, resource::Resource, node::RenderNode)
-  stages = stage_flags(command, resource)
-  if is_graphics(command) && isattachment(resource)
-    (; graphics) = command
-    stages |= stage_flags(graphics.targets, graphics.state.render_state, resource)
-  end
-  ifelse(iszero(stages), node.stages, stages)
 end
 
 function aspect_flags(dependency::ResourceDependency)
@@ -401,10 +445,26 @@ function add_resource_dependencies!(rg::RenderGraph, node::RenderNode)
   get!(Dictionary{ResourceID, Vector{ResourceUsage}}, rg.uses, node.id)
   for command in node.commands
     deps = resource_dependencies(command)
-    for (resource_id, resource_dependency) in pairs(deps)
-      add_resource_dependency!(rg, node, resource_id, resource_dependency)
+    for (resource, dependency) in pairs(deps)
+      add_resource_dependency!(rg, node, resource, dependency)
     end
   end
+  for (resource, clear) in pairs(node.clears)
+    type = infer_type_for_cleared_resource(resource)
+    dependency = ResourceDependency(type, WRITE, clear, nothing)
+    add_resource_dependency!(rg, node, resource, dependency)
+  end
+end
+
+function infer_type_for_cleared_resource(resource::Resource)
+  # XXX: We may prefer a specific type of usage for clears instead.
+  isimage(resource) && return RESOURCE_USAGE_IMAGE
+  aspect = aspect_flags(resource.data)
+  in(Vk.IMAGE_ASPECT_COLOR_BIT, aspect) && return RESOURCE_USAGE_COLOR_ATTACHMENT
+  usage = ResourceUsageType()
+  in(Vk.IMAGE_ASPECT_DEPTH_BIT, aspect) && (usage |= RESOURCE_USAGE_DEPTH_ATTACHMENT)
+  in(Vk.IMAGE_ASPECT_STENCIL_BIT, aspect) && (usage |= RESOURCE_USAGE_STENCIL_ATTACHMENT)
+  return usage
 end
 
 function add_resource_dependencies!(rg::RenderGraph)
@@ -423,7 +483,9 @@ function resolve_attachment_pairs!(rg::RenderGraph)
         resource_uses = get(uses, resource.id, nothing)
         isnothing(resource_uses) && continue
         combined_uses = reduce(merge, resource_uses)
-        if combined_uses.usage.samples > 1
+        # XXX: This is wrong, we need to resolve the sample count
+        # with all other attachments first instead of falling back to a sample count of 1.
+        if samples(resource, combined_uses.usage) > 1
           attachment = resource.data::LogicalAttachment
           resolve_attachment = Resource(LogicalAttachment(attachment.format, attachment.dims, attachment.subresource, 1); name = resolve_attachment_name(resource))
         end
@@ -485,17 +547,20 @@ function materialize_logical_resources!(rg::RenderGraph)
       @case &RESOURCE_TYPE_IMAGE
       usage = use.usage::ImageUsage
       (; logical_image) = resource
-      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.layers, logical_image.mip_levels, usage.samples)))
+      samples = @__MODULE__().samples(resource, usage)
+      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, Image(rg.device; logical_image.format, logical_image.dims, usage.usage_flags, logical_image.layers, logical_image.mip_levels, samples)))
 
       @case &RESOURCE_TYPE_IMAGE_VIEW
       usage = use.usage::ImageUsage
+      samples = @__MODULE__().samples(resource, usage)
       (; logical_image_view) = resource
       (; image, subresource) = logical_image_view
       image_format = logical_image_view.image.format
-      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, ImageView(rg.device; image_format = image.format, image.dims, usage.usage_flags, image.layers, image.mip_levels, usage.samples, view_format = logical_image_view.format, subresource.layer_range, subresource.mip_range)))
+      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, ImageView(rg.device; image_format = image.format, image.dims, usage.usage_flags, image.layers, image.mip_levels, samples, view_format = logical_image_view.format, subresource.layer_range, subresource.mip_range)))
 
       @case &RESOURCE_TYPE_ATTACHMENT
       usage = use.usage::AttachmentUsage
+      samples = @__MODULE__().samples(resource, usage)
       (; logical_attachment) = resource
       (; dims) = logical_attachment
       if isnothing(dims)
@@ -512,7 +577,7 @@ function materialize_logical_resources!(rg::RenderGraph)
           "Could not determine the dimensions of the attachment $(resource.id). You must either provide them or use the attachment with a node that has a render area.",
         )
       end
-      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, Attachment(rg.device; logical_attachment.format, dims, usage.samples, usage.aspect, usage.access, usage.usage_flags, logical_attachment.subresource.layer_range, logical_attachment.subresource.mip_range)))
+      insert!(rg.materialized_resources, resource.id, promote_to_physical(resource, Attachment(rg.device; logical_attachment.format, dims, samples, usage.aspect, usage.access, usage.usage_flags, logical_attachment.subresource.layer_range, logical_attachment.subresource.mip_range)))
     end
   end
 end
@@ -567,15 +632,6 @@ function verify_physical_resource_compatibility_for_use(resource::Resource, use)
       in(usage.usage_flags, attachment.view.image.usage_flags) || return ResourceNotCompatibleForUse(resource, (attachment.view.image.usage_flags, usage.usage_flags), nothing)
     end
     nothing
-end
-
-function resolve_sample_count(resource, dependency::ResourceDependency)
-  isnothing(dependency.samples) && return samples(resource)
-  # Allow an unspecified sample count for logical resources.
-  s = islogical(resource) ? (resource.data::Union{LogicalImage,LogicalAttachment}).samples : samples(resource)
-  isnothing(s) && return dependency.samples
-  s == dependency.samples || error("Sample counts differ between the resource $resource and its dependency $dependency.")
-  s
 end
 
 function allocate_blocks!(rg::RenderGraph)

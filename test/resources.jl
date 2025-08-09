@@ -1,3 +1,5 @@
+# XXX: Add resource usage tests
+
 @testset "Resources" begin
   resource = Resource(RESOURCE_TYPE_IMAGE, nothing)
   assert_type(resource, RESOURCE_TYPE_IMAGE)

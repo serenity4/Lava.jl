@@ -13,8 +13,8 @@ end
   depth = attachment_resource(device, zeros(Float32, 16, 16); format = Vk.FORMAT_D32_SFLOAT, usage_flags = Vk.IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, aspect = Vk.IMAGE_ASPECT_DEPTH_BIT)
   final = attachment_resource(device, zeros(RGBA{Float32}, 16, 16); usage_flags = Vk.IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
   nodes = [
-    RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT),
-    RenderNode(render_area = RenderArea(1920, 1080), stages = Vk.PIPELINE_STAGE_2_VERTEX_SHADER_BIT | Vk.PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT),
+    RenderNode((1920, 1080)),
+    RenderNode((1920, 1080)),
   ]
   push!(nodes[1].commands, fake_graphics_command(RenderTargets(color; depth)))
   push!(nodes[2].commands, fake_graphics_command(RenderTargets(color, final; depth)))

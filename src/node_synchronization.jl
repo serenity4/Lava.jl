@@ -74,7 +74,7 @@ end
 function synchronize_access!(info::NamedTuple, state::SynchronizationState, node::RenderNode, resource::Resource, usage::Union{ImageUsage, AttachmentUsage})
   image = get_image(resource)
   image_state = get!(() -> ImageResourceState(image), state.resources, resource.id)::ImageResourceState
-  subresource = Subresource(resource.data::Union{Image, ImageView, Attachment})
+  subresource = Subresource(resource.physical::Union{Image, ImageView, Attachment})
   subresource_state = image_state.map[subresource]
   sync = restrict_synchronization_scope(subresource_state.accesses, SyncRequirements(usage))
   to_layout = image_layout(usage.type, usage.access)

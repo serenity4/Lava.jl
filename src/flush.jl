@@ -11,7 +11,47 @@ end
 
 function Base.flush(command_buffer::CommandBuffer, record::CompactRecord, rg::RenderGraph, bind_state::BindState, pipeline_hashes)
   (; device) = rg
-  begin_render_node(command_buffer, rg, record.node)
+  (; node) = record
+
+  for (resource, clear) in pairs(node.clears)
+    isimage(resource) || continue
+    resource = get_physical_resource(rg, resource)
+    (; image) = resource
+    match_subresource(image) do aspect, layer_range, mip_range, layout
+      subresource = Subresource(aspect, layer_range, mip_range)
+      new_layout = Vk.IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+      transition_layout(command_buffer, image, subresource, layout, new_layout)
+      range = Vk.ImageSubresourceRange(subresource)
+      is_color = isa(clear.data, NTuple{4})
+      if is_color
+        clear = Vk.ClearColorValue(clear.data)
+        Vk.cmd_clear_color_image(command_buffer, image, new_layout, clear, [range])
+      else
+        clear = Vk.ClearDepthStencilValue(clear)
+        Vk.cmd_clear_depth_stencil_image(command_buffer, image, new_layout, clear, [range])
+      end
+    end
+  end
+
+  begin_render_node(command_buffer, rg, node)
+  attachment_clears = nothing
+  rects = nothing
+  for (resource, clear) in pairs(node.clears)
+    isattachment(resource) || continue
+    resource = get_physical_resource(rg, resource)
+    (; attachment) = resource
+    attachment_clears === nothing && (attachment_clears = Vk.ClearAttachment[])
+    rects === nothing && (rects = Vk.ClearRect[])
+    is_color = isa(clear.data, NTuple{4})
+    aspect = is_color ? Vk.IMAGE_ASPECT_COLOR_BIT : Vk.IMAGE_ASPECT_DEPTH_BIT | Vk.IMAGE_ASPECT_STENCIL_BIT
+    push!(attachment_clears, Vk.ClearAttachment(aspect, 0, Vk.ClearValue(clear)))
+    range = layer_range(attachment)
+    push!(rects, Vk.ClearRect(node.render_area.rect, range.start - 1, 1 + range.stop - range.start))
+  end
+  if attachment_clears !== nothing
+    @assert length(attachment_clears) == length(rects)
+    Vk.cmd_clear_attachments(command_buffer, attachment_clears, rects)
+  end
   for (program, calls) in pairs(record.draws)
     for ((data, state), commands) in pairs(calls)
       for (command, targets) in commands
@@ -23,7 +63,7 @@ function Base.flush(command_buffer::CommandBuffer, record::CompactRecord, rg::Re
       end
     end
   end
-  end_render_node(command_buffer, rg, record.node)
+  end_render_node(command_buffer, rg, node)
 
   for (program, calls) in pairs(record.dispatches)
     hash = pipeline_hashes[ProgramInstance(program, nothing, nothing)]

@@ -66,6 +66,8 @@ end
   name === :logical_image && return resource.data::LogicalImage
   name === :logical_image_view && return resource.data::LogicalImageView
   name === :logical_attachment && return resource.data::LogicalAttachment
+  name === :physical && return resource.data::Union{Buffer,Image,ImageView,Attachment}
+  name === :logical && return resource.data::Union{LogicalBuffer,LogicalImage,LogicalImageView,LogicalAttachment}
   getfield(resource, name)
 end
 
