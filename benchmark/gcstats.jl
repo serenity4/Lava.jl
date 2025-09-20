@@ -29,8 +29,10 @@ function save_test_render(filename, data, h::Union{Nothing, UInt} = nothing; tmp
   end
 end
 
-render_graphics(device, node::RenderNode) = render_graphics(device, node.commands[end])
-render_graphics(device, command::Command) = render_graphics(device, only(command.graphics.targets.color), [command])
+infer_graphics_target(command::Command) = only(command.graphics.targets.color)
+infer_graphics_target(node::RenderNode) = infer_graphics_target(node.commands[begin])
+infer_graphics_target(list::AbstractVector) = infer_graphics_target(list[begin])
+render_graphics(device, nodes) = render_graphics(device, infer_graphics_target(nodes), nodes)
 function render_graphics(device, color, nodes)
   render(device, nodes)
   read_data(device, color)
